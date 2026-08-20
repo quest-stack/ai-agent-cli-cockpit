@@ -1,0 +1,47 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 64 64"
+  role="img"
+  aria-labelledby="logo-title"
+>
+  <title id="logo-title">CLI Cockpit</title>
+  <rect
+    x="2"
+    y="2"
+    width="60"
+    height="60"
+    rx="14"
+    fill="#12151a"
+    stroke="#262b33"
+    stroke-width="4"
+  />
+  <path
+    d="M14 41a19 19 0 0 1 36 0"
+    fill="none"
+    stroke="#f5a623"
+    stroke-linecap="round"
+    stroke-width="4"
+  />
+  <path
+    d="m19 28 4 3M32 21v5m13 2-4 3"
+    fill="none"
+    stroke="#8b93a1"
+    stroke-linecap="round"
+    stroke-width="3"
+  />
+  <path
+    d="m23 34 6 5-6 5"
+    fill="none"
+    stroke="#e6e9ef"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="4"
+  />
+  <path
+    d="M34 44h9"
+    fill="none"
+    stroke="#f5a623"
+    stroke-linecap="round"
+    stroke-width="4"
+  />
+</svg>

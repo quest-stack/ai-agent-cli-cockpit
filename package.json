@@ -1,0 +1,114 @@
+{
+  "name": "ai-agent-cli-cockpit",
+  "version": "0.1.9",
+  "private": true,
+  "description": "A local-only multi-terminal cockpit for Claude Code and Codex CLI.",
+  "author": "QUEST LLC",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/quest-stack/ai-agent-cli-cockpit.git"
+  },
+  "homepage": "https://github.com/quest-stack/ai-agent-cli-cockpit",
+  "main": "dist/electron/main.js",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "typecheck": "tsc --build --pretty false",
+    "lint": "eslint src tests vite.config.ts playwright.config.ts --max-warnings=0",
+    "test": "npm run test:unit",
+    "test:unit": "tsc -p tsconfig.tests.json && node scripts/run-unit-tests.mjs",
+    "test:e2e": "playwright test",
+    "clean": "node scripts/clean.mjs",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build:renderer": "vite build --configLoader native",
+    "build": "npm run build:electron && npm run build:renderer",
+    "rebuild:native": "electron-rebuild --force --which-module node-pty",
+    "package:arm64": "npm run clean && npm run licenses && npm run build && electron-builder --win nsis --arm64",
+    "package:x64": "npm run clean && npm run licenses && npm run build && electron-builder --win nsis --x64",
+    "package:all": "npm run clean && npm run licenses && npm run build && electron-builder --win nsis --arm64 --x64",
+    "licenses": "node scripts/generate-third-party-notices.mjs"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-search": "0.16.0",
+    "@xterm/addon-webgl": "0.19.0",
+    "@xterm/xterm": "6.0.0",
+    "lucide-react": "0.546.0",
+    "node-pty": "1.1.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "4.0.4",
+    "@eslint/js": "9.39.3",
+    "@playwright/test": "1.60.0",
+    "@types/node": "22.19.8",
+    "@types/react": "19.2.3",
+    "@types/react-dom": "19.2.3",
+    "@typescript-eslint/eslint-plugin": "8.59.2",
+    "@typescript-eslint/parser": "8.59.2",
+    "@vitejs/plugin-react": "6.0.1",
+    "electron": "42.6.0",
+    "electron-builder": "26.11.1",
+    "eslint": "9.39.3",
+    "eslint-plugin-react-hooks": "7.0.1",
+    "typescript": "5.9.3",
+    "vite": "8.0.16"
+  },
+  "build": {
+    "appId": "jp.quest.cli-cockpit",
+    "productName": "CLI Cockpit",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/node-pty/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "!dist/**/*.map",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      },
+      {
+        "from": "LICENSE",
+        "to": "LICENSE"
+      },
+      {
+        "from": "THIRD-PARTY-NOTICES.md",
+        "to": "THIRD-PARTY-NOTICES.md"
+      }
+    ],
+    "npmRebuild": false,
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-win-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CLI Cockpit"
+    }
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-tests/
+release/
+test-results/
+playwright-report/
+.npm-cache/
+.agents/
+*.log
+*.tsbuildinfo
+build/icon-1024.png
+
+# 個人名を含む連絡下書き（一時文書。リポジトリに残さない）
+docs/連絡下書き_*
