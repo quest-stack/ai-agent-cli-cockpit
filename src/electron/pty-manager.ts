@@ -60,6 +60,18 @@ interface ManagedPty {
  */
 const BOOTSTRAP_SIZE_SETTLE_TIMEOUT_MS = 12_000;
 
+/**
+ * 出るはずのない文字が届いていないかを見張るための目印。
+ *
+ * 箇条書きの先頭に「料」が出る現象を追うために置いている。ここに挙げた
+ * 文字は Claude Code の出力に本来現れないので、届いたら記録して中身を
+ * 確かめられるようにする。原因が分かったら消してよい。
+ */
+const SUSPICIOUS_GLYPH_PATTERN = /[料]/u;
+
+/** 記録する前後の長さ。周辺を見ないと何が起きたか分からないため。 */
+const SUSPICIOUS_GLYPH_CONTEXT_LENGTH = 400;
+
 /** 連続リサイズをまとめ、レイアウト確定後に再描画を送るまでの待ち。 */
 const REDRAW_DEBOUNCE_MS = 250;
 /** 揺らした幅を元に戻すまでの待ち。TUI が 1 回目を取りこぼさない程度に置く。 */
@@ -216,6 +228,25 @@ export class PtyManager {
         );
       }
       detector.handleData(data);
+      // 「箇条書きの先頭に見覚えのない漢字が出る」の原因を掴むための記録。
+      //
+      // 当初は Cockpit の描画（GPU のグリフ破損）を疑ったが、Cockpit を
+      // 通さないスマホアプリでも同じ位置に同じ字が出ると分かったため、
+      // CLI が実際にその文字を送っていることになる。何が届いているのかを
+      // 実物で確かめないと、これ以上は推測の域を出ない。
+      //
+      // 全受信を残すとログが肥大するので、疑わしい文字を含むときだけ拾う。
+      if (SUSPICIOUS_GLYPH_PATTERN.test(data)) {
+        this.events.onDiagnostic(
+          DIAGNOSTIC_CATEGORIES.suspiciousGlyph,
+          JSON.stringify({
+            payload: describeDiagnosticPayload(
+              data.slice(0, SUSPICIOUS_GLYPH_CONTEXT_LENGTH),
+            ),
+            sessionId: request.id,
+          }),
+        );
+      }
       this.events.onData({
         data,
         sessionId: request.id,

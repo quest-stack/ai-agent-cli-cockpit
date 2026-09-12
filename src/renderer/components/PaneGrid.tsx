@@ -197,6 +197,7 @@ export function PaneGrid(props: PaneGridProps) {
           ) : (
             <TerminalView
               active={active}
+              command={session.command}
               onFocus={() => onActivatePane(node.id)}
               sessionId={session.id}
               visible={tabActive}

@@ -9,6 +9,8 @@ export const DIAGNOSTIC_CATEGORIES = {
   ptyResize: "pty.resize",
   ptySpawn: "pty.spawn",
   ptyWrite: "pty.write",
+  // 出るはずのない文字が CLI から届いたときの記録（原因調査用）。
+  suspiciousGlyph: "pty.suspicious-glyph",
   // 受付フォルダ経由の起動は「誰かの指示でこの PC が動いた」記録なので、
   // 受理・不受理をすべて残す。
   remoteLaunch: "remote-launch",

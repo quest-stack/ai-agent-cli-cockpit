@@ -10,9 +10,12 @@ import {
   resolveTerminalEnterDisposition,
   resolveTerminalKeyAction,
   scheduleTerminalFitAfterReveal,
+  getNewlineSequenceForCommand,
   shouldReportTerminalResize,
   shouldSendTerminalResize,
+  TERMINAL_CODEX_NEWLINE_SEQUENCE,
   TERMINAL_MANUAL_NEWLINE_SEQUENCE,
+  TERMINAL_SUBMIT_SEQUENCE,
 } from "../../src/renderer/terminal-behavior";
 
 interface PendingFrame {
@@ -282,6 +285,44 @@ test("terminal resize is never sent before fonts are ready", () => {
   );
 });
 
+test("寸法が同じなら force でも resize を送らない（ちらつき防止）", () => {
+  const size = { cols: 159, rows: 37 };
+
+  // 全画面 TUI は寸法が変わらない resize でも画面全体を描き直す。
+  // タブを表示するたび force で送ると入力中のちらつきになるため送らない。
+  assert.equal(
+    shouldSendTerminalResize({
+      fontsReady: true,
+      force: true,
+      next: size,
+      previous: { ...size },
+    }),
+    false,
+  );
+
+  // まだ一度も通知していないなら force は効く（非表示解除後の初回通知）。
+  assert.equal(
+    shouldSendTerminalResize({
+      fontsReady: true,
+      force: true,
+      next: size,
+      previous: undefined,
+    }),
+    true,
+  );
+
+  // 寸法が実際に変わったときは従来どおり送る。
+  assert.equal(
+    shouldSendTerminalResize({
+      fontsReady: true,
+      force: false,
+      next: size,
+      previous: { cols: 92, rows: 28 },
+    }),
+    true,
+  );
+});
+
 test("terminal resize uses the existing report rules after fonts are ready", () => {
   const size = { cols: 120, rows: 40 };
 
@@ -294,6 +335,12 @@ test("terminal resize uses the existing report rules after fonts are ready", () 
     }),
     false,
   );
+  // 以前はここが true だった（force なら同一寸法でも送る）。
+  // 全画面 TUI が寸法の変わらない resize でも全画面を描き直し、タブ表示のたびに
+  // ちらつく原因になっていたため、通知済みの寸法は force でも送らないよう変えた。
+  // 起動時のブートストラップ解除は sizeSettled:true を別経路
+  // （scheduleSizeStableNotification → cockpitApi.resizeSession 直接呼び出し）
+  // で送っており、このガードを通らないので影響しない。
   assert.equal(
     shouldSendTerminalResize({
       fontsReady: true,
@@ -301,7 +348,7 @@ test("terminal resize uses the existing report rules after fonts are ready", () 
       next: size,
       previous: size,
     }),
-    true,
+    false,
   );
   assert.equal(
     shouldSendTerminalResize({
@@ -323,18 +370,27 @@ test("terminal resize uses the existing report rules after fonts are ready", () 
  */
 function drainEnterSequence(
   events: Parameters<typeof resolveTerminalEnterDisposition>[0][],
+  enterRole: "newline" | "submit" = "submit",
 ): { dispositions: string[]; writes: string[] } {
   let pending = false;
   const dispositions: string[] = [];
   const writes: string[] = [];
   for (const event of events) {
-    const disposition = resolveTerminalEnterDisposition(event, pending);
+    const disposition = resolveTerminalEnterDisposition(
+      event,
+      pending,
+      enterRole,
+    );
     dispositions.push(disposition);
     if (disposition === "ime-first-keydown") {
       pending = true;
     } else {
       if (disposition === "manual-newline") {
-        writes.push(TERMINAL_MANUAL_NEWLINE_SEQUENCE);
+        // 実際に送るバイトは割り当てで変わるため、判定側と同じ関数から取る。
+        const sequence = getTerminalManualNewlineSequence(event, enterRole);
+        if (sequence !== undefined) {
+          writes.push(sequence);
+        }
       }
       pending = false;
     }
@@ -383,6 +439,57 @@ test("IME Shift+Enter whose second keydown still holds Shift is also suppressed"
     "ime-second-keydown",
   ]);
   assert.deepEqual(writes, []);
+});
+
+test("Codex への改行は ESC+CR、それ以外は CSI-u を使う", () => {
+  // Codex は CSI-u では改行にならない（実測。terminal-behavior.ts のコメント参照）。
+  assert.equal(
+    getNewlineSequenceForCommand("codex"),
+    TERMINAL_CODEX_NEWLINE_SEQUENCE,
+  );
+  assert.equal(TERMINAL_CODEX_NEWLINE_SEQUENCE, "\r");
+
+  // Claude Code は CSI-u で改行できているので変えない。
+  assert.equal(
+    getNewlineSequenceForCommand("claude"),
+    TERMINAL_MANUAL_NEWLINE_SEQUENCE,
+  );
+  assert.equal(
+    getNewlineSequenceForCommand("powershell"),
+    TERMINAL_MANUAL_NEWLINE_SEQUENCE,
+  );
+  // command 不明（復元直後など）は従来どおり。
+  assert.equal(
+    getNewlineSequenceForCommand(undefined),
+    TERMINAL_MANUAL_NEWLINE_SEQUENCE,
+  );
+});
+
+test("Codex ペインの Shift+Enter は ESC+CR を送る", () => {
+  const sequence = getTerminalManualNewlineSequence(
+    keyEvent({ code: "Enter", key: "Enter", keyCode: 13, shiftKey: true }),
+    "submit",
+    "codex",
+  );
+
+  assert.equal(sequence, TERMINAL_CODEX_NEWLINE_SEQUENCE);
+});
+
+test("Enter を改行へ入れ替えた Codex ペインでも ESC+CR を送る", () => {
+  const newline = getTerminalManualNewlineSequence(
+    keyEvent({ code: "Enter", key: "Enter", keyCode: 13 }),
+    "newline",
+    "codex",
+  );
+  assert.equal(newline, TERMINAL_CODEX_NEWLINE_SEQUENCE);
+
+  // 入れ替え時、Shift 付きは送信のまま（CLI を問わない）。
+  const submit = getTerminalManualNewlineSequence(
+    keyEvent({ code: "Enter", key: "Enter", keyCode: 13, shiftKey: true }),
+    "newline",
+    "codex",
+  );
+  assert.equal(submit, TERMINAL_SUBMIT_SEQUENCE);
 });
 
 test("Shift+Enter without IME still sends exactly one newline", () => {
@@ -521,4 +628,118 @@ test("rebinding to the same host does not stack duplicate listeners", () => {
   host.dispatch();
   // 何度 attach されても 1 回だけ。二重送信を防ぐ。
   assert.deepEqual(log, ["host"]);
+});
+
+test("入れ替えを有効にすると、Enter が改行・Shift+Enter が送信になる", () => {
+  // 素の Enter は CLI へ改行として送る。xterm に委ねると CR になり送信されて
+  // しまうため、こちらで横取りする必要がある。
+  assert.equal(
+    getTerminalManualNewlineSequence(keyEvent({ key: "Enter" }), "newline"),
+    TERMINAL_MANUAL_NEWLINE_SEQUENCE,
+  );
+  // Shift+Enter は送信。xterm と同じ CR を明示的に送る。
+  assert.equal(
+    getTerminalManualNewlineSequence(
+      keyEvent({ key: "Enter", shiftKey: true }),
+      "newline",
+    ),
+    TERMINAL_SUBMIT_SEQUENCE,
+  );
+  // テンキーの Enter も同じ扱いにする。
+  assert.equal(
+    getTerminalManualNewlineSequence(
+      keyEvent({ code: "NumpadEnter", key: "Enter" }),
+      "newline",
+    ),
+    TERMINAL_MANUAL_NEWLINE_SEQUENCE,
+  );
+});
+
+test("既定では素の Enter を横取りしない", () => {
+  // 既定の割り当てを変えていないことを固定する。ここが崩れると、設定を
+  // 触っていない利用者の送信が壊れる。
+  assert.equal(
+    getTerminalManualNewlineSequence(keyEvent({ key: "Enter" })),
+    undefined,
+  );
+  assert.equal(
+    getTerminalManualNewlineSequence(keyEvent({ key: "Enter" }), "submit"),
+    undefined,
+  );
+  assert.equal(
+    getTerminalManualNewlineSequence(
+      keyEvent({ key: "Enter", shiftKey: true }),
+      "submit",
+    ),
+    TERMINAL_MANUAL_NEWLINE_SEQUENCE,
+  );
+});
+
+test("入れ替え時も、修飾キー付きの Enter は横取りしない", () => {
+  // Ctrl+Enter は CLI 側の割り当てに任せる。ここで横取りすると、CLI が
+  // 用意している別の動作を潰してしまう。
+  for (const modifiers of [
+    { ctrlKey: true },
+    { altKey: true },
+    { metaKey: true },
+  ]) {
+    assert.equal(
+      getTerminalManualNewlineSequence(
+        keyEvent({ key: "Enter", ...modifiers }),
+        "newline",
+      ),
+      undefined,
+    );
+  }
+});
+
+test("入れ替え時、変換確定の Enter は端末へ届かない", () => {
+  // 日本語を変換中に Enter を押すと、IME は確定させるだけで改行の意図はない。
+  // 既定では xterm に委ねてよい（確定 → CR → 送信、が期待どおり）が、
+  // 入れ替え時に委ねると「Enter では送信しない」設定と食い違う。
+  const { dispositions, writes } = drainEnterSequence(
+    [
+      keyEvent({
+        code: "Enter",
+        isComposing: true,
+        key: "Process",
+        keyCode: 229,
+      }),
+      keyEvent({ code: "Enter", key: "Enter" }),
+    ],
+    "newline",
+  );
+
+  assert.deepEqual(dispositions, ["ime-first-keydown", "ime-second-keydown"]);
+  assert.deepEqual(writes, []);
+});
+
+test("入れ替え時、変換を伴わない Enter は改行を 1 回だけ送る", () => {
+  const { dispositions, writes } = drainEnterSequence(
+    [keyEvent({ code: "Enter", key: "Enter" })],
+    "newline",
+  );
+
+  assert.deepEqual(dispositions, ["manual-newline"]);
+  assert.deepEqual(writes, [TERMINAL_MANUAL_NEWLINE_SEQUENCE]);
+});
+
+test("入れ替え時、変換確定のあとの Shift+Enter は送信を 1 回だけ送る", () => {
+  // 変換を確定してから、あらためて送信する流れ。確定ぶんの Enter を送らず、
+  // 送信だけが 1 回届くこと。
+  const { writes } = drainEnterSequence(
+    [
+      keyEvent({
+        code: "Enter",
+        isComposing: true,
+        key: "Process",
+        keyCode: 229,
+      }),
+      keyEvent({ code: "Enter", key: "Enter" }),
+      keyEvent({ code: "Enter", key: "Enter", shiftKey: true }),
+    ],
+    "newline",
+  );
+
+  assert.deepEqual(writes, [TERMINAL_SUBMIT_SEQUENCE]);
 });

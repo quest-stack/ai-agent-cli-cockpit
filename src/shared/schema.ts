@@ -102,6 +102,11 @@ export const savedPresetSchema = z.object({
 export const appSettingsSchema = z.object({
   alwaysConfirmClose: z.boolean(),
   defaultCommand: z.enum(CLI_COMMANDS),
+  // Enter で改行し、Shift+Enter で送信する。
+  //
+  // 既定は false（CLI 本来の Enter=送信のまま）。利用者が使っている CLI の
+  // 操作を変えるため、更新しただけで挙動が変わることがないようにする。
+  enterInsertsNewline: z.boolean().default(false),
   notificationsEnabled: z.boolean(),
   pinned: z.array(pathSchema).max(100),
   // 既存の設定ファイルにはこのキーが無い。既定を false にすることで、

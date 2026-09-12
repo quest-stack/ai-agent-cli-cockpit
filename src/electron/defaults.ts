@@ -6,6 +6,9 @@ export function createDefaultSettings(): AppSettings {
   return {
     alwaysConfirmClose: false,
     defaultCommand: "claude",
+    // 既定は CLI 本来のまま（Enter で送信）。更新しただけで送信のキーが
+    // 変わると、これまでの手が通じなくなるため、切り替えは利用者に委ねる。
+    enterInsertsNewline: false,
     notificationsEnabled: true,
     pinned: [],
     // 既定は無効。受付フォルダに書ける主体へ「この PC で作業を走らせる力」を

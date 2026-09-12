@@ -106,6 +106,7 @@ function upsertSessions(
 
 export function App() {
   const [appVersion, setAppVersion] = useState<string>();
+  const [remoteLaunchInbox, setRemoteLaunchInbox] = useState<string>();
   const [availableUpdate, setAvailableUpdate] = useState<UpdateNotice>();
   const [confirmingSession, setConfirmingSession] =
     useState<SessionState | null>(null);
@@ -169,6 +170,17 @@ export function App() {
         // app.getVersion() の取得失敗だけでアプリ全体を止めない。
       });
 
+    void cockpitApi
+      .getRemoteLaunchInbox()
+      .then((directory) => {
+        if (!cancelled) {
+          setRemoteLaunchInbox(directory);
+        }
+      })
+      .catch(() => {
+        // 取得できなくても設定画面は開ける。案内が出ないだけ。
+      });
+
     return () => {
       cancelled = true;
       removeUpdateListener();
@@ -182,6 +194,13 @@ export function App() {
   useEffect(() => {
     sessionsRef.current = sessions;
   }, [sessions]);
+
+  // Enter の割り当てをターミナル側へ伝える。開いているペインにも即座に効く。
+  useEffect(() => {
+    terminalRegistry.setEnterRole(
+      workspace?.settings.enterInsertsNewline ? "newline" : "submit",
+    );
+  }, [workspace?.settings.enterInsertsNewline]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1315,6 +1334,32 @@ export function App() {
               終了時に常に確認する
             </label>
             <p>busy中の終了確認は常に有効です。</p>
+            <span>KEYS</span>
+            <label>
+              <input
+                checked={workspace.settings.enterInsertsNewline}
+                onChange={(event) =>
+                  setWorkspace((current) =>
+                    current
+                      ? {
+                          ...current,
+                          settings: {
+                            ...current.settings,
+                            enterInsertsNewline: event.target.checked,
+                          },
+                        }
+                      : current,
+                  )
+                }
+                type="checkbox"
+              />
+              Enter で改行する
+            </label>
+            <p>
+              送信は Shift+Enter になります。チャット欄と同じ感覚で書けます。
+              この設定は Cockpit の中だけで効き、CLI の設定ファイルは
+              変更しません。
+            </p>
             <span>REMOTE LAUNCH</span>
             <label>
               <input
@@ -1341,6 +1386,20 @@ export function App() {
               ネットワークは開きませんが、そのフォルダに書ける相手に
               この PC で作業を実行させることになります。
             </p>
+            {remoteLaunchInbox && (
+              <div className="settings-inbox">
+                <code>{remoteLaunchInbox}</code>
+                <button
+                  onClick={() => {
+                    void cockpitApi.writeClipboardText(remoteLaunchInbox);
+                    setNotice("受付フォルダのパスをコピーしました");
+                  }}
+                  type="button"
+                >
+                  パスをコピー
+                </button>
+              </div>
+            )}
             <button
               className="settings-tour-button"
               onClick={showTour}

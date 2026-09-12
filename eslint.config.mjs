@@ -80,6 +80,7 @@ export default [
     files: [
       "src/electron/**/*.ts",
       "tests/**/*.ts",
+      "scripts/**/*.mjs",
       "vite.config.ts",
       "playwright.config.ts",
     ],

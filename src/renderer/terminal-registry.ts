@@ -25,6 +25,7 @@ import {
   rebindCaptureKeydown,
   resolveTerminalEnterDisposition,
   resolveTerminalKeyAction,
+  type TerminalEnterRole,
   shouldSendTerminalResize,
 } from "./terminal-behavior";
 
@@ -48,6 +49,15 @@ type ObservedMutationRecords = Parameters<
 >[0];
 
 const WEBGL_LAYOUT_STABILIZATION_FRAMES = 2;
+
+/**
+ * xterm が `.xterm-char-measure-element` に並べる文字数。
+ *
+ * xterm 本体は `textContent = "W".repeat(32)` としたうえで `offsetWidth / 32`
+ * で 1 セル幅を求める。こちらも同じ数で割らないと 32 文字ぶんの幅を
+ * 1 文字ぶんと誤認する。
+ */
+const MEASURE_ELEMENT_CHAR_COUNT = 32;
 /** IME 変換文字列を包む span のクラス（背景を文字の背後だけに限定するため）。 */
 /**
  * リサイズが止まってから「確定」とみなすまでの待ち。
@@ -102,6 +112,32 @@ function isPreventiveRedrawDisabledByUser(): boolean {
 }
 
 /** localStorage で WebGL 描画を切っているか（切り分け用）。 */
+/**
+ * 切り分け用に手で入れた WebGL 無効化フラグを、一度だけ取り除く。
+ *
+ * 0.1.9 より前は GPU の自動判定が無く、表示が崩れる機体では利用者に
+ * localStorage で手動設定してもらうしかなかった。いまは起動時に GPU を
+ * 見て自動で切り替えるため、この手動フラグは判断を上書きして邪魔になる。
+ *
+ * 具体的には、WebGL で問題の無い機体でも切れたままになり、描画品質を
+ * 落とし続ける。自動判定が入った版に更新した時点で役目を終えているので、
+ * 残っていたら消す。
+ */
+function clearLegacyWebglDisableFlag(): void {
+  try {
+    if (window.localStorage.getItem(WEBGL_DISABLE_STORAGE_KEY) === null) {
+      return;
+    }
+    window.localStorage.removeItem(WEBGL_DISABLE_STORAGE_KEY);
+    logRendererDiagnostic(DIAGNOSTIC_CATEGORIES.terminalWebgl, {
+      event: "cleared-legacy-disable-flag",
+      reason: "gpu-detection-supersedes-manual-flag",
+    });
+  } catch {
+    // localStorage が使えない環境では何もしない。
+  }
+}
+
 function isWebglDisabledByUser(): boolean {
   try {
     return window.localStorage.getItem(WEBGL_DISABLE_STORAGE_KEY) === "1";
@@ -184,6 +220,13 @@ function logRendererDiagnostic(
 class TerminalController {
   private activeKeydownEventId: number | undefined;
   private attachedHost: HTMLElement | undefined;
+  /**
+   * このペインで動いている CLI（"claude" / "codex" / "powershell"）。
+   *
+   * 改行として送るバイト列が CLI で異なるため保持する。Codex は CSI-u では
+   * 改行にならず ESC+CR が要る（terminal-behavior.ts の定数コメント参照）。
+   */
+  private command: string | undefined;
   private diagnosticKeydownHost: HTMLElement | undefined;
   private disposed = false;
   /** DOM レンダラの絵文字幅補正へ渡す、実測済みの1セル幅。 */
@@ -409,9 +452,14 @@ class TerminalController {
     // 1回目は preventDefault しない。keydown をキャンセルすると後続の
     // composition イベントが抑止され得るため（W3C UI Events）、IME の確定
     // 自体を壊しかねない。xterm へ渡さないよう伝播だけ止める。
+    // 押された瞬間の割り当てを読む。設定を変えたあと、開いたままのペインでも
+    // すぐ新しい割り当てになる。
+    const enterRole = terminalRegistry.getEnterRole();
     const disposition = resolveTerminalEnterDisposition(
       event,
       this.pendingImeEnterSuppression,
+      enterRole,
+      this.command,
     );
 
     if (disposition === "ime-first-keydown") {
@@ -448,7 +496,11 @@ class TerminalController {
     // Enter 以外まで来たらフラグは持ち越さない（2回目が来ない場合の取り残し防止）。
     this.pendingImeEnterSuppression = false;
 
-    const sequence = getTerminalManualNewlineSequence(event);
+    const sequence = getTerminalManualNewlineSequence(
+      event,
+      enterRole,
+      this.command,
+    );
     logRendererDiagnostic(
       DIAGNOSTIC_CATEGORIES.terminalKeyTranslation,
       {
@@ -470,8 +522,10 @@ class TerminalController {
       // CSI-u は送らない。ただしここで素通しすると xterm の内蔵エンコーダが
       // Shift の有無に関わらず Enter を CR にしてしまい、変換確定と同時に
       // 送信されてしまう（実機で発生）。IME に確定だけさせ、xterm へは渡さない。
+      // 入れ替え時は素の Enter でも抑止する。委ねると xterm が CR にしてしまい、
+      // 「Enter では送信しない」という設定と食い違う。
       const suppressForComposition =
-        event.shiftKey &&
+        (event.shiftKey || enterRole === "newline") &&
         (event.isComposing ||
           event.keyCode === 229 ||
           event.key === "Process");
@@ -577,12 +631,18 @@ class TerminalController {
     }
 
     const bounds = measureElement.getBoundingClientRect();
-    // 測定中の要素を読むと複数文字ぶんの幅を掴むことがある。ありえない値は
-    // 捨てて "unavailable" として扱い、xterm 自身の算出に任せる。
-    if (!isPlausibleCharacterWidth(bounds.width)) {
+    // xterm は測定要素に 1 文字を 32 個並べて入れ（"W".repeat(32)）、
+    // offsetWidth を 32 で割って 1 セル幅を得る。要素の幅をそのまま読むと
+    // 常に 32 文字ぶんになり、実測でも 243.75px（= 7.617 × 32）や
+    // 416px（= 13.0 × 32）が観測された。全 441 回の測定がこの理由で
+    // "ありえない値" として捨てられ、セル幅が一度も得られていなかった。
+    const charWidthPx = bounds.width / MEASURE_ELEMENT_CHAR_COUNT;
+    // 割ってもなお範囲外なら、測定中や フォント未読込の値なので捨てる。
+    if (!isPlausibleCharacterWidth(charWidthPx)) {
       logRendererDiagnostic(DIAGNOSTIC_CATEGORIES.terminalFit, {
+        elementWidthPx: bounds.width,
         event: "implausible-char-width",
-        measuredWidthPx: bounds.width,
+        measuredWidthPx: charWidthPx,
         sessionId: this.sessionId,
       });
       return {
@@ -594,7 +654,7 @@ class TerminalController {
 
     return {
       charHeightPx: bounds.height > 0 ? bounds.height : "unavailable",
-      charWidthPx: bounds.width,
+      charWidthPx,
       source: "dom-char-measure",
     };
   }
@@ -1417,6 +1477,11 @@ class TerminalController {
     this.terminal.focus();
   }
 
+  /** このペインの CLI を覚える。改行シーケンスの選択に使う。 */
+  setCommand(command: string): void {
+    this.command = command;
+  }
+
   setVisible(visible: boolean): void {
     if (this.terminal.element) {
       this.terminal.element.style.visibility = visible ? "" : "hidden";
@@ -1560,6 +1625,15 @@ class TerminalRegistry {
 
   private devicePixelRatioQuery: globalThis.MediaQueryList | undefined;
 
+  /**
+   * Enter と Shift+Enter の割り当て。
+   *
+   * 設定は画面から切り替えられるため、ペインごとに写しを持たず、押された
+   * 瞬間にここを読む。写しにすると、設定を変えたあと既存のペインだけ古い
+   * 割り当てのまま残る。
+   */
+  private enterRole: TerminalEnterRole = "submit";
+
   /** 追い打ちの再描画タイマー（連続要求では最後の 1 回だけ残す）。 */
   private followUpRedrawTimer: number | undefined;
 
@@ -1570,7 +1644,20 @@ class TerminalRegistry {
   private preventiveRedrawTimer: number | undefined;
 
   constructor() {
+    // 自動判定が入る前の手動フラグが残っていると、判定を上書きして
+    // 不要に WebGL を切ったままにしてしまう。起動時に一度だけ掃除する。
+    clearLegacyWebglDisableFlag();
     this.watchDevicePixelRatio();
+  }
+
+  /** 押された瞬間の割り当てを返す。コントローラから参照する。 */
+  getEnterRole(): TerminalEnterRole {
+    return this.enterRole;
+  }
+
+  /** 設定が変わったら呼ぶ。開いているペインにも即座に効く。 */
+  setEnterRole(role: TerminalEnterRole): void {
+    this.enterRole = role;
   }
 
   /**
@@ -1757,13 +1844,21 @@ class TerminalRegistry {
     }
   }
 
-  ensure(sessionId: string): TerminalController {
+  ensure(sessionId: string, command?: string): TerminalController {
     const existing = this.controllers.get(sessionId);
     if (existing) {
+      // 復元されたセッションは最初の ensure で command を持たないことがある。
+      // 後から分かった時点で反映する（改行シーケンスの判定に使う）。
+      if (command !== undefined) {
+        existing.setCommand(command);
+      }
       return existing;
     }
 
     const controller = new TerminalController(sessionId);
+    if (command !== undefined) {
+      controller.setCommand(command);
+    }
     this.controllers.set(sessionId, controller);
     if (this.controllers.size === 1) {
       this.startPreventiveRedraw();

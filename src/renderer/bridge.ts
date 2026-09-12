@@ -61,6 +61,8 @@ function createDemoWorkspace(): PersistedWorkspace {
   const settings = {
     alwaysConfirmClose: false,
     defaultCommand: "claude" as const,
+    // 本体の既定値と揃える（CLI 本来の Enter=送信のまま）。
+    enterInsertsNewline: false,
     notificationsEnabled: true,
     pinned: demoProjects
       .filter((project) => project.source === "pinned")
@@ -233,6 +235,7 @@ function createDemoApi(): CockpitApi {
       workspace,
     }),
     getPathForFile: () => "",
+    getRemoteLaunchInbox: async () => "",
     killSession: async (sessionId) => {
       emitStatus({ sessionId, status: "exited", exitCode: 0 });
     },

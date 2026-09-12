@@ -84,6 +84,17 @@ export interface SavedPreset {
 export interface AppSettings {
   alwaysConfirmClose: boolean;
   defaultCommand: CliCommand;
+  /**
+   * Enter で改行し、Shift+Enter で送信する。
+   *
+   * CLI 本来の割り当ては Enter が送信で、チャット欄の感覚と逆になる。
+   * 入れ替えたい利用者向けの設定で、既定は false（CLI 本来のまま）。
+   *
+   * 実現は Cockpit 側で送るバイトを差し替えることで行い、CLI の設定
+   * ファイルには触れない。利用者のホームフォルダを書き換えないため、
+   * Cockpit 以外から起動した CLI の操作は変わらない。
+   */
+  enterInsertsNewline: boolean;
   notificationsEnabled: boolean;
   pinned: string[];
   /**
@@ -204,6 +215,13 @@ export interface CockpitApi {
   getAppVersion: () => Promise<string>;
   getBootstrap: () => Promise<BootstrapPayload>;
   getPathForFile: (file: globalThis.File) => string;
+  /**
+   * 依頼を置く受付フォルダの絶対パス。
+   *
+   * 設定画面で利用者に見せるために使う。この機能は「フォルダに JSON を
+   * 置く」以外の入口を持たないため、場所が分からないと誰も使えない。
+   */
+  getRemoteLaunchInbox: () => Promise<string>;
   killSession: (sessionId: string) => Promise<void>;
   onGpuRecovered: (listener: () => void) => () => void;
   onPtyData: (listener: (event: PtyDataEvent) => void) => () => void;

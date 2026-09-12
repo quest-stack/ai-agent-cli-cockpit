@@ -14,9 +14,60 @@ const TERMINAL_ENTER_CODES = new Set(["Enter", "NumpadEnter"]);
 
 // CSI-u (extended keys / modifyOtherKeys) では Shift+Enter を ESC [ 13 ; 2 u と表す。
 // Claude Code は extended keys で Shift+Enter を識別し、公式 terminal-config も tmux で
-// extended-keys を必須としている。過去の plain "\n" と ESC+CR ("\x1b\r") は、どちらも
-// pty まで到達したが改行として認識されなかったため、これらへ戻してはならない。
+// extended-keys を必須としている。過去の plain "\n" は pty まで到達したが改行として
+// 認識されなかったため、これへ戻してはならない。
 export const TERMINAL_MANUAL_NEWLINE_SEQUENCE = "\x1b[13;2u";
+
+/**
+ * Codex CLI へ送る改行（ESC+CR = Alt+Enter）。
+ *
+ * Codex は CSI-u を解釈する実装を持つが、それには端末が kitty keyboard protocol を
+ * 有効化していることが要る。Cockpit が使う xterm.js 6.0.0 はこのプロトコルを
+ * 実装しておらず（ライブラリ内に該当コードが無い）、Codex 側も起動時に有効化要求
+ * (ESC [ > N u) を一度も送ってこない。つまりこの組み合わせでは CSI-u 経路が
+ * 最初から成立せず、ESC [ 13 ; 2 u を送っても改行にならない。
+ *
+ * Codex 0.154.0 に対する実測（Cockpit と同じ pty・TERM=xterm-256color）:
+ *   "\n"          → 改行にならない
+ *   "\x1b[13;2u"  → 改行にならない
+ *   "\x1b\r"      → 改行する（2回再現）
+ *
+ * Codex の既定キーマップは insert_newline に Alt+Enter を含んでおり、ESC+CR は
+ * その Alt+Enter として解釈される。
+ */
+export const TERMINAL_CODEX_NEWLINE_SEQUENCE = "\x1b\r";
+
+/**
+ * CLI ごとの改行シーケンスを返す。
+ *
+ * Claude Code は CSI-u で改行できているため変えない。Codex だけ ESC+CR にする。
+ * powershell など全画面 TUI でないものは、従来どおり CSI-u のまま（改行の概念が
+ * 無く、送っても無視される）。
+ */
+export function getNewlineSequenceForCommand(
+  command: string | undefined,
+): string {
+  return command === "codex"
+    ? TERMINAL_CODEX_NEWLINE_SEQUENCE
+    : TERMINAL_MANUAL_NEWLINE_SEQUENCE;
+}
+
+/**
+ * 送信（CLI 側が「入力を確定して送る」と解釈するバイト）。
+ *
+ * xterm の内蔵エンコーダが Enter に対して送るものと同じ。Enter を改行へ
+ * 割り当てたときは、素通しでは送信できなくなるため、こちらから明示的に送る。
+ */
+export const TERMINAL_SUBMIT_SEQUENCE = "\r";
+
+/**
+ * Enter と Shift+Enter の役割。
+ *
+ * 既定（"submit"）は CLI 本来の割り当てで、Enter が送信・Shift+Enter が改行。
+ * "newline" にすると入れ替わり、Enter が改行・Shift+Enter が送信になる。
+ * チャット欄の感覚に合わせたい利用者向けの選択で、既定は変えない。
+ */
+export type TerminalEnterRole = "newline" | "submit";
 
 export type TerminalKeyAction =
   | "copy-selection"
@@ -100,11 +151,27 @@ function isImeComposing(event: TerminalKeyEvent): boolean {
   return event.isComposing || event.keyCode === 229 || event.key === "Process";
 }
 
-export function isTerminalLineFeedKey(event: TerminalKeyEvent): boolean {
+/**
+ * Cockpit が横取りして自前でバイトを送る Enter か。
+ *
+ * Shift+Enter は常に横取りする（xterm の内蔵エンコーダは Shift の有無に
+ * かかわらず Enter を CR にしてしまい、改行として送れないため）。
+ * Enter の入れ替えを有効にしている場合は、素の Enter も横取りする。
+ */
+export function isTerminalLineFeedKey(
+  event: TerminalKeyEvent,
+  enterRole: TerminalEnterRole = "submit",
+): boolean {
+  const isEnter =
+    event.key === "Enter" || TERMINAL_ENTER_CODES.has(event.code);
+  const hasOnlyShift = event.shiftKey;
+  const isBare =
+    !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
+
   return (
     event.type === "keydown" &&
-    (event.key === "Enter" || TERMINAL_ENTER_CODES.has(event.code)) &&
-    event.shiftKey &&
+    isEnter &&
+    (hasOnlyShift || (enterRole === "newline" && isBare)) &&
     !isImeComposing(event) &&
     !event.ctrlKey &&
     !event.altKey &&
@@ -114,10 +181,19 @@ export function isTerminalLineFeedKey(event: TerminalKeyEvent): boolean {
 
 export function getTerminalManualNewlineSequence(
   event: TerminalKeyEvent,
+  enterRole: TerminalEnterRole = "submit",
+  command?: string,
 ): string | undefined {
-  return isTerminalLineFeedKey(event)
-    ? TERMINAL_MANUAL_NEWLINE_SEQUENCE
-    : undefined;
+  if (!isTerminalLineFeedKey(event, enterRole)) {
+    return undefined;
+  }
+  const newline = getNewlineSequenceForCommand(command);
+  if (enterRole === "submit") {
+    // 既定。Shift+Enter だけを改行として送る。
+    return newline;
+  }
+  // 入れ替え時。Shift を伴うものが送信、素の Enter が改行。
+  return event.shiftKey ? TERMINAL_SUBMIT_SEQUENCE : newline;
 }
 
 export type TerminalEnterDisposition =
@@ -142,6 +218,8 @@ export type TerminalEnterDisposition =
 export function resolveTerminalEnterDisposition(
   event: TerminalKeyEvent,
   pendingImeEnterSuppression: boolean,
+  enterRole: TerminalEnterRole = "submit",
+  command?: string,
 ): TerminalEnterDisposition {
   const isEnterKey =
     event.code === "Enter" ||
@@ -150,13 +228,24 @@ export function resolveTerminalEnterDisposition(
   const isImeConsumed =
     event.isComposing || event.keyCode === 229 || event.key === "Process";
 
-  if (isEnterKey && event.shiftKey && isImeConsumed) {
+  // 変換中の Enter は「確定」であって、改行でも送信でもない。
+  //
+  // Shift を伴う場合は常に抑止する。素通しすると xterm が CR にしてしまい、
+  // 変換確定と同時に送信されてしまう（実機で発生）。
+  //
+  // Shift なしの場合は割り当てによって分かれる。既定（Enter=送信）では xterm に
+  // 委ねてよい。確定のあと CR が送られるのは、利用者が期待する動きに一致する。
+  // 入れ替え時（Enter=改行）は抑止する。委ねると xterm の CR で送信されてしまい、
+  // 「Enter では送信されない」という設定と食い違う。
+  const suppressImeCommit = event.shiftKey || enterRole === "newline";
+  if (isEnterKey && isImeConsumed && suppressImeCommit) {
     return "ime-first-keydown";
   }
   if (isEnterKey && pendingImeEnterSuppression) {
     return "ime-second-keydown";
   }
-  return getTerminalManualNewlineSequence(event) === undefined
+  return getTerminalManualNewlineSequence(event, enterRole, command) ===
+    undefined
     ? "delegate-to-xterm"
     : "manual-newline";
 }
@@ -205,15 +294,30 @@ interface ShouldSendTerminalResizeOptions {
   previous: TerminalSize | undefined;
 }
 
+/**
+ * pty へ resize を送るか。
+ *
+ * force は「非表示から戻した後、確定サイズを必ず一度は伝える」ためのもので、
+ * まだ一度も通知していない（previous が無い）ときに効かせる。
+ *
+ * 一方、既に同じ寸法を通知済みなら force でも送らない。claude/codex のような
+ * 全画面 TUI は寸法が変わらない resize でも画面全体を描き直すため、タブを
+ * 表示するたびに送ると入力中のちらつきになる（実測: 159x37 のまま変化が無いのに
+ * 18 秒間に 5 回送信されていた）。送らなくても寸法は既に正しく伝わっている。
+ */
 export function shouldSendTerminalResize({
   fontsReady,
   force,
   next,
   previous,
 }: ShouldSendTerminalResizeOptions): boolean {
-  return (
-    fontsReady && shouldReportTerminalResize(previous, next, force)
-  );
+  if (!fontsReady) {
+    return false;
+  }
+  if (previous && previous.cols === next.cols && previous.rows === next.rows) {
+    return false;
+  }
+  return shouldReportTerminalResize(previous, next, force);
 }
 
 interface ScheduleTerminalFitOptions {

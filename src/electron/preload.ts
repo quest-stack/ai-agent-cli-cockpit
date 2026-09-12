@@ -37,6 +37,7 @@ const CHANNELS = {
   ptyStatus: "cockpit:pty-status",
   ptyWrite: "cockpit:pty-write",
   remoteLaunch: "cockpit:remote-launch",
+  remoteLaunchInbox: "cockpit:remote-launch-inbox",
   updateAvailable: "cockpit:update-available",
   updateOpenDownload: "cockpit:update-open-download",
   workspaceSave: "cockpit:workspace-save",
@@ -51,6 +52,8 @@ const api: CockpitApi = {
   getBootstrap: () =>
     ipcRenderer.invoke(CHANNELS.bootstrap) as Promise<BootstrapPayload>,
   getPathForFile: (file) => webUtils.getPathForFile(file),
+  getRemoteLaunchInbox: () =>
+    ipcRenderer.invoke(CHANNELS.remoteLaunchInbox) as Promise<string>,
   killSession: (sessionId) =>
     ipcRenderer.invoke(CHANNELS.ptyKill, sessionId) as Promise<void>,
   onGpuRecovered: (listener) => {

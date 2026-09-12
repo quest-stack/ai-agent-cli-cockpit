@@ -13,6 +13,8 @@ import { terminalRegistry } from "../terminal-registry";
 
 interface TerminalViewProps {
   active: boolean;
+  /** このペインで動く CLI。改行として送るバイト列の選択に使う。 */
+  command: string;
   onFocus: () => void;
   sessionId: string;
   visible: boolean;
@@ -54,6 +56,7 @@ function acquireWindowFileDropGuard(): () => void {
 
 export function TerminalView({
   active,
+  command,
   onFocus,
   sessionId,
   visible,
@@ -68,7 +71,7 @@ export function TerminalView({
       return;
     }
 
-    const controller = terminalRegistry.ensure(sessionId);
+    const controller = terminalRegistry.ensure(sessionId, command);
     controller.attach(host);
     const resizeObserver = new ResizeObserver(() => {
       requestAnimationFrame(() => {
@@ -81,7 +84,7 @@ export function TerminalView({
       resizeObserver.disconnect();
       controller.detach(host);
     };
-  }, [sessionId]);
+  }, [command, sessionId]);
 
   useEffect(() => {
     const host = hostRef.current;

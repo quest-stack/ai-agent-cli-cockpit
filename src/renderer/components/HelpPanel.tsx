@@ -101,6 +101,29 @@ export function HelpPanel({ onClose, version }: HelpPanelProps) {
           </dl>
         </section>
 
+        <section>
+          <h3>外出先からセッションを立ち上げる</h3>
+          <p>
+            設定（歯車）で「受け取った依頼でセッションを起動する」を
+            オンにすると、受付フォルダに置かれた JSON から Claude を
+            起動します。フォルダの場所は同じ設定画面に出ます。
+          </p>
+          <pre className="help-code">
+{`{
+  "cwd": "C:\\Users\\you\\project",
+  "title": "見出し",
+  "prompt": "最初に伝えたいこと"
+}`}
+          </pre>
+          <p className="help-note">
+            ファイル名は何でも構いません（拡張子は .json）。
+            起動すると読み取ったファイルは消えます。
+            Cockpit はネットワークを開きません。外から届ける経路は、
+            この PC で動いている別のセッションに書かせるなど、
+            利用者ご自身で用意していただく必要があります。
+          </p>
+        </section>
+
         <p className="help-footer">
           設定（歯車）から使い方ツアーを見直せます。
         </p>

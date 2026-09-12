@@ -1894,6 +1894,42 @@ select:focus-visible,
   }
 }
 
+/*
+ * 受付フォルダの場所。
+ *
+ * この機能は「フォルダに JSON を置く」以外の入口を持たないため、
+ * パスが分からないと誰も使えない。長いパスが折り返しで崩れないよう、
+ * 途中で改行させる。
+ */
+.settings-inbox {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  margin-top: 8px;
+  padding: 8px;
+}
+
+.settings-inbox code {
+  color: var(--fg);
+  display: block;
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.settings-inbox button {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 11px;
+  margin-top: 6px;
+  padding: 0;
+}
+
+.settings-inbox button:hover {
+  text-decoration: underline;
+}
+
 .settings-tour-button {
   align-items: center;
   background: var(--bg-2);
@@ -2272,6 +2308,17 @@ select:focus-visible,
   font-size: 10.5px;
   padding: 3px 7px;
   white-space: nowrap;
+}
+
+.help-code {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 10px;
+  line-height: 1.6;
+  margin: 8px 0;
+  overflow-x: auto;
+  padding: 9px 10px;
 }
 
 .help-note {

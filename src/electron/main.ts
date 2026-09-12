@@ -278,6 +278,12 @@ function registerIpcHandlers(): void {
     return app.getVersion();
   });
 
+  ipcMain.handle(IPC_CHANNELS.remoteLaunchInbox, (event) => {
+    assertTrustedSender(event);
+    // 場所を返すだけ。フォルダの作成も中身の読み出しもここではしない。
+    return remoteLaunchWatcher.inboxDirectory;
+  });
+
   ipcMain.handle(IPC_CHANNELS.bootstrap, async (event) => {
     assertTrustedSender(event);
     const workspace = sessionStore.snapshot;

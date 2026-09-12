@@ -1,6 +1,6 @@
 {
   "name": "ai-agent-cli-cockpit",
-  "version": "0.1.9",
+  "version": "0.2.2",
   "private": true,
   "description": "A local-only multi-terminal cockpit for Claude Code and Codex CLI.",
   "author": "QUEST LLC",
@@ -14,7 +14,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "typecheck": "tsc --build --pretty false",
-    "lint": "eslint src tests vite.config.ts playwright.config.ts --max-warnings=0",
+    "lint": "eslint src tests scripts vite.config.ts playwright.config.ts --max-warnings=0",
     "test": "npm run test:unit",
     "test:unit": "tsc -p tsconfig.tests.json && node scripts/run-unit-tests.mjs",
     "test:e2e": "playwright test",
