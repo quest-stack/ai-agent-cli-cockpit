@@ -29,7 +29,7 @@ test("PowerShell session, six-pane layout, search and restore work together", as
       ),
     ).resolves.toBe("undefined");
 
-    await page.getByLabel("プロジェクト").fill(projectRoot);
+    await page.getByRole("combobox", { name: "プロジェクト" }).fill(projectRoot);
     await page.getByLabel("CLI").selectOption("powershell");
     await page.getByLabel("セッション名").fill("P0 PowerShell");
     await page.getByRole("button", { name: /Start Session/u }).click();

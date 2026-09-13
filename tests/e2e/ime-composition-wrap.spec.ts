@@ -132,7 +132,13 @@ test("Japanese IME preedit wraps inside wide and narrow terminal panes", async (
     await page.evaluate(() => {
       window.localStorage.setItem("cockpit.disableWebgl", "1");
     });
-    await page.getByLabel("プロジェクト").fill(projectRoot);
+    // 初回起動のツアーが操作を遮るので閉じる。
+    const tour = page.getByTestId("tour-overlay");
+    if (await tour.isVisible().catch(() => false)) {
+      await page.getByRole("button", { name: "スキップ" }).click();
+      await expect(tour).toBeHidden();
+    }
+    await page.getByRole("combobox", { name: "プロジェクト" }).fill(projectRoot);
     await page.getByLabel("CLI").selectOption("powershell");
     await page.getByLabel("セッション名").fill("IME wrapping");
     await page.getByRole("button", { name: /Start Session/u }).click();

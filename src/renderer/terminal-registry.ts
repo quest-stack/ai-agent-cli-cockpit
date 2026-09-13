@@ -240,6 +240,8 @@ class TerminalController {
   private readonly lineFeedHandlerEvents = new WeakSet<KeyboardEvent>();
   /** IME 変換表示の折り返し・位置補正のための監視。 */
   private compositionObserver: InstanceType<typeof window.MutationObserver> | undefined;
+  /** 上の監視のコールバック実行中か。自分の書き込みによる再入を防ぐ。 */
+  private suppressCompositionObserver = false;
   /** 折返し判定前に変換文字列の非折返し幅を測る不可視要素。 */
   private compositionMeasureElement: HTMLElement | undefined;
   private opened = false;
@@ -709,11 +711,17 @@ class TerminalController {
       return;
     }
 
-    candidate.style.setProperty(
-      EMOJI_CELL_WIDTH_PROPERTY,
-      `${cellWidthPx * emojiCellCount}px`,
-    );
-    candidate.classList.add(EMOJI_CELL_CLASS);
+    // 同じ値なら書き込まない。スタイルの再設定はレイアウトを起こすため、
+    // 入力のたびに同値を設定し続けると画面がちらつく。
+    const width = `${cellWidthPx * emojiCellCount}px`;
+    if (
+      candidate.style.getPropertyValue(EMOJI_CELL_WIDTH_PROPERTY) !== width
+    ) {
+      candidate.style.setProperty(EMOJI_CELL_WIDTH_PROPERTY, width);
+    }
+    if (!candidate.classList.contains(EMOJI_CELL_CLASS)) {
+      candidate.classList.add(EMOJI_CELL_CLASS);
+    }
   }
 
   /**
@@ -1169,9 +1177,8 @@ class TerminalController {
     if (view.style.width !== width) {
       view.style.width = width;
     }
-    if (view.style.height !== "auto") {
-      view.style.height = "auto";
-    }
+    // height は書かない。styles.css が height:auto !important で押さえており、
+    // ここから書き戻すと xterm の setTimeout(0) 再帰との往復になる（上記 CSS 参照）。
     if (view.style.textIndent !== textIndent) {
       view.style.textIndent = textIndent;
     }
@@ -1209,8 +1216,28 @@ class TerminalController {
       // 変化を監視して都度レイアウトし直す。同じ監視で DOM レンダラが追加した
       // span だけも拾い、端末ごと・行ごとの MutationObserver は増やさない。
       this.compositionObserver = new window.MutationObserver((records) => {
-        this.layoutCompositionView();
-        this.decorateAddedEmojiSpans(records);
+        // 自分が書いた変更で再び呼ばれないようにする。
+        //
+        // この監視は style 属性も対象にしている一方、コールバックから呼ぶ
+        // layoutCompositionView() は .composition-view の style を書き換える。
+        // そのため書き込みが次の Mutation を生み、呼び出しが連鎖していた。
+        //
+        // 実測（IME で「あ」を10文字ぶん変換）: composition-view の属性変更が
+        // 221 回、getBoundingClientRect が 624 回。1文字あたり約22回の
+        // 書き換えと約62回のレイアウト読み取りが起きており、これが日本語入力中の
+        // ちらつきとして見えていた。
+        if (this.suppressCompositionObserver) {
+          return;
+        }
+        this.suppressCompositionObserver = true;
+        try {
+          this.layoutCompositionView();
+          this.decorateAddedEmojiSpans(records);
+        } finally {
+          // 自分の書き込みが記録されたキューを捨ててから監視を戻す。
+          this.compositionObserver?.takeRecords();
+          this.suppressCompositionObserver = false;
+        }
       });
     }
     if (this.paneScrollHost !== host) {

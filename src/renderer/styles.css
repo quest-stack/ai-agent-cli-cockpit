@@ -982,6 +982,20 @@ select:focus-visible,
     #000 var(--composition-line-height, 18px)
   ) !important;
   box-sizing: border-box;
+  /*
+   * 折り返した行数ぶんの高さを保つ。
+   *
+   * xterm 本体は updateCompositionElements() の末尾で setTimeout(0) の自己再帰を
+   * 仕掛けており、そのたびに composition-view の height を 1 行ぶん（cellHeight）の
+   * インライン値へ戻す。以前は registry 側から height:auto を書き戻していたが、
+   * xterm が px を書く → Cockpit が auto に戻す、の往復が止まらず、10 文字の変換で
+   * height と transform がそれぞれ 198 回書き換わっていた（実測）。これが日本語入力中の
+   * ちらつきの主因。
+   *
+   * CSS で !important を当てればインライン値より優先されるため、Cockpit 側から
+   * 書き戻す必要がなくなり、往復そのものが成立しなくなる。
+   */
+  height: auto !important;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   word-break: break-all;

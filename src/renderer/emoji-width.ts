@@ -30,6 +30,20 @@ function isEmojiGrapheme(grapheme: string): boolean {
  * 17.85px の絵文字は 7.617px の ASCII・罫線とは別 span になる。
  */
 export function getEmojiCellCount(text: string): number | null {
+  // 書記素分割（Intl.Segmenter）は重い。DOM レンダラでは入力のたびに全 span へ
+  // この関数が呼ばれるため、絵文字を1文字も含まない文字列は分割せずに弾く。
+  //
+  // ここを通らないと、日本語を連続入力しただけで毎回の変換ごとに画面中の
+  // span を総なめして分割することになり、入力中のちらつきとして現れる
+  // （セル幅の測定が直って本関数が実際に動き始めたことで表面化した）。
+  if (
+    !emojiPresentationPattern.test(text) &&
+    !extendedPictographicPattern.test(text) &&
+    !text.includes(keycapCombiningMark)
+  ) {
+    return null;
+  }
+
   const graphemes = Array.from(
     graphemeSegmenter.segment(text),
     ({ segment }) => segment,
