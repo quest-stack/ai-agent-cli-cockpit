@@ -1,9 +1,9 @@
 {
-  "version": "0.2.2",
-  "notes": "設定で Enter を改行に切り替えられるようにしました",
-  "downloadPage": "",
+  "version": "0.2.3",
+  "notes": "Codex のペインで Shift+Enter による改行ができなかったのと、待機中に画面が細かく明滅していたのを直しました。",
+  "downloadPage": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/latest",
   "urls": {
-    "arm64": "",
-    "x64": ""
+    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.3/CLI-Cockpit-0.2.3-win-arm64.exe",
+    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.3/CLI-Cockpit-0.2.3-win-x64.exe"
   }
 }

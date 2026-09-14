@@ -72,8 +72,11 @@ CPU に合うインストーラを選びます。
 
 | PC | ファイル |
 |---|---|
-| ARM 搭載 Windows | `CLI Cockpit-<version>-win-arm64.exe` |
-| Intel / AMD 搭載 Windows | `CLI Cockpit-<version>-win-x64.exe` |
+| Intel / AMD 搭載 Windows | `CLI-Cockpit-<version>-win-x64.exe` |
+| ARM 搭載 Windows | `CLI-Cockpit-<version>-win-arm64.exe` |
+
+どちらか分からない場合は、**設定 > システム > バージョン情報 > システムの種類**で
+確認できます。「x64 ベース」と出れば x64、「ARM ベース」と出れば arm64 です。
 
 インストーラは**コード署名をしていません**。実行すると Windows SmartScreen の
 警告「WindowsによってPCが保護されました」が出ます。出所を確認できた場合に限り、

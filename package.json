@@ -98,7 +98,7 @@
           ]
         }
       ],
-      "artifactName": "${productName}-${version}-win-${arch}.${ext}"
+      "artifactName": "CLI-Cockpit-${version}-win-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
