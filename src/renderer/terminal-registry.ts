@@ -520,33 +520,23 @@ class TerminalController {
       },
     );
     if (sequence === undefined) {
-      // IME 変換中の Shift+Enter は「変換の確定」であって改行ではないので
-      // CSI-u は送らない。ただしここで素通しすると xterm の内蔵エンコーダが
-      // Shift の有無に関わらず Enter を CR にしてしまい、変換確定と同時に
-      // 送信されてしまう（実機で発生）。IME に確定だけさせ、xterm へは渡さない。
-      // 入れ替え時は素の Enter でも抑止する。委ねると xterm が CR にしてしまい、
-      // 「Enter では送信しない」という設定と食い違う。
-      const suppressForComposition =
-        (event.shiftKey || enterRole === "newline") &&
-        (event.isComposing ||
-          event.keyCode === 229 ||
-          event.key === "Process");
-      if (suppressForComposition) {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-      }
+      // ここへ来るのは xterm に委ねてよいキーだけ。変換中の Enter は手前の
+      // resolveTerminalEnterDisposition が "ime-first-keydown" として捌く。
+      //
+      // 以前はこの場所で同じ判定をもう一度書いていたが、対象が Enter かを
+      // 見ていなかった。変換中のキーは種類を問わず keyCode 229 / key
+      // "Process" で来るため、Enter を改行に入れ替えている間は日本語入力中の
+      // すべての文字キーが preventDefault され、IME に何も入らなくなっていた
+      // （0.2.2 以降の「入力できない」の原因）。判定を二重に持たない。
       logRendererDiagnostic(
         DIAGNOSTIC_CATEGORIES.terminalWriteSession,
         {
           eventId,
           invoked: false,
-          reason: suppressForComposition
-            ? "ime-composing-shift-enter-suppressed"
-            : "manual-newline-sequence-undefined",
+          reason: "manual-newline-sequence-undefined",
           sessionId: this.sessionId,
           source: "handleLineFeedKey",
-          suppressedFromXterm: suppressForComposition,
+          suppressedFromXterm: false,
         },
       );
       return;

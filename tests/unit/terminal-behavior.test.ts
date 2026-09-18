@@ -743,3 +743,42 @@ test("入れ替え時、変換確定のあとの Shift+Enter は送信を 1 回�
 
   assert.deepEqual(writes, [TERMINAL_SUBMIT_SEQUENCE]);
 });
+
+test("入れ替え時、日本語入力中の文字キーは端末に委ねる（横取りしない）", () => {
+  // 0.2.2〜0.2.3 の「入力できない」の再現。
+  //
+  // Windows の IME は変換中、Enter に限らずすべてのキーを
+  // keyCode 229 / key "Process" で通知する。Enter かどうかを見ずに
+  // 「変換中 かつ 入れ替え有効」だけで抑止すると、日本語を打つあいだ
+  // 文字キーが軒並み preventDefault され、IME に何も入らなくなる。
+  //
+  // 「あいさつ」と打つ想定（KeyA / KeyI / KeyS / Space）。
+  const composingKeys = ["KeyA", "KeyI", "KeyS", "Space"].map((code) =>
+    keyEvent({ code, isComposing: true, key: "Process", keyCode: 229 }),
+  );
+
+  const { dispositions, writes } = drainEnterSequence(
+    composingKeys,
+    "newline",
+  );
+
+  // すべて xterm（＝IME）に委ねる。1つでも横取りすると入力できなくなる。
+  assert.deepEqual(
+    dispositions,
+    composingKeys.map(() => "delegate-to-xterm"),
+  );
+  assert.deepEqual(writes, []);
+});
+
+test("既定（Enter=送信）でも日本語入力中の文字キーは端末に委ねる", () => {
+  const composingKeys = ["KeyN", "KeyO"].map((code) =>
+    keyEvent({ code, isComposing: true, key: "Process", keyCode: 229 }),
+  );
+
+  const { dispositions } = drainEnterSequence(composingKeys, "submit");
+
+  assert.deepEqual(
+    dispositions,
+    composingKeys.map(() => "delegate-to-xterm"),
+  );
+});

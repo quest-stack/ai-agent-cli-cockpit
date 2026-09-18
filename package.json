@@ -1,6 +1,6 @@
 {
   "name": "ai-agent-cli-cockpit",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "A local-only multi-terminal cockpit for Claude Code and Codex CLI.",
   "author": "QUEST LLC",

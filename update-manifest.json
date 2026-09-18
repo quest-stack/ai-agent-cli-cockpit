@@ -1,9 +1,9 @@
 {
-  "version": "0.2.3",
-  "notes": "Codex のペインで Shift+Enter による改行ができなかったのと、待機中に画面が細かく明滅していたのを直しました。",
+  "version": "0.2.4",
+  "notes": "「Enter で改行する」を有効にしていると、日本語の入力中に文字が打てなくなることがあったのを直しました。",
   "downloadPage": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/latest",
   "urls": {
-    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.3/CLI-Cockpit-0.2.3-win-arm64.exe",
-    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.3/CLI-Cockpit-0.2.3-win-x64.exe"
+    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.4/CLI-Cockpit-0.2.4-win-arm64.exe",
+    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.4/CLI-Cockpit-0.2.4-win-x64.exe"
   }
 }
