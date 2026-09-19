@@ -824,10 +824,15 @@ select:focus-visible,
 .tab-item.is-active {
   background: var(--bg-2);
   color: var(--fg);
+  font-weight: 600;
 }
 
 .tab-item.is-active::after {
   background: var(--accent);
+  /* 下線をタブの端まで引く。枚数が増えると背景色の差だけでは
+     どれが手前か分かりにくい。 */
+  left: 0;
+  right: 0;
 }
 
 .tab-close {
@@ -835,10 +840,13 @@ select:focus-visible,
   border-radius: 5px;
   color: var(--fg-dim);
   display: inline-flex;
-  height: 20px;
+  /* 押せる範囲だけを広げる。タブの幅は変えない（広げるとタブ帯から
+     はみ出すのが早くなり、かえって × に届かなくなる）。 */
+  flex: 0 0 auto;
+  height: 24px;
   justify-content: center;
   opacity: 0;
-  width: 20px;
+  width: 24px;
 }
 
 .tab-item:hover .tab-close,
@@ -846,9 +854,19 @@ select:focus-visible,
   opacity: 1;
 }
 
-.tab-close:hover {
-  background: #ffffff0d;
+/* 手前のタブの × は常にはっきり見せる。 */
+.tab-item.is-active .tab-close {
   color: var(--fg);
+}
+
+.tab-close:hover {
+  background: #ffffff1f;
+  color: var(--fg);
+}
+
+.tab-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .new-tab-button {

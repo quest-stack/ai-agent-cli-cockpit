@@ -29,6 +29,14 @@ test("PowerShell session, six-pane layout, search and restore work together", as
       ),
     ).resolves.toBe("undefined");
 
+    // 初回起動のツアーが画面を覆い、Start Session を押せないまま
+    // タイムアウトする。他の E2E と同じように閉じてから進める。
+    const tour = page.getByTestId("tour-overlay");
+    if (await tour.isVisible().catch(() => false)) {
+      await page.getByRole("button", { name: "スキップ" }).click();
+      await expect(tour).toBeHidden();
+    }
+
     await page.getByRole("combobox", { name: "プロジェクト" }).fill(projectRoot);
     await page.getByLabel("CLI").selectOption("powershell");
     await page.getByLabel("セッション名").fill("P0 PowerShell");
@@ -37,14 +45,19 @@ test("PowerShell session, six-pane layout, search and restore work together", as
       page.getByRole("button", { name: /cli-cockpit P0 PowerShell/u }),
     ).toBeVisible();
 
-    for (const shortcut of [
+    // 1 回ごとにペインが増えたことを確かめてから次を押す。まとめて押すと
+    // React の再描画が追いつかず、同じペインに対する分割が重なって取り
+    // こぼす（実測で 5 回押しても 1 枚のままになった）。
+    const shortcuts = [
       "Control+Shift+D",
       "Control+Shift+E",
       "Control+Shift+D",
       "Control+Shift+E",
       "Control+Shift+D",
-    ]) {
+    ];
+    for (const [index, shortcut] of shortcuts.entries()) {
       await page.keyboard.press(shortcut);
+      await expect(page.locator("[data-pane-id]")).toHaveCount(index + 2);
     }
     await expect(page.locator("[data-pane-id]")).toHaveCount(6);
 
@@ -59,20 +72,40 @@ test("PowerShell session, six-pane layout, search and restore work together", as
             join(userDataPath, "session.json"),
             "utf8",
           );
-          const saved = JSON.parse(raw) as { tabs?: unknown[] };
-          return saved.tabs?.length ?? 0;
+          // タブが保存されただけでは足りない。分割は少し遅れて書かれるため、
+          // 枚数まで確かめてから閉じないと、復元の検証が成り立たない。
+          const saved = JSON.parse(raw) as {
+            tabs?: { root: unknown }[];
+          };
+          const countPanes = (node: unknown): number => {
+            const item = node as {
+              children?: [unknown, unknown];
+              type?: string;
+            };
+            return item.type === "pane" || !item.children
+              ? 1
+              : countPanes(item.children[0]) + countPanes(item.children[1]);
+          };
+          return Math.max(
+            0,
+            ...(saved.tabs ?? []).map((tab) => countPanes(tab.root)),
+          );
         } catch {
           return 0;
         }
       })
-      .toBeGreaterThan(0);
+      .toBe(6);
     await app.close();
 
     app = await launch();
     page = await app.firstWindow();
     await expect(page.locator("[data-pane-id]")).toHaveCount(6);
+    // 復元後は 6 枚すべてにランチャーが出るため、同じ名前のボタンが
+    // 6 個並ぶ。1 個に絞ってから存在を確かめる。
     await expect(
-      page.getByRole("button", { name: /cli-cockpit P0 PowerShell/u }),
+      page
+        .getByRole("button", { name: /cli-cockpit P0 PowerShell/u })
+        .first(),
     ).toBeVisible();
   } finally {
     await app.close().catch(() => undefined);

@@ -808,17 +808,53 @@ export function App() {
     setSessions((current) =>
       current.filter((session) => session.id !== sessionId),
     );
-    setWorkspace((current) =>
-      current
-        ? {
-            ...current,
-            tabs: current.tabs.map((tab) => ({
-              ...tab,
-              root: replaceSessionEverywhere(tab.root, sessionId),
-            })),
-          }
-        : current,
-    );
+    setWorkspace((current) => {
+      if (!current) {
+        return current;
+      }
+
+      // 閉じたセッションが入っていたタブだけを対象にする。これを見ずに
+      // 「空のタブ」を一律で消すと、利用者が + で開いたばかりの起動前の
+      // タブまで巻き込んで消してしまう。
+      const affectedTabIds = new Set(
+        current.tabs
+          .filter((tab) => findPaneBySession(tab.root, sessionId))
+          .map((tab) => tab.id),
+      );
+
+      // ペインの構造はそのまま残す。分割して使っている最中に片方を閉じても
+      // 配置が勝手に変わらないようにするため（空いたペインには、そのまま
+      // 次のセッションを入れられる）。
+      const cleared = current.tabs.map((tab) => ({
+        ...tab,
+        root: replaceSessionEverywhere(tab.root, sessionId),
+      }));
+
+      // ただし、中身が 1 つも無くなったタブは閉じる。残しておくと
+      // 「New Session」の空タブが溜まり、タブ帯を埋めてしまう。
+      const isEmpty = (tab: TabState): boolean =>
+        affectedTabIds.has(tab.id) &&
+        collectPanes(tab.root).every((pane) => pane.sessionId === null);
+      const remaining = cleared.filter((tab) => !isEmpty(tab));
+
+      // 全部空になったら、まっさらな 1 枚だけを残す（タブ 0 枚にはしない）。
+      if (remaining.length === 0) {
+        const replacement = createTab((prefix) => createId(prefix));
+        return {
+          ...current,
+          activeTabId: replacement.id,
+          tabs: [replacement],
+        };
+      }
+
+      // 閉じたのが選択中のタブだったときは、その手前へ移る。
+      const closingIndex = cleared.findIndex((tab) => isEmpty(tab));
+      const activeTabId = remaining.some((tab) => tab.id === current.activeTabId)
+        ? current.activeTabId
+        : remaining[Math.max(0, closingIndex - 1)]?.id ?? remaining[0].id;
+
+      return { ...current, activeTabId, tabs: remaining };
+    });
   };
 
   const launchPinned = async (): Promise<void> => {

@@ -161,7 +161,10 @@ test("Japanese IME preedit wraps inside wide and narrow terminal panes", async (
     const wide = await measureComposition(page);
 
     expect(wide.computedWidth).not.toBe("auto");
-    expect(wide.computedRight).toBe("auto");
+    // right は検査しない。position: absolute で left と width を決めると、
+    // right は指定していなくてもブラウザが差分から計算した値を返す
+    // （getComputedStyle は解決済みの値を返すため "auto" にはならない）。
+    // 右にはみ出していないことは、下の viewRight の比較で見ている。
     expect(wide.viewWidth).toBeCloseTo(Math.floor(wide.screenWidth), 0);
     expect(wide.viewRight).toBeLessThanOrEqual(wide.hostRight + 0.5);
     expect(wide.viewBottom).toBeLessThanOrEqual(wide.screenBottom + 0.5);
