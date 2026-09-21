@@ -1,9 +1,9 @@
 {
-  "version": "0.2.6",
-  "notes": "Codexの処理中に文字を入力すると画面がちらついたり、日本語の変換文字の表示位置が飛んだりする問題を修正しました。2回目以降の会話で再発するケースへの対策です。",
+  "version": "0.2.7",
+  "notes": "起動中の終了確認、案件・作業名の優先表示、分割ペインの一時最大化を追加しました。",
   "downloadPage": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/latest",
   "urls": {
-    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.6/CLI-Cockpit-0.2.6-win-arm64.exe",
-    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.6/CLI-Cockpit-0.2.6-win-x64.exe"
+    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.7/CLI-Cockpit-0.2.7-win-arm64.exe",
+    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.7/CLI-Cockpit-0.2.7-win-x64.exe"
   }
 }

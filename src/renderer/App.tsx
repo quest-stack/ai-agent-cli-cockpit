@@ -125,6 +125,8 @@ export function App() {
   const [sessions, setSessions] = useState<SessionState[]>([]);
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 一時的な表示状態。分割ツリーや保存データには最大化を反映しない。
+  const [zoomedTabId, setZoomedTabId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => window.innerWidth < 900,
   );
@@ -425,7 +427,26 @@ export function App() {
     setLauncherError(undefined);
   };
 
+  const togglePaneZoom = (tabId: string, paneId: string): void => {
+    const tab = workspaceRef.current?.tabs.find((item) => item.id === tabId);
+    const pane = tab ? findPane(tab.root, paneId) : undefined;
+    if (!tab || !pane || collectPanes(tab.root).length < 2) {
+      return;
+    }
+    updateTab(tabId, (current) => ({ ...current, activePaneId: paneId }));
+    setZoomedTabId((current) => current === tabId ? null : tabId);
+    const sessionId = pane.sessionId;
+    if (sessionId) {
+      requestAnimationFrame(() => {
+        if (sessionsRef.current.some((session) => session.id === sessionId)) {
+          terminalRegistry.ensure(sessionId).focus();
+        }
+      });
+    }
+  };
+
   const removeTab = (tabId: string): void => {
+    setZoomedTabId((current) => current === tabId ? null : current);
     setWorkspace((current) => {
       if (!current) {
         return current;
@@ -792,17 +813,18 @@ export function App() {
   };
 
   const requestCloseSession = (session: SessionState): void => {
-    if (
-      session.status === "busy" ||
-      workspace?.settings.alwaysConfirmClose
-    ) {
-      setConfirmingSession(session);
+    if (session.status === "exited" || session.status === "error") {
+      removeSession(session.id);
       return;
     }
-    void killSession(session);
+    setConfirmingSession(session);
   };
 
   const removeSession = (sessionId: string): void => {
+    const sessionTab = workspaceRef.current?.tabs.find(
+      (tab) => findPaneBySession(tab.root, sessionId),
+    );
+    setZoomedTabId((current) => current === sessionTab?.id ? null : current);
     removedSessionIds.current.add(sessionId);
     terminalRegistry.remove(sessionId);
     setSessions((current) =>
@@ -1096,7 +1118,7 @@ export function App() {
     };
 
     const candidates = elements
-      .filter((element) => element !== current)
+      .filter((element) => element !== current && element.getClientRects().length > 0)
       .map((element) => {
         const rect = element.getBoundingClientRect();
         const center = {
@@ -1136,6 +1158,10 @@ export function App() {
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent): void => {
+      // 確認中のキーはダイアログに任せ、背面のタブ・ペインを操作しない。
+      if (confirmingSession || confirmingTab) {
+        return;
+      }
       if (tourOpen) {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -1174,6 +1200,17 @@ export function App() {
         return;
       }
 
+      if (event.ctrlKey && event.shiftKey && event.key === "Enter") {
+        if (event.isComposing || helpOpen || searchOpen || settingsOpen) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) {
+          togglePaneZoom(activeTab.id, activeTab.activePaneId);
+        }
+        return;
+      }
       if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "t") {
         event.preventDefault();
         newTab();
@@ -1186,6 +1223,7 @@ export function App() {
       }
       if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "d") {
         event.preventDefault();
+        setZoomedTabId((current) => current === activeTab.id ? null : current);
         const result = splitPane(
           activeTab.root,
           activeTab.activePaneId,
@@ -1201,6 +1239,7 @@ export function App() {
       }
       if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "e") {
         event.preventDefault();
+        setZoomedTabId((current) => current === activeTab.id ? null : current);
         const result = splitPane(
           activeTab.root,
           activeTab.activePaneId,
@@ -1258,7 +1297,17 @@ export function App() {
 
     window.addEventListener("keydown", handleKeyboard, true);
     return () => window.removeEventListener("keydown", handleKeyboard, true);
-  }, [activeTab, completeTour, helpOpen, tourOpen, workspace]);
+  }, [
+    activeTab,
+    completeTour,
+    confirmingSession,
+    confirmingTab,
+    helpOpen,
+    searchOpen,
+    settingsOpen,
+    tourOpen,
+    workspace,
+  ]);
 
   if (!hydrated || !workspace || !activeTab) {
     return (
@@ -1349,27 +1398,7 @@ export function App() {
               <b>{appVersion ? `v${appVersion}` : "確認中…"}</b>
             </div>
             <span>SESSION SAFETY</span>
-            <label>
-              <input
-                checked={workspace.settings.alwaysConfirmClose}
-                onChange={(event) =>
-                  setWorkspace((current) =>
-                    current
-                      ? {
-                          ...current,
-                          settings: {
-                            ...current.settings,
-                            alwaysConfirmClose: event.target.checked,
-                          },
-                        }
-                      : current,
-                  )
-                }
-                type="checkbox"
-              />
-              終了時に常に確認する
-            </label>
-            <p>busy中の終了確認は常に有効です。</p>
+            <p>起動中のセッションは、入力待ち・待機中も終了前に確認します。</p>
             <span>KEYS</span>
             <label>
               <input
@@ -1511,7 +1540,7 @@ export function App() {
                   <StatusDot status={activeSession.status} />
                   <TerminalSquare aria-hidden="true" size={15} />
                   <strong>
-                    {activeSession.projectName} · {activeSession.title}
+                    {activeSession.title} · {activeSession.projectName}
                   </strong>
                   <span>{activeSession.cwd}</span>
                 </>
@@ -1524,6 +1553,8 @@ export function App() {
               )}
             </div>
             <span className="pane-count">
+              {zoomedTabId === activeTab.id && collectPanes(activeTab.root).length > 1
+                ? "最大化 · " : ""}
               {collectPanes(activeTab.root).length} PANE
               {collectPanes(activeTab.root).length === 1 ? "" : "S"}
             </span>
@@ -1566,6 +1597,7 @@ export function App() {
                     }))
                   }
                   onClosePane={(paneId) => {
+                    setZoomedTabId((current) => current === tab.id ? null : current);
                     updateTab(tab.id, (currentTab) => {
                       const root = removePane(currentTab.root, paneId);
                       if (!root) {
@@ -1592,6 +1624,7 @@ export function App() {
                     }))
                   }
                   onSplitPane={(paneId, axis: SplitAxis) => {
+                    setZoomedTabId((current) => current === tab.id ? null : current);
                     updateTab(tab.id, (currentTab) => {
                       const result = splitPane(
                         currentTab.root,
@@ -1610,12 +1643,17 @@ export function App() {
                     await startSession(tab.id, paneId, input);
                   }}
                   onTogglePin={togglePin}
+                  onToggleZoom={(paneId) => togglePaneZoom(tab.id, paneId)}
                   paneCount={collectPanes(tab.root).length}
                   projects={projects}
                   recent={workspace.recent}
                   sessions={sessions}
                   settings={workspace.settings}
                   tabActive={active}
+                  zoomedPaneId={
+                    zoomedTabId === tab.id && collectPanes(tab.root).length > 1
+                      ? tab.activePaneId : null
+                  }
                 />
               </div>
             ))}
@@ -1638,10 +1676,10 @@ export function App() {
       )}
       {confirmingSession && (
         <ConfirmDialog
-          description={`${confirmingSession.projectName} · ${confirmingSession.title} は実行中です。PTYプロセスを終了しますか？`}
+          description={`${confirmingSession.title} · ${confirmingSession.projectName}\n実行中の処理は中断されます。`}
           onCancel={() => setConfirmingSession(null)}
           onConfirm={() => void killSession(confirmingSession)}
-          title="実行中のセッションを終了"
+          title="このセッションを終了しますか？"
         />
       )}
       {confirmingTab && (

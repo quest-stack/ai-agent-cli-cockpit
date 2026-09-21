@@ -1,9 +1,13 @@
 import {
   Columns2,
+  Maximize2,
+  Minimize2,
   Rows2,
   Terminal as TerminalIcon,
   X,
 } from "lucide-react";
+
+import { findPane } from "../../shared/layout";
 
 import { Launcher } from "./Launcher";
 import { StatusDot } from "./StatusDot";
@@ -31,12 +35,14 @@ interface PaneGridProps {
   onSplitPane: (paneId: string, axis: SplitAxis) => void;
   onStart: (paneId: string, input: LaunchInput) => Promise<void>;
   onTogglePin: (path: string) => void;
+  onToggleZoom: (paneId: string) => void;
   paneCount: number;
   projects: ProjectCandidate[];
   recent: RecentSession[];
   sessions: SessionState[];
   settings: AppSettings;
   tabActive: boolean;
+  zoomedPaneId: string | null;
 }
 
 export function PaneGrid(props: PaneGridProps) {
@@ -52,12 +58,14 @@ export function PaneGrid(props: PaneGridProps) {
     onSplitPane,
     onStart,
     onTogglePin,
+    onToggleZoom,
     paneCount,
     projects,
     recent,
     sessions,
     settings,
     tabActive,
+    zoomedPaneId,
   } = props;
 
   if (node.type === "split") {
@@ -68,7 +76,8 @@ export function PaneGrid(props: PaneGridProps) {
       >
         <div
           className="split-child"
-          style={{ flexBasis: `${node.ratio * 100}%` }}
+          hidden={zoomedPaneId !== null && !findPane(node.children[0], zoomedPaneId)}
+          style={{ flexBasis: zoomedPaneId ? "100%" : `${node.ratio * 100}%` }}
         >
           <PaneGrid
             {...props}
@@ -83,6 +92,7 @@ export function PaneGrid(props: PaneGridProps) {
               : "上下ペインの高さを変更"
           }
           className="split-handle"
+          hidden={zoomedPaneId !== null}
           onPointerDown={(event) => {
             event.preventDefault();
             const handle = event.currentTarget;
@@ -111,7 +121,8 @@ export function PaneGrid(props: PaneGridProps) {
         />
         <div
           className="split-child"
-          style={{ flexBasis: `${(1 - node.ratio) * 100}%` }}
+          hidden={zoomedPaneId !== null && !findPane(node.children[1], zoomedPaneId)}
+          style={{ flexBasis: zoomedPaneId ? "100%" : `${(1 - node.ratio) * 100}%` }}
         >
           <PaneGrid
             {...props}
@@ -124,7 +135,26 @@ export function PaneGrid(props: PaneGridProps) {
   }
 
   const session = sessions.find((item) => item.id === node.sessionId);
-  const active = tabActive && node.id === activePaneId;
+  const visible = tabActive && (!zoomedPaneId || node.id === zoomedPaneId);
+  const active = visible && node.id === activePaneId;
+  const maximized = zoomedPaneId === node.id;
+  const zoomLabel = maximized ? "分割表示に戻す" : "ペインを最大化";
+  const zoomButton = paneCount > 1 && (
+    <button
+      aria-label={zoomLabel}
+      aria-pressed={maximized}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggleZoom(node.id);
+      }}
+      title={`${zoomLabel} (Ctrl+Shift+Enter)`}
+      type="button"
+    >
+      {maximized
+        ? <Minimize2 aria-hidden="true" size={14} />
+        : <Maximize2 aria-hidden="true" size={14} />}
+    </button>
+  );
   const closing = session
     ? closingSessionIds.has(session.id)
     : false;
@@ -135,6 +165,7 @@ export function PaneGrid(props: PaneGridProps) {
       className={`terminal-pane ${active ? "is-active" : ""}`}
       data-pane-id={node.id}
       data-testid={`pane-${node.id}`}
+      data-zoomed={maximized ? "true" : undefined}
       onMouseDown={() => onActivatePane(node.id)}
     >
       {session ? (
@@ -143,9 +174,9 @@ export function PaneGrid(props: PaneGridProps) {
             <div className="pane-identity">
               <StatusDot status={session.status} />
               <TerminalIcon aria-hidden="true" size={14} />
-              <span>
-                <strong>{session.projectName}</strong>
-                <small> · {session.title}</small>
+              <span title={`${session.title} · ${session.projectName}`}>
+                <strong>{session.title}</strong>
+                <small> · {session.projectName}</small>
               </span>
             </div>
             <div className="pane-meta">
@@ -153,6 +184,7 @@ export function PaneGrid(props: PaneGridProps) {
               <span className="pane-status-label">{session.status}</span>
             </div>
             <div className="pane-actions">
+              {zoomButton}
               <button
                 aria-label="右に分割"
                 onClick={(event) => {
@@ -200,7 +232,7 @@ export function PaneGrid(props: PaneGridProps) {
               command={session.command}
               onFocus={() => onActivatePane(node.id)}
               sessionId={session.id}
-              visible={tabActive}
+              visible={visible}
             />
           )}
           {!closing &&
@@ -216,6 +248,7 @@ export function PaneGrid(props: PaneGridProps) {
       ) : (
         <div className="empty-pane">
           <div className="empty-pane-actions">
+            {zoomButton}
             <button
               aria-label="右に分割"
               onClick={() => onSplitPane(node.id, "row")}

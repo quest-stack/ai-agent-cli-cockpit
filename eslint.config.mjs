@@ -27,6 +27,8 @@ const browserGlobals = {
   cancelAnimationFrame: "readonly",
   ClipboardEvent: "readonly",
   document: "readonly",
+  HTMLButtonElement: "readonly",
+  HTMLDialogElement: "readonly",
   HTMLDivElement: "readonly",
   HTMLElement: "readonly",
   HTMLInputElement: "readonly",

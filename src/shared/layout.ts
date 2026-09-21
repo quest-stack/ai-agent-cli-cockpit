@@ -73,10 +73,14 @@ export function getTabDisplayTitle(
 
   if (tabSessions.length === 1) {
     const [session] = tabSessions;
-    return `${session.projectName} · ${session.title}`;
+    return `${session.title} · ${session.projectName}`;
   }
 
-  return `${tabSessions.length} Sessions`;
+  // 特定セッションを「親」にせず、選択中の作業名を先に見せる。
+  const activeSessionId = findPane(tab.root, tab.activePaneId)?.sessionId;
+  const activeSession = tabSessions.find((session) => session.id === activeSessionId)
+    ?? tabSessions[0];
+  return `${activeSession.title} · ほか${tabSessions.length - 1}件`;
 }
 
 export function findPane(

@@ -108,7 +108,7 @@ test("tab switching keeps every split layout in the render set", () => {
   );
 });
 
-test("multi-session tabs use a neutral flat label", () => {
+test("multi-session tabs lead with the selected task and count the other sessions", () => {
   const idFactory = createIdFactory();
   const tab = createTab(idFactory);
   const split = splitPane(tab.root, tab.activePaneId, "row", idFactory);
@@ -123,24 +123,29 @@ test("multi-session tabs use a neutral flat label", () => {
     "session-2",
   );
 
-  assert.equal(
-    getTabDisplayTitle(
-      { ...tab, root: withBothSessions },
-      [
-        {
-          id: "session-1",
-          projectName: "origin",
-          title: "Claude",
-        },
-        {
-          id: "session-2",
-          projectName: "corporate-site",
-          title: "Codex",
-        },
-      ],
-    ),
-    "2 Sessions",
-  );
+  for (const [activePaneId, title] of [
+    [tab.activePaneId, "Claude"],
+    [split.activePaneId, "Codex"],
+  ]) {
+    assert.equal(
+      getTabDisplayTitle(
+        { ...tab, activePaneId, root: withBothSessions },
+        [
+          {
+            id: "session-1",
+            projectName: "origin",
+            title: "Claude",
+          },
+          {
+            id: "session-2",
+            projectName: "corporate-site",
+            title: "Codex",
+          },
+        ],
+      ),
+      `${title} · ほか1件`,
+    );
+  }
 });
 
 test("renaming a session immediately changes its single-session tab label", () => {
@@ -166,7 +171,7 @@ test("renaming a session immediately changes its single-session tab label", () =
   assert.equal(renamed[0].title, "CV 改善");
   assert.equal(
     getTabDisplayTitle(assignedTab, renamed),
-    "corporate-site · CV 改善",
+    "CV 改善 · corporate-site",
   );
   assert.strictEqual(
     renameSessionTitle(renamed, "session-1", "   "),
