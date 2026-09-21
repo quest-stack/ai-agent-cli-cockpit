@@ -82,6 +82,7 @@ export interface SavedPreset {
 }
 
 export interface AppSettings {
+  /** 旧版の保存形式との互換用。起動中のセッションは値によらず終了前に確認する。 */
   alwaysConfirmClose: boolean;
   defaultCommand: CliCommand;
   /**

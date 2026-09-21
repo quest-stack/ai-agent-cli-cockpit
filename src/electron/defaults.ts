@@ -4,7 +4,7 @@ import type { AppSettings, PersistedWorkspace } from "../shared/types";
 
 export function createDefaultSettings(): AppSettings {
   return {
-    alwaysConfirmClose: false,
+    alwaysConfirmClose: true,
     defaultCommand: "claude",
     // 既定は CLI 本来のまま（Enter で送信）。更新しただけで送信のキーが
     // 変わると、これまでの手が通じなくなるため、切り替えは利用者に委ねる。

@@ -34,6 +34,7 @@ const SHORTCUTS: ShortcutEntry[] = [
   { keys: "Ctrl + Shift + W", what: "今のタブを閉じる" },
   { keys: "Ctrl + Shift + D", what: "ペインを左右に分割" },
   { keys: "Ctrl + Shift + E", what: "ペインを上下に分割" },
+  { keys: "Ctrl + Shift + Enter", what: "選択中のペインを最大化／元の分割表示に戻す" },
   { keys: "Ctrl + Shift + F", what: "全ペインを横断検索" },
   { keys: "Ctrl + Tab", what: "次のタブへ（Shift 併用で前へ）" },
   { keys: "Alt + ← → ↑ ↓", what: "隣のペインへ移動" },

@@ -157,6 +157,15 @@ test("Japanese IME preedit wraps inside wide and narrow terminal panes", async (
     // 入力用要素はシェル起動より先に作られる。PSReadLine が入力を受け付ける
     // プロンプトまで待ち、起動中の入力消失を折り返し失敗と誤判定しない。
     await expect(page.locator(".xterm-rows")).toContainText(/PS [^>]+>/u);
+    // 最初のプロンプトの後に起動用コマンドが送られる。完了を待ち、
+    // 作業フォルダーの長さに左右されない短いプロンプトで変換幅を測る。
+    await expect(page.locator(".xterm-rows")).toContainText("Set-ExecutionPolicy");
+    await helper.focus();
+    await page.keyboard.insertText("function prompt { 'IME> ' }; Clear-Host");
+    await expect(page.locator(".xterm-rows")).toContainText("Clear-Host");
+    await page.keyboard.press("Enter");
+    await expect.poll(async () => (await page.locator(".xterm-rows > div")
+      .allTextContents()).some((line) => line.trim() === "IME>")).toBe(true);
 
     await setWindowSize(app, 1_280, 700);
     const longPreedit = "あ".repeat(150);

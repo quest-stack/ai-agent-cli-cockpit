@@ -42,7 +42,7 @@ test("PowerShell session, six-pane layout, search and restore work together", as
     await page.getByLabel("セッション名").fill("P0 PowerShell");
     await page.getByRole("button", { name: /Start Session/u }).click();
     await expect(
-      page.getByRole("button", { name: /cli-cockpit P0 PowerShell/u }),
+      page.getByTestId(/^session-row-/u).filter({ hasText: "P0 PowerShell" }),
     ).toBeVisible();
 
     // 1 回ごとにペインが増えたことを確かめてから次を押す。まとめて押すと
@@ -100,12 +100,9 @@ test("PowerShell session, six-pane layout, search and restore work together", as
     app = await launch();
     page = await app.firstWindow();
     await expect(page.locator("[data-pane-id]")).toHaveCount(6);
-    // 復元後は 6 枚すべてにランチャーが出るため、同じ名前のボタンが
-    // 6 個並ぶ。1 個に絞ってから存在を確かめる。
+    // タブの終了ボタンや各ランチャーの履歴と区別して一覧の行を確認する。
     await expect(
-      page
-        .getByRole("button", { name: /cli-cockpit P0 PowerShell/u })
-        .first(),
+      page.getByTestId(/^session-row-/u).filter({ hasText: "P0 PowerShell" }),
     ).toBeVisible();
   } finally {
     await app.close().catch(() => undefined);

@@ -222,7 +222,7 @@ export function Sidebar({
             session.status === "exited" || session.status === "error";
           return (
             <div
-              aria-label={`${session.projectName} ${session.title}`}
+              aria-label={`${session.title} ${session.projectName}`}
               className={`session-row ${
                 activeSessionId === session.id ? "is-active" : ""
               }`}
@@ -237,11 +237,7 @@ export function Sidebar({
               }}
               role="button"
               tabIndex={0}
-              title={
-                collapsed
-                  ? `${session.projectName} · ${session.title}`
-                  : undefined
-              }
+              title={`${session.title} · ${session.projectName}`}
             >
               <StatusDot status={session.status} />
               {!collapsed && (
@@ -252,7 +248,6 @@ export function Sidebar({
                     setEditingSessionId(session.id);
                   }}
                 >
-                  <strong>{session.projectName}</strong>
                   {editingSessionId === session.id ? (
                     <SessionTitleEditor
                       initialTitle={session.title}
@@ -264,10 +259,11 @@ export function Sidebar({
                       }}
                     />
                   ) : (
-                    <small title="ダブルクリックで名前を編集">
+                    <strong title="ダブルクリックで名前を編集">
                       {session.title}
-                    </small>
+                    </strong>
                   )}
+                  <small>{session.projectName}</small>
                 </span>
               )}
               {!collapsed && (

@@ -59,7 +59,7 @@ const demoProjects: ProjectCandidate[] = [
 
 function createDemoWorkspace(): PersistedWorkspace {
   const settings = {
-    alwaysConfirmClose: false,
+    alwaysConfirmClose: true,
     defaultCommand: "claude" as const,
     // 本体の既定値と揃える（CLI 本来の Enter=送信のまま）。
     enterInsertsNewline: false,
