@@ -201,6 +201,9 @@ export class PtyManager {
         env: getPtyEnvironment(),
         name: "xterm-256color",
         rows: request.rows,
+        // OS 標準 ConPTY は DEC 2026 の終了を本文・カーソル移動より先に
+        // 転送することがあり、同期描画が崩れる。同梱版は出力順序を保つ。
+        useConptyDll: true,
       },
     );
     this.events.onDiagnostic(

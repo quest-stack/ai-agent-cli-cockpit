@@ -42,6 +42,16 @@ async function setWindowSize(
     },
     { height, width },
   );
+  // setSize はウィンドウ変更だけを待つ。ResizeObserver が xterm を fit する
+  // 前に変換を始めると、旧サイズ（1440px）の表示を新しい枠で測ってしまう。
+  const page = await app.firstWindow();
+  await expect.poll(() => page.evaluate(() => {
+    const host = document.querySelector<HTMLElement>(".terminal-host");
+    const screen = document.querySelector<HTMLElement>(".xterm-screen");
+    if (!host || !screen) return false;
+    const bounds = screen.getBoundingClientRect();
+    return bounds.width > 0 && bounds.right <= host.getBoundingClientRect().right + 0.5;
+  })).toBe(true);
 }
 
 async function measureComposition(page: Page): Promise<CompositionMeasurement> {
@@ -144,6 +154,9 @@ test("Japanese IME preedit wraps inside wide and narrow terminal panes", async (
     await page.getByRole("button", { name: /Start Session/u }).click();
     const helper = page.locator(".xterm-helper-textarea");
     await expect(helper).toBeAttached();
+    // 入力用要素はシェル起動より先に作られる。PSReadLine が入力を受け付ける
+    // プロンプトまで待ち、起動中の入力消失を折り返し失敗と誤判定しない。
+    await expect(page.locator(".xterm-rows")).toContainText(/PS [^>]+>/u);
 
     await setWindowSize(app, 1_280, 700);
     const longPreedit = "あ".repeat(150);

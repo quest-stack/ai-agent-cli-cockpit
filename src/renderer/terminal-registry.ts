@@ -18,6 +18,7 @@ import {
   resolveCompositionHorizontalLayout,
   resolveCompositionTranslateY,
 } from "./composition-layout";
+import { synchronizeCompositionPosition } from "./composition-sync";
 import { getEmojiCellCount } from "./emoji-width";
 import {
   getTerminalManualNewlineSequence,
@@ -244,6 +245,7 @@ class TerminalController {
   private suppressCompositionObserver = false;
   /** 折返し判定前に変換文字列の非折返し幅を測る不可視要素。 */
   private compositionMeasureElement: HTMLElement | undefined;
+  private disposeCompositionSync: (() => void) | undefined;
   private opened = false;
   /** ペイン横スクロール打ち消しリスナを張っている host。 */
   private paneScrollHost: HTMLElement | undefined;
@@ -1266,6 +1268,7 @@ class TerminalController {
     if (!this.opened) {
       host.replaceChildren();
       this.terminal.open(host);
+      this.disposeCompositionSync = synchronizeCompositionPosition(this.terminal);
       this.opened = true;
       this.observeFontReadiness();
       // Ctrl+V を確実に捕まえるため、xterm の入力先 textarea に capture フェーズで
@@ -1564,6 +1567,8 @@ class TerminalController {
 
   dispose(): void {
     this.disposed = true;
+    this.disposeCompositionSync?.();
+    this.disposeCompositionSync = undefined;
     if (this.sizeStableTimer !== undefined) {
       window.clearTimeout(this.sizeStableTimer);
       this.sizeStableTimer = undefined;
