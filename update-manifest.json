@@ -1,9 +1,18 @@
 {
-  "version": "0.2.7",
-  "notes": "起動中の終了確認、案件・作業名の優先表示、分割ペインの一時最大化を追加しました。",
+  "version": "0.2.8",
+  "notes": "英語版を追加しました。スクショの二重貼り付けを修正し、Ctrl+Cのコピー／中断切り替え、履歴の作業名優先表示、端末リンクのブラウザ起動に対応しました。",
   "downloadPage": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/latest",
   "urls": {
-    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.7/CLI-Cockpit-0.2.7-win-arm64.exe",
-    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.7/CLI-Cockpit-0.2.7-win-x64.exe"
+    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.8/CLI-Cockpit-0.2.8-win-arm64.exe",
+    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.8/CLI-Cockpit-0.2.8-win-x64.exe"
+  },
+  "editions": {
+    "en": {
+      "notes": "The English edition is here. This release fixes duplicate screenshot paste, adds a saved Ctrl+C Copy/Interrupt mode, prioritizes task names in recent sessions, and opens terminal links in your browser.",
+      "urls": {
+        "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.8/CLI-Cockpit-0.2.8-en-win-arm64.exe",
+        "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.8/CLI-Cockpit-0.2.8-en-win-x64.exe"
+      }
+    }
   }
 }
