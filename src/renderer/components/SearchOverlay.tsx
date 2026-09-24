@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { terminalRegistry } from "../terminal-registry";
 
+import { t } from "../../shared/i18n";
+
 import type { SessionState } from "../../shared/types";
 
 interface SearchOverlayProps {
@@ -73,9 +75,9 @@ export function SearchOverlay({
     >
       <Search aria-hidden="true" size={17} />
       <input
-        aria-label="全ペインを検索"
+        aria-label={t("全ペインを検索")}
         onChange={(event) => runSearch(event.target.value)}
-        placeholder="全ペインのスクロールバックを検索"
+        placeholder={t("全ペインのスクロールバックを検索")}
         ref={inputRef}
         value={query}
       />
@@ -83,7 +85,7 @@ export function SearchOverlay({
         {query ? `${matchingSessions.length} panes` : "Ctrl+Shift+F"}
       </span>
       <button
-        aria-label="前の一致"
+        aria-label={t("前の一致")}
         disabled={matchingSessions.length === 0}
         onClick={() => move("previous")}
         type="button"
@@ -91,14 +93,14 @@ export function SearchOverlay({
         <ChevronUp aria-hidden="true" size={15} />
       </button>
       <button
-        aria-label="次の一致"
+        aria-label={t("次の一致")}
         disabled={matchingSessions.length === 0}
         onClick={() => move("next")}
         type="button"
       >
         <ChevronDown aria-hidden="true" size={15} />
       </button>
-      <button aria-label="検索を閉じる" onClick={onClose} type="button">
+      <button aria-label={t("検索を閉じる")} onClick={onClose} type="button">
         <X aria-hidden="true" size={15} />
       </button>
     </div>

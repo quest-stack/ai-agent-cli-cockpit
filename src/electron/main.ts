@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -17,9 +17,11 @@ import {
 
 import { formatClipboardImagePath } from "../shared/clipboard";
 import { DIAGNOSTIC_CATEGORIES } from "../shared/diagnostics";
+import { openExternalWebLink } from "../shared/external-link";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { isGpuCrash } from "../shared/process-gone";
 import {
+  appEditionMetadataSchema,
   clipboardTextSchema,
   diagnosticLogMessageSchema,
   notificationRequestSchema,
@@ -31,12 +33,15 @@ import {
   updateManifestSchema,
 } from "../shared/schema";
 import { isNewerVersion } from "../shared/version-compare";
+import { getUpdateForEdition } from "../shared/update-edition";
 
 import { DiagnosticLogger } from "./diagnostic-log";
 import { scanProjects } from "./project-scanner";
 import { PtyManager } from "./pty-manager";
 import { RemoteLaunchWatcher } from "./remote-launch-watcher";
 import { SessionStore } from "./session-store";
+
+import { configureAppLanguage, getAppLanguage, resolveAppLanguage, t } from "../shared/i18n";
 
 import type {
   IpcMainEvent,
@@ -48,6 +53,14 @@ import type {
   ProjectDirectoryPickResult,
 } from "../shared/ipc";
 import type { UpdateManifest, UpdateNotice } from "../shared/types";
+
+// Packaged editions are fixed by their metadata, regardless of the OS language
+// or environment variables. The environment override is development-only.
+configureAppLanguage(app.isPackaged
+  ? appEditionMetadataSchema.parse(JSON.parse(
+    readFileSync(join(app.getAppPath(), "package.json"), "utf8"),
+  ) as unknown).cockpitLanguage
+  : resolveAppLanguage(process.env.COCKPIT_LANGUAGE));
 
 const UPDATE_CHECK_DELAY_MS = 5_000;
 const UPDATE_CHECK_TIMEOUT_MS = 10_000;
@@ -106,10 +119,7 @@ function getErrorMessage(error: unknown): string {
 function getUpdateDownloadUrl(manifest: UpdateManifest): string {
   // ARM64 Windows 上でも x64 ビルドを動かすと process.arch は x64 になる。
   // 今回は実行中バイナリと同じ版を案内し、CPU 実体の補正は将来課題とする。
-  if (process.arch === "arm64" || process.arch === "x64") {
-    return manifest.urls[process.arch];
-  }
-  return "";
+  return getUpdateForEdition(manifest, getAppLanguage(), process.arch).downloadUrl;
 }
 
 function logUpdateCheckFailure(
@@ -202,7 +212,7 @@ async function checkForUpdates(): Promise<void> {
     availableUpdateManifest = parsed.data;
     const notice: UpdateNotice = {
       downloadAvailable: getUpdateDownloadUrl(parsed.data) !== "",
-      notes: parsed.data.notes,
+      notes: getUpdateForEdition(parsed.data, getAppLanguage(), process.arch).notes,
       version: parsed.data.version,
     };
     sendToRenderer(IPC_CHANNELS.updateAvailable, notice);
@@ -349,7 +359,7 @@ function registerIpcHandlers(): void {
       const ownerWindow = BrowserWindow.fromWebContents(event.sender);
       const options: OpenDialogOptions = {
         properties: ["openDirectory"],
-        title: "フォルダを選択",
+        title: t("フォルダを選択"),
       };
       const result = ownerWindow
         ? await dialog.showOpenDialog(ownerWindow, options)
@@ -403,7 +413,7 @@ function registerIpcHandlers(): void {
     }
 
     new Notification({
-      body: "CLIが入力または承認を待っています。",
+      body: t("CLIが入力または承認を待っています。"),
       silent: false,
       title: parsed.data.title,
     }).show();
@@ -428,6 +438,11 @@ function registerIpcHandlers(): void {
         parsed.data.sizeSettled === true,
       );
     }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.openExternalWebLink, (event, payload: unknown) => {
+    assertTrustedSender(event);
+    return openExternalWebLink(payload, (url) => shell.openExternal(url));
   });
 
   ipcMain.handle(

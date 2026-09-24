@@ -1,3 +1,5 @@
+import { t } from "./i18n";
+
 import type {
   LayoutNode,
   PaneNode,
@@ -80,7 +82,7 @@ export function getTabDisplayTitle(
   const activeSessionId = findPane(tab.root, tab.activePaneId)?.sessionId;
   const activeSession = tabSessions.find((session) => session.id === activeSessionId)
     ?? tabSessions[0];
-  return `${activeSession.title} · ほか${tabSessions.length - 1}件`;
+  return t("{value0} · ほか{value1}件", { value0: activeSession.title, value1: tabSessions.length - 1 });
 }
 
 export function findPane(

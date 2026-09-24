@@ -13,6 +13,8 @@ import { Launcher } from "./Launcher";
 import { StatusDot } from "./StatusDot";
 import { TerminalView } from "./TerminalView";
 
+import { t } from "../../shared/i18n";
+
 import type { LaunchInput } from "./Launcher";
 import type {
   AppSettings,
@@ -88,8 +90,8 @@ export function PaneGrid(props: PaneGridProps) {
         <div
           aria-label={
             node.axis === "row"
-              ? "左右ペインの幅を変更"
-              : "上下ペインの高さを変更"
+              ? t("左右ペインの幅を変更")
+              : t("上下ペインの高さを変更")
           }
           className="split-handle"
           hidden={zoomedPaneId !== null}
@@ -138,7 +140,7 @@ export function PaneGrid(props: PaneGridProps) {
   const visible = tabActive && (!zoomedPaneId || node.id === zoomedPaneId);
   const active = visible && node.id === activePaneId;
   const maximized = zoomedPaneId === node.id;
-  const zoomLabel = maximized ? "分割表示に戻す" : "ペインを最大化";
+  const zoomLabel = maximized ? t("分割表示に戻す") : t("ペインを最大化");
   const zoomButton = paneCount > 1 && (
     <button
       aria-label={zoomLabel}
@@ -161,7 +163,7 @@ export function PaneGrid(props: PaneGridProps) {
 
   return (
     <section
-      aria-label={session ? `${session.title} ターミナル` : "新規セッション"}
+      aria-label={session ? t("{value0} ターミナル", { value0: session.title }) : t("新規セッション")}
       className={`terminal-pane ${active ? "is-active" : ""}`}
       data-pane-id={node.id}
       data-testid={`pane-${node.id}`}
@@ -186,35 +188,35 @@ export function PaneGrid(props: PaneGridProps) {
             <div className="pane-actions">
               {zoomButton}
               <button
-                aria-label="右に分割"
+                aria-label={t("右に分割")}
                 onClick={(event) => {
                   event.stopPropagation();
                   onSplitPane(node.id, "row");
                 }}
-                title="右に分割 (Ctrl+Shift+D)"
+                title={t("右に分割 (Ctrl+Shift+D)")}
                 type="button"
               >
                 <Columns2 aria-hidden="true" size={14} />
               </button>
               <button
-                aria-label="下に分割"
+                aria-label={t("下に分割")}
                 onClick={(event) => {
                   event.stopPropagation();
                   onSplitPane(node.id, "column");
                 }}
-                title="下に分割 (Ctrl+Shift+E)"
+                title={t("下に分割 (Ctrl+Shift+E)")}
                 type="button"
               >
                 <Rows2 aria-hidden="true" size={14} />
               </button>
               {paneCount > 1 && (
                 <button
-                  aria-label="ペインを閉じる"
+                  aria-label={t("ペインを閉じる")}
                   onClick={(event) => {
                     event.stopPropagation();
                     onClosePane(node.id);
                   }}
-                  title="ペインを閉じる"
+                  title={t("ペインを閉じる")}
                   type="button"
                 >
                   <X aria-hidden="true" size={14} />
@@ -223,9 +225,7 @@ export function PaneGrid(props: PaneGridProps) {
             </div>
           </header>
           {closing ? (
-            <div className="terminal-closing" role="status">
-              セッションを終了しています…
-            </div>
+            <div className="terminal-closing" role="status">{t("セッションを終了しています…")}</div>
           ) : (
             <TerminalView
               active={active}
@@ -239,9 +239,9 @@ export function PaneGrid(props: PaneGridProps) {
             (session.status === "exited" || session.status === "error") && (
             <div className="exited-banner" role="status">
               {session.status === "error"
-                ? `異常終了${session.exitCode === undefined ? "" : ` (${session.exitCode})`}`
-                : "プロセス終了"}
-              <span>サイドバーの ↻ で同じ設定を再起動できます</span>
+                ? t("異常終了{value0}", { value0: session.exitCode === undefined ? "" : ` (${session.exitCode})` })
+                : t("プロセス終了")}
+              <span>{t("サイドバーの ↻ で同じ設定を再起動できます")}</span>
             </div>
             )}
         </>
@@ -250,26 +250,26 @@ export function PaneGrid(props: PaneGridProps) {
           <div className="empty-pane-actions">
             {zoomButton}
             <button
-              aria-label="右に分割"
+              aria-label={t("右に分割")}
               onClick={() => onSplitPane(node.id, "row")}
-              title="右に分割"
+              title={t("右に分割")}
               type="button"
             >
               <Columns2 aria-hidden="true" size={14} />
             </button>
             <button
-              aria-label="下に分割"
+              aria-label={t("下に分割")}
               onClick={() => onSplitPane(node.id, "column")}
-              title="下に分割"
+              title={t("下に分割")}
               type="button"
             >
               <Rows2 aria-hidden="true" size={14} />
             </button>
             {paneCount > 1 && (
               <button
-                aria-label="ペインを閉じる"
+                aria-label={t("ペインを閉じる")}
                 onClick={() => onClosePane(node.id)}
-                title="ペインを閉じる"
+                title={t("ペインを閉じる")}
                 type="button"
               >
                 <X aria-hidden="true" size={14} />

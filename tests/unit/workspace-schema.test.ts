@@ -40,6 +40,7 @@ test("legacy workspaces restore the default sidebar width", () => {
 
   assert.equal(parsed.settings.sidebarWidth, DEFAULT_SIDEBAR_WIDTH);
   assert.equal(parsed.settings.tourCompleted, false);
+  assert.equal(parsed.settings.ctrlCCopies, false);
 });
 
 test("legacy generated counters become flat CLI labels", () => {

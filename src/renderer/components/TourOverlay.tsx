@@ -9,6 +9,8 @@ import {
   skipTour,
 } from "../tour-steps";
 
+import { t } from "../../shared/i18n";
+
 import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
@@ -288,24 +290,20 @@ export function TourOverlay({ onComplete }: TourOverlayProps) {
             className="tour-skip"
             onClick={handleSkip}
             type="button"
-          >
-            スキップ
-          </button>
+          >{t("スキップ")}</button>
           <div className="tour-navigation">
             <button
               className="tour-secondary"
               disabled={progress.stepIndex === 0}
               onClick={() => setProgress(retreatTour(progress))}
               type="button"
-            >
-              戻る
-            </button>
+            >{t("戻る")}</button>
             <button
               className="tour-primary"
               onClick={handleAdvance}
               type="button"
             >
-              {lastStep ? "はじめる" : "次へ"}
+              {lastStep ? t("はじめる") : t("次へ")}
             </button>
           </div>
         </footer>

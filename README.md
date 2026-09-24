@@ -1,5 +1,7 @@
 # AI Agent CLI Cockpit
 
+日本語 · [English](https://github.com/quest-stack/ai-agent-cli-cockpit/blob/main/README.en.md)
+
 Claude Code CLI と Codex CLI のセッションを、1つのウィンドウのタブとペインで
 束ねる Windows 向けターミナルアプリです。
 
@@ -70,10 +72,14 @@ CLI 本体はこのアプリに含まれません。**先に各 CLI を入れて
 
 CPU に合うインストーラを選びます。
 
+英語版は別ダウンロードです。アプリ内の言語切り替えはありません。英語版のファイル名には `-en-` が付きます。
+
 | PC | ファイル |
 |---|---|
 | Intel / AMD 搭載 Windows | `CLI-Cockpit-<version>-win-x64.exe` |
 | ARM 搭載 Windows | `CLI-Cockpit-<version>-win-arm64.exe` |
+| Intel / AMD（英語版） | `CLI-Cockpit-<version>-en-win-x64.exe` |
+| ARM（英語版） | `CLI-Cockpit-<version>-en-win-arm64.exe` |
 
 どちらか分からない場合は、**設定 > システム > バージョン情報 > システムの種類**で
 確認できます。「x64 ベース」と出れば x64、「ARM ベース」と出れば arm64 です。
@@ -255,7 +261,8 @@ CLI も自動で起動し直します。
 |---|---|
 | `Shift` + `Enter` | CLI へ改行を送る（送信せずに複数行入力する） |
 | `Ctrl` + `V` | 画像・文字列を貼り付ける |
-| `Ctrl` + `Shift` + `C` | 選択範囲をコピー（未選択時は従来どおり中断 = SIGINT） |
+| `Ctrl` + `C` | 上部ボタンで中断／コピーを切り替え。コピー時は未選択でも中断しない（設定を保存） |
+| `Ctrl` + `Shift` + `C` | Ctrl+Cのモードにかかわらず選択範囲をコピー |
 | `Ctrl` + `Shift` + `T` | 新しいタブ |
 | `Ctrl` + `Shift` + `W` | 現在のタブを閉じる |
 | `Ctrl` + `Shift` + `D` | ペインを左右に分割 |
@@ -408,6 +415,15 @@ npm run package:all
 構成は Electron + xterm.js + React + Vite です。TypeScript で書かれており、
 `src/electron`（メインプロセス）、`src/renderer`（画面）、`src/shared`（共通）に
 分かれています。
+
+0.2.8以降の日英両版は次のコマンドで作ります。言語をビルド時に固定し、既存の配布物を消さずに `release/<version>/<ja|en>/` へ出力します。
+
+```powershell
+npm run build:editions
+npm run package:editions
+# 英語・x64だけ作る場合
+npm run package:editions -- --language=en --arch=x64
+```
 
 ---
 

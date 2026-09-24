@@ -1,9 +1,10 @@
-# 第三者ソフトウェアのライセンス
+# Third-party software licenses / 第三者ソフトウェアのライセンス
 
 CLI Cockpit は次のオープンソースソフトウェアを利用しています。
 各ソフトウェアの著作権は、それぞれの権利者に帰属します。
+CLI Cockpit uses the following open-source software. Copyright belongs to each respective owner.
 
-対象: 11 パッケージ
+Packages / 対象: 11
 
 ---
 

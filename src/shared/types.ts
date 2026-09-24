@@ -84,6 +84,8 @@ export interface SavedPreset {
 export interface AppSettings {
   /** 旧版の保存形式との互換用。起動中のセッションは値によらず終了前に確認する。 */
   alwaysConfirmClose: boolean;
+  /** Ctrl+Cで選択範囲をコピー。未選択時もCLIへ中断を送らない。 */
+  ctrlCCopies: boolean;
   defaultCommand: CliCommand;
   /**
    * Enter で改行し、Shift+Enter で送信する。
@@ -156,6 +158,11 @@ export interface BootstrapPayload {
 export interface UpdateManifest {
   downloadPage: string;
   notes: string;
+  /** Optional for older Japanese-only manifests and clients. */
+  editions?: Partial<Record<"ja" | "en", {
+    notes: string;
+    urls: { arm64: string; x64: string };
+  }>>;
   urls: {
     arm64: string;
     x64: string;
@@ -233,6 +240,7 @@ export interface CockpitApi {
   onUpdateAvailable: (
     listener: (update: UpdateNotice) => void,
   ) => () => void;
+  openExternalWebLink: (url: string) => Promise<boolean>;
   openUpdateDownload: () => Promise<boolean>;
   pickProjectDirectory: () => Promise<ProjectDirectoryPickResult>;
   readClipboardForPaste: () => Promise<ClipboardPasteResult>;

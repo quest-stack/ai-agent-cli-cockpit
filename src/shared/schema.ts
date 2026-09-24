@@ -33,6 +33,9 @@ const updateUrlSchema = z.string().max(2_048).refine((value) => {
 const versionSchema = z.string().regex(/^\d+\.\d+\.\d+$/u);
 
 export const clipboardTextSchema = z.string().max(1_000_000);
+export const appEditionMetadataSchema = z.object({
+  cockpitLanguage: z.enum(["ja", "en"]).default("ja"),
+});
 export const diagnosticLogMessageSchema = z.string().min(1).max(16_384);
 
 export const paneNodeSchema = z.object({
@@ -101,6 +104,7 @@ export const savedPresetSchema = z.object({
 
 export const appSettingsSchema = z.object({
   alwaysConfirmClose: z.boolean(),
+  ctrlCCopies: z.boolean().default(false),
   defaultCommand: z.enum(CLI_COMMANDS),
   // Enter で改行し、Shift+Enter で送信する。
   //
@@ -134,6 +138,16 @@ export const updateManifestSchema: z.ZodType<
   import("./types").UpdateManifest
 > = z.object({
   downloadPage: updateUrlSchema,
+  editions: z.object({
+    ja: z.object({
+      notes: z.string().min(1).max(2_000),
+      urls: z.object({ arm64: updateUrlSchema, x64: updateUrlSchema }),
+    }).optional(),
+    en: z.object({
+      notes: z.string().min(1).max(2_000),
+      urls: z.object({ arm64: updateUrlSchema, x64: updateUrlSchema }),
+    }).optional(),
+  }).optional(),
   notes: z.string().min(1).max(2_000),
   urls: z.object({
     arm64: updateUrlSchema,

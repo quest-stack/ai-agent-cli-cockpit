@@ -12,11 +12,14 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  getDefaultSessionTitle,
   getProjectNameFromPath,
   resolveInitialLauncherCwd,
 } from "../../shared/session-labels";
 
 import { cockpitApi } from "../bridge";
+
+import { t } from "../../shared/i18n";
 
 import type {
   AppSettings,
@@ -134,7 +137,7 @@ export function Launcher({
         setDropdownOpen(false);
       }
     } catch {
-      setBrowseError("フォルダ選択ダイアログを開けませんでした。");
+      setBrowseError(t("フォルダ選択ダイアログを開けませんでした。"));
     } finally {
       setBrowsing(false);
     }
@@ -155,25 +158,21 @@ export function Launcher({
         </div>
         <div className="launcher-heading">
           <div>
-            <h1>作業コンソールを起動</h1>
-            <p>
-              案件フォルダとCLIごとに独立して起動します。判断や承認には介入しません。
-            </p>
+            <h1>{t("作業コンソールを起動")}</h1>
+            <p>{t("案件フォルダとCLIごとに独立して起動します。判断や承認には介入しません。")}</p>
           </div>
           <button
-            aria-label="プロジェクト候補を再スキャン"
+            aria-label={t("プロジェクト候補を再スキャン")}
             className="icon-button"
             onClick={() => void onRescan()}
-            title="再スキャン"
+            title={t("再スキャン")}
             type="button"
           >
             <RotateCcw aria-hidden="true" size={16} />
           </button>
         </div>
 
-        <label className="field-label" htmlFor="project-path">
-          プロジェクト
-        </label>
+        <label className="field-label" htmlFor="project-path">{t("プロジェクト")}</label>
         <div className="project-field-row">
           <div className="project-combobox">
             <Folder aria-hidden="true" className="field-icon" size={16} />
@@ -191,17 +190,17 @@ export function Launcher({
                 setDropdownOpen(true);
               }}
               onFocus={() => setDropdownOpen(true)}
-              placeholder="案件名で検索、または C:/... を直接入力"
+              placeholder={t("案件名で検索、または C:/... を直接入力")}
               role="combobox"
               spellCheck={false}
               value={cwd}
             />
             <button
-              aria-label={pinned ? "ピン留めを解除" : "ピン留め"}
+              aria-label={pinned ? t("ピン留めを解除") : t("ピン留め")}
               className={`pin-button ${pinned ? "is-pinned" : ""}`}
               disabled={!cwd.trim()}
               onClick={() => onTogglePin(cwd.trim())}
-              title={pinned ? "ピン留めを解除" : "最上部にピン留め"}
+              title={pinned ? t("ピン留めを解除") : t("最上部にピン留め")}
               type="button"
             >
               {pinned ? (
@@ -221,8 +220,8 @@ export function Launcher({
                   <Search aria-hidden="true" size={13} />
                   <span>
                     {filteredProjects.length > 0
-                      ? `${filteredProjects.length}件の候補`
-                      : "候補外のパスを直接使用"}
+                      ? t("{value0}件の候補", { value0: filteredProjects.length })
+                      : t("候補外のパスを直接使用")}
                   </span>
                 </div>
                 {filteredProjects.map((project) => (
@@ -256,7 +255,7 @@ export function Launcher({
             )}
           </div>
           <button
-            aria-label="プロジェクトフォルダを参照"
+            aria-label={t("プロジェクトフォルダを参照")}
             className="browse-button"
             disabled={browsing}
             onClick={() => void browse()}
@@ -279,16 +278,16 @@ export function Launcher({
             >
               <option value="claude">claude</option>
               <option value="codex">codex</option>
-              <option value="powershell">PowerShell（空端末）</option>
+              <option value="powershell">{t("PowerShell（空端末）")}</option>
             </select>
           </label>
           <label>
-            <span className="field-label">セッション名</span>
+            <span className="field-label">{t("セッション名")}</span>
             <input
-              aria-label="セッション名"
+              aria-label={t("セッション名")}
               maxLength={160}
               onChange={(event) => setSessionName(event.target.value)}
-              placeholder="未入力ならCLI名"
+              placeholder={t("未入力ならCLI名")}
               value={sessionName}
             />
           </label>
@@ -314,7 +313,7 @@ export function Launcher({
           <div className="recent-launches">
             <div className="recent-heading">
               <Clock3 aria-hidden="true" size={14} />
-              <span>最近使った独立セッション</span>
+              <span>{t("最近使った独立セッション")}</span>
             </div>
             <div className="recent-list">
               {recent.slice(0, 4).map((item) => (
@@ -332,8 +331,8 @@ export function Launcher({
                   title={`${item.cwd} · ${item.command}`}
                   type="button"
                 >
-                  <span>{item.projectName}</span>
-                  <small>{item.title}</small>
+                  <span>{item.title.trim() || getDefaultSessionTitle(item.command)}</span>
+                  <small>{item.projectName}</small>
                   <Play aria-hidden="true" size={13} />
                 </button>
               ))}

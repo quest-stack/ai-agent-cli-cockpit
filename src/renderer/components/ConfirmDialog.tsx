@@ -1,6 +1,8 @@
 import { AlertTriangle } from "lucide-react";
 import { useEffect, useRef } from "react";
 
+import { t } from "../../shared/i18n";
+
 interface ConfirmDialogProps {
   description: string;
   onCancel: () => void;
@@ -55,12 +57,8 @@ export function ConfirmDialog({
           onClick={onCancel}
           ref={cancelRef}
           type="button"
-        >
-          キャンセル
-        </button>
-        <button className="button-danger" onClick={onConfirm} type="button">
-          終了する
-        </button>
+        >{t("キャンセル")}</button>
+        <button className="button-danger" onClick={onConfirm} type="button">{t("終了する")}</button>
       </div>
     </dialog>
   );

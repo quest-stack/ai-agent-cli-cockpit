@@ -197,6 +197,19 @@ test("only Ctrl+Shift+C with a selection copies", () => {
   );
 });
 
+test("Ctrl+C copy mode copies a selection and suppresses interrupt without one", () => {
+  const event = keyEvent({ ctrlKey: true, key: "c" });
+  assert.equal(resolveTerminalKeyAction(event, true, true), "copy-selection");
+  assert.equal(resolveTerminalKeyAction(event, false, true), "ignore");
+  assert.equal(resolveTerminalKeyAction(event, false, false), "passthrough");
+});
+
+test("copy mode leaves other modifiers and keyup to the terminal", () => {
+  for (const overrides of [{ altKey: true }, { metaKey: true }, { type: "keyup" }]) {
+    assert.equal(resolveTerminalKeyAction(keyEvent({ ctrlKey: true, key: "c", ...overrides }), true, true), "passthrough");
+  }
+});
+
 test("terminal reveal waits for two visible frames before fitting", () => {
   const frames: PendingFrame[] = [];
   const cancelledFrames = new Set<number>();
