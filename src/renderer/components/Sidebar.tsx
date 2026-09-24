@@ -20,6 +20,8 @@ import {
 import { LogoMark } from "./LogoMark";
 import { StatusDot } from "./StatusDot";
 
+import { t } from "../../shared/i18n";
+
 import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
@@ -187,10 +189,10 @@ export function Sidebar({
           </div>
         )}
         <button
-          aria-label={collapsed ? "サイドバーを展開" : "サイドバーを折りたたむ"}
+          aria-label={collapsed ? t("サイドバーを展開") : t("サイドバーを折りたたむ")}
           className="sidebar-collapse"
           onClick={onToggleCollapsed}
-          title={collapsed ? "展開" : "折りたたむ"}
+          title={collapsed ? t("展開") : t("折りたたむ")}
           type="button"
         >
           {collapsed ? (
@@ -202,7 +204,7 @@ export function Sidebar({
       </div>
 
       <div
-        aria-label="独立セッション一覧"
+        aria-label={t("独立セッション一覧")}
         className="sidebar-section-heading"
       >
         {!collapsed && <span>INDEPENDENT SESSIONS</span>}
@@ -215,7 +217,7 @@ export function Sidebar({
         data-tour-target="session-list"
       >
         {sessions.length === 0 && !collapsed && (
-          <p className="session-empty">起動中のCLIはありません。</p>
+          <p className="session-empty">{t("起動中のCLIはありません。")}</p>
         )}
         {sessions.map((session) => {
           const exited =
@@ -251,7 +253,7 @@ export function Sidebar({
                   {editingSessionId === session.id ? (
                     <SessionTitleEditor
                       initialTitle={session.title}
-                      label={`${session.projectName} のセッション名`}
+                      label={t("{value0} のセッション名", { value0: session.projectName })}
                       onCancel={() => setEditingSessionId(null)}
                       onCommit={(title) => {
                         onRenameSession(session.id, title);
@@ -259,7 +261,7 @@ export function Sidebar({
                       }}
                     />
                   ) : (
-                    <strong title="ダブルクリックで名前を編集">
+                    <strong title={t("ダブルクリックで名前を編集")}>
                       {session.title}
                     </strong>
                   )}
@@ -270,7 +272,7 @@ export function Sidebar({
                 <span className="session-actions">
                   {exited && (
                     <button
-                      aria-label="同じ設定で再起動"
+                      aria-label={t("同じ設定で再起動")}
                       className="row-action"
                       onClick={(event) => {
                         event.stopPropagation();
@@ -282,7 +284,7 @@ export function Sidebar({
                     </button>
                   )}
                   <button
-                    aria-label={exited ? "一覧から除去" : "セッションを終了"}
+                    aria-label={exited ? t("一覧から除去") : t("セッションを終了")}
                     className="row-action row-close"
                     onClick={(event) => {
                       event.stopPropagation();
@@ -308,7 +310,7 @@ export function Sidebar({
           className="sidebar-primary-action"
           data-tour-target="new-session"
           onClick={onNewSession}
-          title="新規セッション"
+          title={t("新規セッション")}
           type="button"
         >
           <Plus aria-hidden="true" size={16} />
@@ -318,11 +320,11 @@ export function Sidebar({
           aria-expanded={presetsOpen}
           className="sidebar-secondary-action"
           onClick={() => setPresetsOpen((value) => !value)}
-          title="プリセット"
+          title={t("プリセット")}
           type="button"
         >
           <Layers3 aria-hidden="true" size={16} />
-          {!collapsed && <span>プリセット</span>}
+          {!collapsed && <span>{t("プリセット")}</span>}
           {!collapsed &&
             (presetsOpen ? (
               <ChevronLeft aria-hidden="true" size={14} />
@@ -333,8 +335,8 @@ export function Sidebar({
         {presetsOpen && !collapsed && (
           <div className="preset-popover">
             <span className="preset-eyebrow">DYNAMIC PRESET</span>
-            <strong>全案件</strong>
-            <p>現在のピン留め {pinnedProjects.length} 件を個別タブで起動</p>
+            <strong>{t("全案件")}</strong>
+            <p>{t("現在のピン留め {value0} 件を個別タブで起動", { value0: pinnedProjects.length })}</p>
             <button
               disabled={launching || pinnedProjects.length === 0}
               onClick={async () => {
@@ -349,7 +351,7 @@ export function Sidebar({
               type="button"
             >
               <Play aria-hidden="true" fill="currentColor" size={13} />
-              {launching ? "起動中…" : "全案件を開く"}
+              {launching ? t("起動中…") : t("全案件を開く")}
             </button>
           </div>
         )}
@@ -357,7 +359,7 @@ export function Sidebar({
 
       {!collapsed && (
         <div
-          aria-label="サイドバー幅を変更"
+          aria-label={t("サイドバー幅を変更")}
           aria-orientation="vertical"
           aria-valuemax={MAX_SIDEBAR_WIDTH}
           aria-valuemin={MIN_SIDEBAR_WIDTH}
@@ -368,7 +370,7 @@ export function Sidebar({
           onPointerDown={startResize}
           role="separator"
           tabIndex={0}
-          title="ドラッグで幅を変更・ダブルクリックで初期幅"
+          title={t("ドラッグで幅を変更・ダブルクリックで初期幅")}
         />
       )}
     </aside>

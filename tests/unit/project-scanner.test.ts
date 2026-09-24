@@ -22,6 +22,7 @@ test("pinned, recent and scanned projects are ordered with project markers", asy
 
     const settings: AppSettings = {
       alwaysConfirmClose: false,
+      ctrlCCopies: false,
       defaultCommand: "claude",
       enterInsertsNewline: false,
       notificationsEnabled: true,

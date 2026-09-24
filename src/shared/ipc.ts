@@ -6,6 +6,7 @@ export const IPC_CHANNELS = {
   diagnosticLog: "cockpit:diagnostic-log",
   gpuRecovered: "cockpit:gpu-recovered",
   notification: "cockpit:notification",
+  openExternalWebLink: "cockpit:open-external-web-link",
   projectDirectoryPick: "cockpit:project-directory-pick",
   projectsRescan: "cockpit:projects-rescan",
   ptyData: "cockpit:pty-data",

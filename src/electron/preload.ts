@@ -28,6 +28,7 @@ const CHANNELS = {
   diagnosticLog: "cockpit:diagnostic-log",
   gpuRecovered: "cockpit:gpu-recovered",
   notification: "cockpit:notification",
+  openExternalWebLink: "cockpit:open-external-web-link",
   projectDirectoryPick: "cockpit:project-directory-pick",
   projectsRescan: "cockpit:projects-rescan",
   ptyData: "cockpit:pty-data",
@@ -113,6 +114,8 @@ const api: CockpitApi = {
       ipcRenderer.removeListener(CHANNELS.updateAvailable, eventListener);
     };
   },
+  openExternalWebLink: (url) =>
+    ipcRenderer.invoke(CHANNELS.openExternalWebLink, url) as Promise<boolean>,
   openUpdateDownload: () =>
     ipcRenderer.invoke(CHANNELS.updateOpenDownload) as Promise<boolean>,
   pickProjectDirectory: () =>

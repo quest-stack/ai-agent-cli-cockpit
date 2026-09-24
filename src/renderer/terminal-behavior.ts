@@ -71,6 +71,7 @@ export type TerminalEnterRole = "newline" | "submit";
 
 export type TerminalKeyAction =
   | "copy-selection"
+  | "ignore"
   | "passthrough";
 
 /**
@@ -253,17 +254,23 @@ export function resolveTerminalEnterDisposition(
 export function resolveTerminalKeyAction(
   event: TerminalKeyEvent,
   hasSelection: boolean,
+  ctrlCCopies = false,
 ): TerminalKeyAction {
   if (
     event.type === "keydown" &&
     event.ctrlKey &&
-    event.shiftKey &&
+    (event.shiftKey || ctrlCCopies) &&
     !event.altKey &&
     !event.metaKey &&
-    event.key.toLowerCase() === "c" &&
-    hasSelection
+    event.key.toLowerCase() === "c"
   ) {
-    return "copy-selection";
+    if (hasSelection) {
+      return "copy-selection";
+    }
+    // コピーしようとして選択が外れていても、作業を中断しない。
+    if (ctrlCCopies) {
+      return "ignore";
+    }
   }
 
   return "passthrough";

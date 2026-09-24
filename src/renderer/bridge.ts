@@ -1,4 +1,7 @@
 import { DEFAULT_SIDEBAR_WIDTH } from "../shared/types";
+import { openExternalWebLink } from "../shared/external-link";
+
+import { t } from "../shared/i18n";
 
 import type {
   BootstrapPayload,
@@ -60,6 +63,7 @@ const demoProjects: ProjectCandidate[] = [
 function createDemoWorkspace(): PersistedWorkspace {
   const settings = {
     alwaysConfirmClose: true,
+    ctrlCCopies: false,
     defaultCommand: "claude" as const,
     // 本体の既定値と揃える（CLI 本来の Enter=送信のまま）。
     enterInsertsNewline: false,
@@ -106,14 +110,14 @@ function createDemoWorkspace(): PersistedWorkspace {
         cwd: demoProjects[0].path,
         lastUsedAt: Date.now(),
         projectName: "sample-web",
-        title: "画面調整",
+        title: t("画面調整"),
       },
       {
         command: "codex",
         cwd: demoProjects[3].path,
         lastUsedAt: Date.now() - 60_000,
         projectName: "sample-docs",
-        title: "資料整理",
+        title: t("資料整理"),
       },
     ],
     savedPresets: [],
@@ -124,7 +128,7 @@ function createDemoWorkspace(): PersistedWorkspace {
         id: "session-web",
         projectName: "sample-web",
         shouldRestore: true,
-        title: "画面調整",
+        title: t("画面調整"),
       },
       {
         command: "codex",
@@ -132,7 +136,7 @@ function createDemoWorkspace(): PersistedWorkspace {
         id: "session-docs",
         projectName: "sample-docs",
         shouldRestore: true,
-        title: "資料整理",
+        title: t("資料整理"),
       },
       {
         command: "claude",
@@ -140,7 +144,7 @@ function createDemoWorkspace(): PersistedWorkspace {
         id: "session-app",
         projectName: "sample-app",
         shouldRestore: true,
-        title: "機能追加",
+        title: t("機能追加"),
       },
       {
         command: "powershell",
@@ -265,12 +269,15 @@ function createDemoApi(): CockpitApi {
       const timer = window.setTimeout(() => {
         listener({
           downloadAvailable: preview !== "no-link",
-          notes: "表示崩れを自動で直すようになりました",
+          notes: t("表示崩れを自動で直すようになりました"),
           version: "0.1.8",
         });
       }, 120);
       return () => window.clearTimeout(timer);
     },
+    openExternalWebLink: (url) => openExternalWebLink(url, async (target) => {
+      window.open(target, "_blank", "noopener,noreferrer");
+    }),
     openUpdateDownload: async () => true,
     pickProjectDirectory: async () => null,
     readClipboardForPaste: async () => ({

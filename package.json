@@ -1,6 +1,6 @@
 {
   "name": "ai-agent-cli-cockpit",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "private": true,
   "description": "A local-only multi-terminal cockpit for Claude Code and Codex CLI.",
   "author": "QUEST LLC",
@@ -22,6 +22,8 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "build:renderer": "vite build --configLoader native",
     "build": "npm run build:electron && npm run build:renderer",
+    "build:editions": "node scripts/build-editions.mjs",
+    "package:editions": "node scripts/build-editions.mjs --package",
     "rebuild:native": "electron-rebuild --force --which-module node-pty",
     "package:arm64": "npm run clean && npm run licenses && npm run build && electron-builder --win nsis --arm64",
     "package:x64": "npm run clean && npm run licenses && npm run build && electron-builder --win nsis --x64",

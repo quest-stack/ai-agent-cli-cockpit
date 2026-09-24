@@ -2,6 +2,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { Terminal } from "@xterm/xterm";
 
+import { t } from "../shared/i18n";
+
 import type { WebglAddon } from "@xterm/addon-webgl";
 
 import {
@@ -257,6 +259,7 @@ class TerminalController {
   /** サイズが動かなくなったかを見るタイマー。 */
   private sizeStableTimer: number | undefined;
   private lineFeedHost: HTMLElement | undefined;
+  private pasteHost: HTMLElement | undefined;
   /**
    * IME 変換中の Shift+Enter を検出した直後か。
    * 続けて来る通常の Enter（＝確定に伴うもの）を端末へ渡さないために使う。
@@ -282,6 +285,26 @@ class TerminalController {
       ignoreBracketedPasteMode: false,
       letterSpacing: 0,
       lineHeight: 1.24,
+      // xterm既定の window.open() はCockpitの新規ウィンドウ禁止に阻まれる。
+      // 確認後、preloadとmainを通して既定ブラウザへ渡す。
+      linkHandler: {
+        allowNonHttpProtocols: false,
+        activate: (_event, url) => {
+          if (!window.confirm(t("既定のブラウザでこのリンクを開きますか？\n\n{value0}", { value0: url }))) {
+            return;
+          }
+          void cockpitApi.openExternalWebLink(url).then(
+            (opened) => {
+              if (!opened) {
+                window.alert(t("ブラウザを開けませんでした。URLをコピーしてブラウザで開いてください。"));
+              }
+            },
+            () => {
+              window.alert(t("ブラウザを開けませんでした。URLをコピーしてブラウザで開いてください。"));
+            },
+          );
+        },
+      },
       // minimumContrastRatio は 1（無補正）。4.5等にすると、暗い背景に中間色を使う
       // claude/codex のシンタックスハイライトが低コントラストと判定され、文字色が
       // 白/グレーに丸められて「色が消えた」ように見える。ターミナルでは補正しない。
@@ -419,12 +442,20 @@ class TerminalController {
     const action = resolveTerminalKeyAction(
       event,
       this.terminal.hasSelection(),
+      terminalRegistry.getCtrlCCopies(),
     );
 
+    if (action !== "passthrough") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
     if (action === "copy-selection") {
       void cockpitApi
         .writeClipboardText(this.terminal.getSelection())
-        .catch(() => undefined);
+        .catch(() => terminalRegistry.reportInputError(t("コピーできませんでした。もう一度お試しください。")));
+      return false;
+    }
+    if (action === "ignore") {
       return false;
     }
 
@@ -566,6 +597,7 @@ class TerminalController {
   private handlePasteKey = (event: KeyboardEvent): void => {
     if (
       event.type !== "keydown" ||
+      event.target !== this.terminal.textarea ||
       !event.ctrlKey ||
       event.altKey ||
       event.metaKey ||
@@ -574,13 +606,17 @@ class TerminalController {
       return;
     }
     event.preventDefault();
-    event.stopPropagation();
-    void this.pasteFromClipboard().catch(() => undefined);
+    event.stopImmediatePropagation();
+    if (!event.repeat) {
+      void this.pasteFromClipboard().catch(() => {
+        terminalRegistry.reportInputError(t("貼り付けできませんでした。コピーし直して、もう一度お試しください。"));
+      });
+    }
   };
 
   private async pasteFromClipboard(): Promise<void> {
     const result = await cockpitApi.readClipboardForPaste();
-    if (result.kind === "empty") {
+    if (this.disposed || result.kind === "empty") {
       return;
     }
     this.terminal.paste(result.text);
@@ -1265,16 +1301,22 @@ class TerminalController {
       this.handleLineFeedKey,
     ) as HTMLElement;
 
+    // xtermのtextarea captureより前でCtrl+Vを止める。同じtextareaに
+    // 後から登録すると、先に0x16がCLIへ届き、画像の二重貼り付けや
+    // コマンドの前に不要なキーが入る。host変更時も必ず張り替える。
+    this.pasteHost = rebindCaptureKeydown(
+      this.pasteHost,
+      host,
+      this.handlePasteKey,
+    ) as HTMLElement;
+
     if (!this.opened) {
       host.replaceChildren();
       this.terminal.open(host);
       this.disposeCompositionSync = synchronizeCompositionPosition(this.terminal);
       this.opened = true;
       this.observeFontReadiness();
-      // Ctrl+V を確実に捕まえるため、xterm の入力先 textarea に capture フェーズで
-      // keydown を張る。xterm 内部処理より前に奪って自前ペーストに回す。
       const textarea = this.terminal.textarea;
-      textarea?.addEventListener("keydown", this.handlePasteKey, true);
       // フォーカス時のブラウザ自動スクロールを打ち消す（右端が切れる原因）。
       textarea?.addEventListener("focus", this.resetPaneScroll);
       // IME 変換のたびに基準値を取り直す（変換開始位置は毎回変わる）。
@@ -1305,7 +1347,7 @@ class TerminalController {
           // 以前は textarea !== undefined を報告していたため、リスナが
           // 旧 host に取り残されていても "registered: true" と出ていた。
           lineFeedHandlerRegistered: this.lineFeedHost === host,
-          pasteHandlerRegistered: textarea !== undefined,
+          pasteHandlerRegistered: this.pasteHost === host,
           sessionId: this.sessionId,
           textareaAvailable: textarea !== undefined,
         },
@@ -1346,6 +1388,10 @@ class TerminalController {
     if (this.lineFeedHost === host) {
       host.removeEventListener("keydown", this.handleLineFeedKey, true);
       this.lineFeedHost = undefined;
+    }
+    if (this.pasteHost === host) {
+      host.removeEventListener("keydown", this.handlePasteKey, true);
+      this.pasteHost = undefined;
     }
     if (this.terminal.element?.parentElement === host) {
       this.terminal.element.remove();
@@ -1589,11 +1635,12 @@ class TerminalController {
       true,
     );
     this.diagnosticKeydownHost = undefined;
-    this.terminal.textarea?.removeEventListener(
+    this.pasteHost?.removeEventListener(
       "keydown",
       this.handlePasteKey,
       true,
     );
+    this.pasteHost = undefined;
     // Enter 系は host（祖先）の capture に張っているので、そちらから外す。
     this.lineFeedHost?.removeEventListener(
       "keydown",
@@ -1655,6 +1702,8 @@ class TerminalRegistry {
    * 割り当てのまま残る。
    */
   private enterRole: TerminalEnterRole = "submit";
+  private ctrlCCopies = false;
+  private readonly inputErrorListeners = new Set<(message: string) => void>();
 
   /** 追い打ちの再描画タイマー（連続要求では最後の 1 回だけ残す）。 */
   private followUpRedrawTimer: number | undefined;
@@ -1680,6 +1729,23 @@ class TerminalRegistry {
   /** 設定が変わったら呼ぶ。開いているペインにも即座に効く。 */
   setEnterRole(role: TerminalEnterRole): void {
     this.enterRole = role;
+  }
+
+  getCtrlCCopies(): boolean {
+    return this.ctrlCCopies;
+  }
+
+  setCtrlCCopies(enabled: boolean): void {
+    this.ctrlCCopies = enabled;
+  }
+
+  onInputError(listener: (message: string) => void): () => void {
+    this.inputErrorListeners.add(listener);
+    return () => { this.inputErrorListeners.delete(listener); };
+  }
+
+  reportInputError(message: string): void {
+    for (const listener of this.inputErrorListeners) listener(message);
   }
 
   /**

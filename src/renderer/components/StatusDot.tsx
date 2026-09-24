@@ -1,3 +1,5 @@
+import { t } from "../../shared/i18n";
+
 import type { SessionStatus } from "../../shared/types";
 
 interface StatusDotProps {
@@ -6,11 +8,11 @@ interface StatusDotProps {
 }
 
 const STATUS_LABELS: Readonly<Record<SessionStatus, string>> = {
-  busy: "作業中",
-  error: "異常終了",
-  exited: "終了",
-  idle: "待機（次のタスク）",
-  waiting: "承認依頼",
+  busy: t("作業中"),
+  error: t("異常終了"),
+  exited: t("終了"),
+  idle: t("待機（次のタスク）"),
+  waiting: t("承認依頼"),
 };
 
 export function StatusDot({ label, status }: StatusDotProps) {

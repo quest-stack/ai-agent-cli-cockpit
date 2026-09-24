@@ -52,6 +52,8 @@ import { TabBar } from "./components/TabBar";
 import { TourOverlay } from "./components/TourOverlay";
 import { terminalRegistry } from "./terminal-registry";
 
+import { t } from "../shared/i18n";
+
 import type { LaunchInput } from "./components/Launcher";
 import type {
   PersistedSession,
@@ -90,7 +92,7 @@ function toPersistedSession(session: SessionState): PersistedSession {
 }
 
 function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "予期しないエラーが発生しました。";
+  return error instanceof Error ? error.message : t("予期しないエラーが発生しました。");
 }
 
 function upsertSessions(
@@ -205,6 +207,12 @@ export function App() {
   }, [workspace?.settings.enterInsertsNewline]);
 
   useEffect(() => {
+    terminalRegistry.setCtrlCCopies(workspace?.settings.ctrlCCopies ?? false);
+  }, [workspace?.settings.ctrlCCopies]);
+
+  useEffect(() => terminalRegistry.onInputError(setNotice), []);
+
+  useEffect(() => {
     let cancelled = false;
 
     const removeDataListener = cockpitApi.onPtyData((event) => {
@@ -309,7 +317,7 @@ export function App() {
               status: "error",
             });
             setNotice(
-              `${session.title} を復元できませんでした: ${getErrorMessage(error)}`,
+              t("{value0} を復元できませんでした: {value1}", { value0: session.title, value1: getErrorMessage(error) }),
             );
           }
         }
@@ -344,7 +352,7 @@ export function App() {
           sessions: sessions.map(toPersistedSession),
         })
         .catch((error: unknown) => {
-          setNotice(`状態を保存できませんでした: ${getErrorMessage(error)}`);
+          setNotice(t("状態を保存できませんでした: {value0}", { value0: getErrorMessage(error) }));
         });
     }, 300);
 
@@ -500,7 +508,7 @@ export function App() {
         tab,
       });
     } catch (error: unknown) {
-      setNotice(`タブを閉じられませんでした: ${getErrorMessage(error)}`);
+      setNotice(t("タブを閉じられませんでした: {value0}", { value0: getErrorMessage(error) }));
     }
   };
 
@@ -713,12 +721,12 @@ export function App() {
     });
 
     if (!sessionId) {
-      setNotice("受け取った依頼を起動できませんでした");
+      setNotice(t("受け取った依頼を起動できませんでした"));
       return;
     }
 
     setNotice(
-      `受け取った依頼から「${request.title || projectName}」を起動しました`,
+      t("受け取った依頼から「{value0}」を起動しました", { value0: request.title || projectName }),
     );
 
     if (request.prompt !== undefined) {
@@ -744,7 +752,7 @@ export function App() {
     });
     if (!ready) {
       setNotice(
-        "起動しましたが、CLI の準備が確認できなかったため指示は送っていません",
+        t("起動しましたが、CLI の準備が確認できなかったため指示は送っていません"),
       );
       return;
     }
@@ -777,7 +785,7 @@ export function App() {
       setSessions((current) => upsertSessions(current, [result.session]));
       selectSession(session.id);
     } catch (error: unknown) {
-      setNotice(`再起動できませんでした: ${getErrorMessage(error)}`);
+      setNotice(t("再起動できませんでした: {value0}", { value0: getErrorMessage(error) }));
     }
   };
 
@@ -808,7 +816,7 @@ export function App() {
         sessionId: session.id,
       });
     } catch (error: unknown) {
-      setNotice(`終了できませんでした: ${getErrorMessage(error)}`);
+      setNotice(t("終了できませんでした: {value0}", { value0: getErrorMessage(error) }));
     }
   };
 
@@ -936,7 +944,7 @@ export function App() {
       );
     }
     if (errors.length > 0) {
-      setNotice(`一部を起動できませんでした: ${errors.join(" / ")}`);
+      setNotice(t("一部を起動できませんでした: {value0}", { value0: errors.join(" / ") }));
     }
   };
 
@@ -1019,7 +1027,7 @@ export function App() {
       }
       setProjects(await cockpitApi.rescanProjects());
     } catch (error: unknown) {
-      setNotice(`再スキャンできませんでした: ${getErrorMessage(error)}`);
+      setNotice(t("再スキャンできませんでした: {value0}", { value0: getErrorMessage(error) }));
     }
   };
 
@@ -1086,7 +1094,7 @@ export function App() {
     }
     if (!opened) {
       setNotice(
-        "ダウンロード先を開けませんでした。Google Drive の「CLI Cockpit」配布フォルダを確認してください。",
+        t("ダウンロード先を開けませんでした。GitHub の Releases ページを確認してください。"),
       );
     }
   };
@@ -1313,7 +1321,7 @@ export function App() {
     return (
       <div className="loading-screen">
         <LogoMark className="loading-logo" />
-        <span>CLI Cockpit を初期化しています…</span>
+        <span>{t("CLI Cockpit を初期化しています…")}</span>
       </div>
     );
   }
@@ -1330,17 +1338,33 @@ export function App() {
         </div>
         <div className="title-actions">
           <button
-            aria-label="全ペイン検索"
+            aria-label={t("Ctrl+Cでコピー")}
+            aria-pressed={workspace.settings.ctrlCCopies}
+            className={`ctrl-c-toggle ${workspace.settings.ctrlCCopies ? "is-enabled" : ""}`}
+            data-testid="ctrl-c-toggle"
+            onClick={() => setWorkspace((current) => current ? {
+              ...current,
+              settings: { ...current.settings, ctrlCCopies: !current.settings.ctrlCCopies },
+            } : current)}
+            title={workspace.settings.ctrlCCopies
+              ? t("Ctrl+Cで選択範囲をコピー。未選択時も中断しません。クリックで中断モードへ。")
+              : t("Ctrl+CでCLIを中断。クリックでコピーに切り替えます。")}
+            type="button"
+          >
+            Ctrl+C: {workspace.settings.ctrlCCopies ? t("コピー") : t("中断")}
+          </button>
+          <button
+            aria-label={t("全ペイン検索")}
             onClick={() => setSearchOpen(true)}
-            title="検索 (Ctrl+Shift+F)"
+            title={t("検索 (Ctrl+Shift+F)")}
             type="button"
           >
             <Search aria-hidden="true" size={15} />
           </button>
           <button
-            aria-label="使い方とショートカット"
+            aria-label={t("使い方とショートカット")}
             onClick={() => setHelpOpen(true)}
-            title="使い方とショートカット (F1)"
+            title={t("使い方とショートカット (F1)")}
             type="button"
           >
             <CircleHelp aria-hidden="true" size={15} />
@@ -1348,8 +1372,8 @@ export function App() {
           <button
             aria-label={
               workspace.settings.notificationsEnabled
-                ? "入力待ち通知をオフ"
-                : "入力待ち通知をオン"
+                ? t("入力待ち通知をオフ")
+                : t("入力待ち通知をオン")
             }
             className={
               workspace.settings.notificationsEnabled ? "is-enabled" : ""
@@ -1368,7 +1392,7 @@ export function App() {
                   : current,
               )
             }
-            title="入力待ち通知"
+            title={t("入力待ち通知")}
             type="button"
           >
             {workspace.settings.notificationsEnabled ? (
@@ -1379,10 +1403,10 @@ export function App() {
           </button>
           <button
             aria-expanded={settingsOpen}
-            aria-label="設定"
+            aria-label={t("設定")}
             data-tour-target="settings"
             onClick={() => setSettingsOpen((value) => !value)}
-            title="設定"
+            title={t("設定")}
             type="button"
           >
             <Settings aria-hidden="true" size={15} />
@@ -1393,12 +1417,12 @@ export function App() {
             <div className="settings-app-version">
               <div>
                 <strong>CLI Cockpit</strong>
-                <span>現在のバージョン</span>
+                <span>{t("現在のバージョン")} · {t("日本語版")}</span>
               </div>
-              <b>{appVersion ? `v${appVersion}` : "確認中…"}</b>
+              <b>{appVersion ? `v${appVersion}` : t("確認中…")}</b>
             </div>
             <span>SESSION SAFETY</span>
-            <p>起動中のセッションは、入力待ち・待機中も終了前に確認します。</p>
+            <p>{t("起動中のセッションは、入力待ち・待機中も終了前に確認します。")}</p>
             <span>KEYS</span>
             <label>
               <input
@@ -1417,14 +1441,8 @@ export function App() {
                   )
                 }
                 type="checkbox"
-              />
-              Enter で改行する
-            </label>
-            <p>
-              送信は Shift+Enter になります。チャット欄と同じ感覚で書けます。
-              この設定は Cockpit の中だけで効き、CLI の設定ファイルは
-              変更しません。
-            </p>
+              />{t("Enter で改行する")}</label>
+            <p>{t("送信は Shift+Enter になります。チャット欄と同じ感覚で書けます。 この設定は Cockpit の中だけで効き、CLI の設定ファイルは 変更しません。")}</p>
             <span>REMOTE LAUNCH</span>
             <label>
               <input
@@ -1443,26 +1461,18 @@ export function App() {
                   )
                 }
                 type="checkbox"
-              />
-              受け取った依頼でセッションを起動する
-            </label>
-            <p>
-              inbox フォルダに置かれた依頼から Claude を起動します。
-              ネットワークは開きませんが、そのフォルダに書ける相手に
-              この PC で作業を実行させることになります。
-            </p>
+              />{t("受け取った依頼でセッションを起動する")}</label>
+            <p>{t("inbox フォルダに置かれた依頼から Claude を起動します。 ネットワークは開きませんが、そのフォルダに書ける相手に この PC で作業を実行させることになります。")}</p>
             {remoteLaunchInbox && (
               <div className="settings-inbox">
                 <code>{remoteLaunchInbox}</code>
                 <button
                   onClick={() => {
                     void cockpitApi.writeClipboardText(remoteLaunchInbox);
-                    setNotice("受付フォルダのパスをコピーしました");
+                    setNotice(t("受付フォルダのパスをコピーしました"));
                   }}
                   type="button"
-                >
-                  パスをコピー
-                </button>
+                >{t("パスをコピー")}</button>
               </div>
             )}
             <button
@@ -1470,27 +1480,23 @@ export function App() {
               onClick={showTour}
               type="button"
             >
-              <CircleHelp aria-hidden="true" size={14} />
-              使い方ツアーを見る
-            </button>
+              <CircleHelp aria-hidden="true" size={14} />{t("使い方ツアーを見る")}</button>
           </div>
         )}
       </header>
 
       {availableUpdate && (
         <aside
-          aria-label="更新のお知らせ"
+          aria-label={t("更新のお知らせ")}
           aria-live="polite"
           className="update-banner"
           data-testid="update-banner"
         >
           <span className="update-banner-eyebrow">UPDATE AVAILABLE</span>
-          <h2>v{availableUpdate.version} が利用できます</h2>
+          <h2>{t("v{value0} が利用できます", { value0: availableUpdate.version })}</h2>
           <p>{availableUpdate.notes}</p>
           {!availableUpdate.downloadAvailable && (
-            <p className="update-banner-fallback">
-              Google Drive の「CLI Cockpit」配布フォルダから手動で更新してください。
-            </p>
+            <p className="update-banner-fallback">{t("GitHub の Releases ページから、この言語の最新版を手動でダウンロードしてください。")}</p>
           )}
           <div className="update-banner-actions">
             {availableUpdate.downloadAvailable && (
@@ -1499,17 +1505,13 @@ export function App() {
                 onClick={() => void openUpdateDownload()}
                 type="button"
               >
-                <Download aria-hidden="true" size={14} />
-                ダウンロード
-              </button>
+                <Download aria-hidden="true" size={14} />{t("ダウンロード")}</button>
             )}
             <button
               className="update-dismiss-button"
               onClick={dismissUpdate}
               type="button"
-            >
-              このバージョンは通知しない
-            </button>
+            >{t("このバージョンは通知しない")}</button>
           </div>
         </aside>
       )}
@@ -1548,13 +1550,13 @@ export function App() {
                 <>
                   <span className="toolbar-empty-mark">+</span>
                   <strong>New Session</strong>
-                  <span>案件とCLIを選択してください</span>
+                  <span>{t("案件とCLIを選択してください")}</span>
                 </>
               )}
             </div>
             <span className="pane-count">
               {zoomedTabId === activeTab.id && collectPanes(activeTab.root).length > 1
-                ? "最大化 · " : ""}
+                ? t("最大化 · ") : ""}
               {collectPanes(activeTab.root).length} PANE
               {collectPanes(activeTab.root).length === 1 ? "" : "S"}
             </span>
@@ -1676,18 +1678,18 @@ export function App() {
       )}
       {confirmingSession && (
         <ConfirmDialog
-          description={`${confirmingSession.title} · ${confirmingSession.projectName}\n実行中の処理は中断されます。`}
+          description={t("{value0} · {value1}\n実行中の処理は中断されます。", { value0: confirmingSession.title, value1: confirmingSession.projectName })}
           onCancel={() => setConfirmingSession(null)}
           onConfirm={() => void killSession(confirmingSession)}
-          title="このセッションを終了しますか？"
+          title={t("このセッションを終了しますか？")}
         />
       )}
       {confirmingTab && (
         <ConfirmDialog
-          description={`このタブには起動中のCLIが ${confirmingTab.runningSessionCount} 個あります。すべて終了して閉じますか？`}
+          description={t("このタブには起動中のCLIが {value0} 個あります。すべて終了して閉じますか？", { value0: confirmingTab.runningSessionCount })}
           onCancel={() => setConfirmingTab(null)}
           onConfirm={() => void closeTab(confirmingTab.tabId)}
-          title="タブ内のCLIを終了"
+          title={t("タブ内のCLIを終了")}
         />
       )}
       {notice && (
