@@ -29,6 +29,21 @@ export function synchronizeCompositionPosition(terminal: Terminal): () => void {
     terminal.element?.querySelector<HTMLElement>(".composition-view");
   let position: { left: string; top: string; lineHeight: string } | undefined;
   let pendingTextAreaSync = false;
+  const ensureInputTarget = (): void => {
+    const textarea = terminal.textarea;
+    if (!textarea) return;
+    // 初回のカーソル移動まで xterm の既定 CSS は画面外・0x0。
+    // 最初の出力が同期描画だと、その無効な入力先まで保留されていた。
+    for (const property of ["left", "top"] as const) {
+      if (!Number.isFinite(Number.parseFloat(textarea.style[property]))) {
+        textarea.style[property] = "0px";
+      }
+    }
+    for (const property of ["width", "height", "lineHeight"] as const) {
+      const size = Number.parseFloat(textarea.style[property]);
+      if (!Number.isFinite(size) || size < 1) textarea.style[property] = "1px";
+    }
+  };
   const rememberPosition = (element: HTMLElement | undefined): void => {
     if (element) {
       const { left, top, lineHeight } = element.style;
@@ -43,10 +58,20 @@ export function synchronizeCompositionPosition(terminal: Terminal): () => void {
     }
     pendingTextAreaSync = false;
     syncTextArea.call(core);
+    ensureInputTarget();
     if (!compositionView()?.classList.contains("active")) {
       rememberPosition(terminal.textarea);
     }
   };
+
+  // ネイティブ IME は compositionstart より前に入力先の矩形を参照する。
+  // 変換開始時だけ直すのでは遅いため、接続・フォーカス・リサイズでも同期する。
+  core._syncTextArea();
+  ensureInputTarget();
+  rememberPosition(terminal.textarea);
+  const syncInputTarget = (): void => { core._syncTextArea?.(); };
+  terminal.textarea?.addEventListener("focus", syncInputTarget);
+  const resized = terminal.onResize(syncInputTarget);
   helper.updateCompositionElements = (dontRecurse) => {
     if (!terminal.modes.synchronizedOutputMode) {
       updateCompositionElements.call(helper, dontRecurse);
@@ -78,6 +103,8 @@ export function synchronizeCompositionPosition(terminal: Terminal): () => void {
   });
   return () => {
     rendered.dispose();
+    resized.dispose();
+    terminal.textarea?.removeEventListener("focus", syncInputTarget);
     core._syncTextArea = syncTextArea;
     helper.updateCompositionElements = updateCompositionElements;
   };

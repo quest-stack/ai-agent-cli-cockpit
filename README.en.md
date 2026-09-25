@@ -122,7 +122,7 @@ Anyone who can write to the inbox can cause work to start on this PC. Cockpit do
 - Windows only. Use the installer that matches your CPU architecture.
 - The app's minimum supported window width is 760 px; it is not a mobile interface.
 - Session status detection is approximate.
-- IME and terminal rendering behavior may vary across CLI and Windows versions. The IME issue under investigation in 0.2.7 is not claimed as resolved by this release.
+- IME and terminal rendering behavior may vary across CLI and Windows versions. Version 0.2.9 fixes the reported IME positioning and committed-text loss cases. Native Japanese IME input was checked in Claude and Codex; long sessions, heavy output, and other Windows IME setups still need validation.
 - Restoring a workspace does not restore the previous process or terminal scrollback.
 - Cockpit never makes approval decisions on a CLI's behalf.
 

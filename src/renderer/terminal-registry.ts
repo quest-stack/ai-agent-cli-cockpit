@@ -21,6 +21,7 @@ import {
   resolveCompositionTranslateY,
 } from "./composition-layout";
 import { synchronizeCompositionPosition } from "./composition-sync";
+import { synchronizeCompositionInput } from "./composition-input";
 import { getEmojiCellCount } from "./emoji-width";
 import {
   getTerminalManualNewlineSequence,
@@ -248,6 +249,7 @@ class TerminalController {
   /** 折返し判定前に変換文字列の非折返し幅を測る不可視要素。 */
   private compositionMeasureElement: HTMLElement | undefined;
   private disposeCompositionSync: (() => void) | undefined;
+  private disposeCompositionInput: (() => void) | undefined;
   private opened = false;
   /** ペイン横スクロール打ち消しリスナを張っている host。 */
   private paneScrollHost: HTMLElement | undefined;
@@ -1314,6 +1316,11 @@ class TerminalController {
       host.replaceChildren();
       this.terminal.open(host);
       this.disposeCompositionSync = synchronizeCompositionPosition(this.terminal);
+      this.disposeCompositionInput = synchronizeCompositionInput(this.terminal, (fields) => {
+        logRendererDiagnostic(DIAGNOSTIC_CATEGORIES.terminalComposition, {
+          ...fields, sessionId: this.sessionId,
+        });
+      });
       this.opened = true;
       this.observeFontReadiness();
       const textarea = this.terminal.textarea;
@@ -1615,6 +1622,8 @@ class TerminalController {
     this.disposed = true;
     this.disposeCompositionSync?.();
     this.disposeCompositionSync = undefined;
+    this.disposeCompositionInput?.();
+    this.disposeCompositionInput = undefined;
     if (this.sizeStableTimer !== undefined) {
       window.clearTimeout(this.sizeStableTimer);
       this.sizeStableTimer = undefined;
