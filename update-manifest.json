@@ -1,17 +1,17 @@
 {
-  "version": "0.2.8",
-  "notes": "英語版を追加しました。スクショの二重貼り付けを修正し、Ctrl+Cのコピー／中断切り替え、履歴の作業名優先表示、端末リンクのブラウザ起動に対応しました。",
+  "version": "0.2.9",
+  "notes": "Windows日本語IMEの変換位置と確定文字の受け渡しを修正しました。Claude・Codexで実IMEを確認済みです。長時間利用・大量出力中・別のIME環境では引き続き確認が必要です。",
   "downloadPage": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/latest",
   "urls": {
-    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.8/CLI-Cockpit-0.2.8-win-arm64.exe",
-    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.8/CLI-Cockpit-0.2.8-win-x64.exe"
+    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.9/CLI-Cockpit-0.2.9-win-arm64.exe",
+    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.9/CLI-Cockpit-0.2.9-win-x64.exe"
   },
   "editions": {
     "en": {
-      "notes": "The English edition is here. This release fixes duplicate screenshot paste, adds a saved Ctrl+C Copy/Interrupt mode, prioritizes task names in recent sessions, and opens terminal links in your browser.",
+      "notes": "Fixes Windows Japanese IME composition positioning and committed-text delivery. Includes the 0.2.8 Ctrl+C Copy/Interrupt and clipboard fixes. Long sessions, heavy output, and other IME setups still need validation.",
       "urls": {
-        "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.8/CLI-Cockpit-0.2.8-en-win-arm64.exe",
-        "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.8/CLI-Cockpit-0.2.8-en-win-x64.exe"
+        "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.9/CLI-Cockpit-0.2.9-en-win-arm64.exe",
+        "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.9/CLI-Cockpit-0.2.9-en-win-x64.exe"
       }
     }
   }
