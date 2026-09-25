@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { expect, test } from "@playwright/test";
@@ -17,11 +18,13 @@ test("Codex ペインの Shift+Enter で入力欄が改行される", async ({},
   test.setTimeout(180_000);
 
   const userDataPath = testInfo.outputPath("user-data");
-  const projectRoot = resolve(process.cwd());
+  const appRoot = resolve(process.cwd());
+  const projectRoot = testInfo.outputPath("project");
+  await mkdir(projectRoot, { recursive: true });
 
   const app = await electron.launch({
     args: ["."],
-    cwd: projectRoot,
+    cwd: appRoot,
     env: {
       ...process.env,
       COCKPIT_USER_DATA: userDataPath,
@@ -58,12 +61,13 @@ test("Codex ペインの Shift+Enter で入力欄が改行される", async ({},
       });
 
     // 起動完了（"Ask Codex" などの入力欄）まで待つ。
+    const trustPrompt = /trust (?:the contents|this folder)/iu;
     await expect
       .poll(async () => await readScreen(), { timeout: 90_000 })
-      .toMatch(/Ask Codex|trust the contents/u);
+      .toMatch(/Ask Codex|trust (?:the contents|this folder)/iu);
 
     // 信頼ダイアログが出ていれば通過させる（既定が Yes）。
-    if (/trust the contents/u.test(await readScreen())) {
+    if (trustPrompt.test(await readScreen())) {
       await page.keyboard.press("Enter");
       await expect
         .poll(async () => await readScreen(), { timeout: 60_000 })
