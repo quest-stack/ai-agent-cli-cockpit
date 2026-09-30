@@ -176,9 +176,17 @@ async function selectWord(page: Page): Promise<void> {
   await expect(page.locator(".xterm-selection > div")).not.toHaveCount(0);
 }
 
+async function ctrlCSetting(page: Page) {
+  const toggle = page.getByTestId("ctrl-c-toggle");
+  if (!(await toggle.isVisible())) {
+    await page.getByRole("button", { name: ui("設定"), exact: true }).click();
+  }
+  return toggle;
+}
+
 test("copy mode copies the selection without interrupting", async ({ cockpit }) => {
   await cockpit.start();
-  await cockpit.page.getByTestId("ctrl-c-toggle").click();
+  await (await ctrlCSetting(cockpit.page)).check();
   await selectWord(cockpit.page);
   await cockpit.page.keyboard.press("Control+c");
   await expect.poll(cockpit.calls).toEqual({ copied: ["COPY"], reads: 0, written: [] });
@@ -186,11 +194,10 @@ test("copy mode copies the selection without interrupting", async ({ cockpit }) 
 
 test("copy mode prevents unselected Ctrl+C and turning it off restores interrupt", async ({ cockpit }) => {
   const id = await cockpit.start();
-  const toggle = cockpit.page.getByTestId("ctrl-c-toggle");
-  await toggle.click();
+  await (await ctrlCSetting(cockpit.page)).check();
   await cockpit.page.locator(".xterm-helper-textarea").focus();
   await cockpit.page.keyboard.press("Control+c");
-  await toggle.click();
+  await (await ctrlCSetting(cockpit.page)).uncheck();
   await cockpit.page.locator(".xterm-helper-textarea").focus();
   await cockpit.page.keyboard.press("Control+c");
   await expect.poll(cockpit.calls).toEqual({ copied: [], reads: 0, written: [{ sessionId: id, data: "\x03" }] });
@@ -204,10 +211,10 @@ test("Ctrl+Shift+C still copies with copy mode disabled", async ({ cockpit }) =>
 });
 
 test("copy mode persists across reload", async ({ cockpit }) => {
-  await cockpit.page.getByTestId("ctrl-c-toggle").click();
+  await (await ctrlCSetting(cockpit.page)).check();
   await expect.poll(async () => (await cockpit.saved()).settings.ctrlCCopies).toBe(true);
   await cockpit.page.reload();
-  await expect(cockpit.page.getByTestId("ctrl-c-toggle")).toHaveAttribute("aria-pressed", "true");
+  await expect(await ctrlCSetting(cockpit.page)).toBeChecked();
 });
 
 test("recent cards prioritize session names at desktop and narrow widths", async ({ cockpit }, testInfo) => {
@@ -219,10 +226,10 @@ test("recent cards prioritize session names at desktop and narrow widths", async
     await page.setViewportSize({ width, height: 1000 });
     if (width === 390) {
       await page.getByRole("button", { name: ui("サイドバーを折りたたむ") }).click();
-      await page.getByTestId("ctrl-c-toggle").click();
     }
-    await page.getByTestId("ctrl-c-toggle").focus();
-    await expect(page.getByTestId("ctrl-c-toggle")).toBeVisible();
+    await expect(page.getByRole("button", { name: ui("設定"), exact: true })).toBeVisible();
+    await expect(await ctrlCSetting(page)).toBeVisible();
+    await page.getByRole("button", { name: ui("設定"), exact: true }).click();
     await expect(cards.nth(1).locator("span")).toHaveText("入力操作の改善");
     await page.screenshot({ path: testInfo.outputPath(`launcher-${width}.png`), fullPage: true });
   }

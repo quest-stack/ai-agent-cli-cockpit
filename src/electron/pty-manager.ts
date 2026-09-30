@@ -7,6 +7,7 @@ import {
   describeDiagnosticPayload,
   DIAGNOSTIC_CATEGORIES,
   ExtendedKeyModeSequenceDetector,
+  summarizeDiagnosticInput,
 } from "../shared/diagnostics";
 
 import { StatusDetector } from "./status-detector";
@@ -261,7 +262,7 @@ export class PtyManager {
         this.events.onDiagnostic(
           DIAGNOSTIC_CATEGORIES.suspiciousGlyph,
           JSON.stringify({
-            payload: describeDiagnosticPayload(
+            payload: summarizeDiagnosticInput(
               data.slice(0, SUSPICIOUS_GLYPH_CONTEXT_LENGTH),
             ),
             sessionId: request.id,
@@ -439,12 +440,13 @@ export class PtyManager {
 
   write(sessionId: string, data: string): void {
     const target = this.processes.get(sessionId);
-    const payload = describeDiagnosticPayload(data);
+    const payload = summarizeDiagnosticInput(data);
     this.events.onDiagnostic(
       DIAGNOSTIC_CATEGORIES.ptyWrite,
       JSON.stringify({
         receivedByteLength: payload.utf8ByteLength,
-        receivedHex: payload.hex,
+        receivedUtf16Length: payload.utf16Length,
+        containsNonAscii: payload.containsNonAscii,
         sessionId,
         targetFound: target !== undefined,
         writeInvoked: target !== undefined,

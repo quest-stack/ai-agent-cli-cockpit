@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.10 — 2026-09-30
+
+- **Japanese input after cancellation:** fixed input stopping after cancelling IME composition. You can continue typing Japanese without switching to alphanumeric mode. Empty commit events now use the change in the input field to deliver committed text.
+- **Full-width spaces:** fixed a path that sent the same space twice when pressing Space with IME enabled after a Japanese commit.
+- **Ctrl+C copy setting:** moved to **Settings > KEYS**. Copy mode still does nothing when no text is selected, and your existing setting is retained.
+- **Terminal links:** clicking an HTTP/HTTPS link opens it directly in the default browser.
+- **Diagnostic logs:** new input diagnostics record lengths and types rather than typed text or CLI output fragments. Existing logs are unchanged.
+
+Native IME comparisons and user trials on Windows ARM64 confirmed recovery from the input-stopping case. Automated regression tests cover Claude and Codex input, cancellation, full-width spaces, copy, and paste.
+
 ## 0.2.9 — 2026-09-25
 
 - **Japanese input on Windows:** fixed cases where the IME composition appeared away from the input field or committed text did not reach the CLI. Native IME candidate selection, consecutive input, and input after switching tabs were checked with Claude and Codex.

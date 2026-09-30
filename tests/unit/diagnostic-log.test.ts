@@ -10,6 +10,7 @@ import {
   DIAGNOSTIC_CATEGORIES,
   ExtendedKeyModeSequenceDetector,
   formatDiagnosticMessage,
+  summarizeDiagnosticInput,
 } from "../../src/shared/diagnostics";
 
 test("diagnostic.log writes timestamped entries for categories 1 through 4", async () => {
@@ -63,7 +64,7 @@ test("diagnostic.log writes timestamped entries for categories 1 through 4", asy
     );
     logger.log(
       DIAGNOSTIC_CATEGORIES.ptyWrite,
-      JSON.stringify({ receivedHex: "1b 0d" }),
+      JSON.stringify({ receivedByteLength: 2 }),
     );
     await logger.flush();
 
@@ -97,6 +98,18 @@ test("diagnostic payloads preserve ESC CR as exact UTF-8 bytes", () => {
     hex: "1b 0d",
     utf8ByteLength: 2,
   });
+});
+
+test("input summaries cannot reconstruct typed Japanese or ASCII text", () => {
+  const summary = summarizeDiagnosticInput("秘密abc");
+  assert.deepEqual(summary, {
+    containsNonAscii: true,
+    utf16Length: 5,
+    utf8ByteLength: 9,
+  });
+  const serialized = JSON.stringify(summary);
+  assert.equal(serialized.includes("秘密"), false);
+  assert.equal(serialized.includes("abc"), false);
 });
 
 test("extended-key mode detection returns only matching control sequences", () => {
