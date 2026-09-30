@@ -24,6 +24,7 @@ import {
 import { synchronizeCompositionPosition } from "./composition-sync";
 import { synchronizeCompositionInput } from "./composition-input";
 import { getEmojiCellCount } from "./emoji-width";
+import { TerminalLinkMouse } from "./terminal-link-mouse";
 import {
   getTerminalManualNewlineSequence,
   isPlausibleCharacterWidth,
@@ -276,6 +277,9 @@ class TerminalController {
   private readonly fitAddon = new FitAddon();
   private readonly searchAddon = new SearchAddon();
   private readonly terminal: Terminal;
+  private readonly linkMouse = new TerminalLinkMouse((data) => {
+    cockpitApi.writeSession({ data, sessionId: this.sessionId });
+  });
 
   constructor(readonly sessionId: string) {
     this.terminal = new Terminal({
@@ -293,7 +297,8 @@ class TerminalController {
       // （利用者判断 2026-09-26）。http/https以外と認証情報付きURLはmainで拒否する。
       linkHandler: {
         allowNonHttpProtocols: false,
-        activate: (_event, url) => {
+        activate: (event, url) => {
+          if (!this.linkMouse.shouldActivate(event)) return;
           void cockpitApi.openExternalWebLink(url).then(
             (opened) => {
               if (!opened) {
@@ -367,10 +372,7 @@ class TerminalController {
           source: "xterm-onData",
         },
       );
-      cockpitApi.writeSession({
-        data,
-        sessionId: this.sessionId,
-      });
+      this.linkMouse.forward(data);
     });
   }
 
@@ -1315,6 +1317,7 @@ class TerminalController {
     if (!this.opened) {
       host.replaceChildren();
       this.terminal.open(host);
+      this.linkMouse.attach(this.terminal);
       this.disposeCompositionSync = synchronizeCompositionPosition(this.terminal);
       this.disposeCompositionInput = synchronizeCompositionInput(this.terminal, (fields) => {
         logRendererDiagnostic(DIAGNOSTIC_CATEGORIES.terminalComposition, {
@@ -1620,6 +1623,7 @@ class TerminalController {
 
   dispose(): void {
     this.disposed = true;
+    this.linkMouse.dispose();
     this.disposeCompositionSync?.();
     this.disposeCompositionSync = undefined;
     this.disposeCompositionInput?.();
