@@ -1,17 +1,17 @@
 {
-  "version": "0.2.9",
-  "notes": "Windows日本語IMEの変換位置と確定文字の受け渡しを修正しました。Claude・Codexで実IMEを確認済みです。長時間利用・大量出力中・別のIME環境では引き続き確認が必要です。",
+  "version": "0.2.10",
+  "notes": "変換取消後に日本語入力が止まる問題と、全角スペースが二重に入る問題を修正しました。試用で解消を確認した修正の正式版です。Ctrl+Cのコピー設定は「設定 > KEYS」にあります。",
   "downloadPage": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/latest",
   "urls": {
-    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.9/CLI-Cockpit-0.2.9-win-arm64.exe",
-    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.9/CLI-Cockpit-0.2.9-win-x64.exe"
+    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.10/CLI-Cockpit-0.2.10-win-arm64.exe",
+    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.10/CLI-Cockpit-0.2.10-win-x64.exe"
   },
   "editions": {
     "en": {
-      "notes": "Fixes Windows Japanese IME composition positioning and committed-text delivery. Includes the 0.2.8 Ctrl+C Copy/Interrupt and clipboard fixes. Long sessions, heavy output, and other IME setups still need validation.",
+      "notes": "Regular release of the trial fixes for Japanese input stopping after IME cancellation and duplicate full-width spaces. The Ctrl+C copy setting is now under Settings > KEYS.",
       "urls": {
-        "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.9/CLI-Cockpit-0.2.9-en-win-arm64.exe",
-        "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.9/CLI-Cockpit-0.2.9-en-win-x64.exe"
+        "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.10/CLI-Cockpit-0.2.10-en-win-arm64.exe",
+        "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.10/CLI-Cockpit-0.2.10-en-win-x64.exe"
       }
     }
   }
