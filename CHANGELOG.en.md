@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.11 ? 2026-09-30
+## 0.2.11 — 2026-09-30
 
 - **Fixed terminal links opening twice from one click.** Cockpit now handles link clicks without forwarding the same gesture to the CLI. Ordinary mouse input, dragging, and Shift text selection remain available.
 - Includes the 0.2.10 Japanese IME, full-width space, and Ctrl+C copy setting fixes, along with the existing Codex duplicate-screenshot fix.
