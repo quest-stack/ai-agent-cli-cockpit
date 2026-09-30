@@ -12,8 +12,8 @@ Choose **English** on the [Releases page](https://github.com/quest-stack/ai-agen
 
 | Windows PC | English installer |
 | --- | --- |
-| Intel or AMD (x64) | `CLI-Cockpit-0.2.10-en-win-x64.exe` |
-| ARM64 | `CLI-Cockpit-0.2.10-en-win-arm64.exe` |
+| Intel or AMD (x64) | `CLI-Cockpit-0.2.11-en-win-x64.exe` |
+| ARM64 | `CLI-Cockpit-0.2.11-en-win-arm64.exe` |
 
 Check **Settings → System → About → System type** if you are unsure. The Japanese edition is a separate download. There is no language switch inside the app.
 
