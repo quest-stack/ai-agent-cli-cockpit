@@ -47,7 +47,8 @@ test.describe.serial("terminal links open through the external-browser IPC", () 
     // Wait for bootstrap output to finish before injecting the test link.
     await page.evaluate((id) => window.cockpit?.killSession(id), sessionId);
     await page.evaluate(() => {
-      window.confirm = () => true;
+      // リンクは確認なしで開く。confirm が呼ばれたら記録して拒否する。
+      window.confirm = () => { document.body.dataset.confirmCalled = "1"; return false; };
       window.alert = (message) => { document.body.dataset.linkError = String(message); };
     });
     expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((win) => win.isVisible()))).toBe(false);
@@ -71,15 +72,10 @@ test.describe.serial("terminal links open through the external-browser IPC", () 
     await page.mouse.click(x, y);
   }
 
-  test("confirmed OSC 8 link reaches the OS opener exactly once", async () => {
+  test("OSC 8 link reaches the OS opener exactly once without a confirm dialog", async () => {
     await clickTerminalLink();
     await expect.poll(() => app.evaluate(() => (globalThis as unknown as { linkTest: { opened: string[] } }).linkTest.opened)).toEqual([url]);
-  });
-
-  test("cancelled link does not launch a browser", async () => {
-    await page.evaluate(() => { window.confirm = () => false; });
-    await clickTerminalLink();
-    expect(await app.evaluate(() => (globalThis as unknown as { linkTest: { opened: string[] } }).linkTest.opened)).toEqual([url]);
+    await expect(page.locator("body")).not.toHaveAttribute("data-confirm-called", "1");
   });
 
   test("preload IPC rejects non-web URLs", async () => {
@@ -91,7 +87,6 @@ test.describe.serial("terminal links open through the external-browser IPC", () 
 
   test("OS browser-launch failure is shown to the user", async () => {
     await app.evaluate(() => { (globalThis as unknown as { linkTest: { fail: boolean } }).linkTest.fail = true; });
-    await page.evaluate(() => { window.confirm = () => true; });
     await clickTerminalLink();
     await expect(page.locator("body")).toHaveAttribute("data-link-error", /ブラウザを開けませんでした/u);
   });

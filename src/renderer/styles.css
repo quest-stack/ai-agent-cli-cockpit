@@ -181,18 +181,6 @@ select:focus-visible,
   color: var(--accent);
 }
 
-.title-actions .ctrl-c-toggle {
-  border: 1px solid var(--border);
-  font-size: 11px;
-  padding-inline: 9px;
-  white-space: nowrap;
-  width: auto;
-}
-
-.title-actions .ctrl-c-toggle[aria-pressed="true"] {
-  border-color: var(--accent);
-}
-
 .settings-popover {
   -webkit-app-region: no-drag;
   background: #171b21f7;
@@ -258,6 +246,10 @@ select:focus-visible,
   display: flex;
   font-size: 12px;
   gap: 8px;
+}
+
+.settings-popover p + label {
+  margin-top: 14px;
 }
 
 .settings-popover input {
@@ -1873,7 +1865,7 @@ select:focus-visible,
     padding-right: 8px;
   }
 
-  .title-actions > button:not(.ctrl-c-toggle) {
+  .title-actions > button:not([data-tour-target="settings"]) {
     display: none;
   }
 

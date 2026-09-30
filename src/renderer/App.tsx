@@ -1338,22 +1338,6 @@ export function App() {
         </div>
         <div className="title-actions">
           <button
-            aria-label={t("Ctrl+Cでコピー")}
-            aria-pressed={workspace.settings.ctrlCCopies}
-            className={`ctrl-c-toggle ${workspace.settings.ctrlCCopies ? "is-enabled" : ""}`}
-            data-testid="ctrl-c-toggle"
-            onClick={() => setWorkspace((current) => current ? {
-              ...current,
-              settings: { ...current.settings, ctrlCCopies: !current.settings.ctrlCCopies },
-            } : current)}
-            title={workspace.settings.ctrlCCopies
-              ? t("Ctrl+Cで選択範囲をコピー。未選択時も中断しません。クリックで中断モードへ。")
-              : t("Ctrl+CでCLIを中断。クリックでコピーに切り替えます。")}
-            type="button"
-          >
-            Ctrl+C: {workspace.settings.ctrlCCopies ? t("コピー") : t("中断")}
-          </button>
-          <button
             aria-label={t("全ペイン検索")}
             onClick={() => setSearchOpen(true)}
             title={t("検索 (Ctrl+Shift+F)")}
@@ -1443,6 +1427,26 @@ export function App() {
                 type="checkbox"
               />{t("Enter で改行する")}</label>
             <p>{t("送信は Shift+Enter になります。チャット欄と同じ感覚で書けます。 この設定は Cockpit の中だけで効き、CLI の設定ファイルは 変更しません。")}</p>
+            <label>
+              <input
+                checked={workspace.settings.ctrlCCopies}
+                data-testid="ctrl-c-toggle"
+                onChange={(event) =>
+                  setWorkspace((current) =>
+                    current
+                      ? {
+                          ...current,
+                          settings: {
+                            ...current.settings,
+                            ctrlCCopies: event.target.checked,
+                          },
+                        }
+                      : current,
+                  )
+                }
+                type="checkbox"
+              />{t("Ctrl+C で選択範囲をコピーする")}</label>
+            <p>{t("オフでは CLI を中断します。オンでは選択範囲だけをコピーし、未選択時は何もしません。")}</p>
             <span>REMOTE LAUNCH</span>
             <label>
               <input

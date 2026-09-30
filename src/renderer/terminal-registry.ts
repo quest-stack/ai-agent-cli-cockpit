@@ -9,6 +9,7 @@ import type { WebglAddon } from "@xterm/addon-webgl";
 import {
   describeDiagnosticPayload,
   DIAGNOSTIC_CATEGORIES,
+  summarizeDiagnosticInput,
   DIAGNOSTIC_LOGGING,
   formatDiagnosticMessage,
 } from "../shared/diagnostics";
@@ -288,13 +289,11 @@ class TerminalController {
       letterSpacing: 0,
       lineHeight: 1.24,
       // xterm既定の window.open() はCockpitの新規ウィンドウ禁止に阻まれる。
-      // 確認後、preloadとmainを通して既定ブラウザへ渡す。
+      // preloadとmainを通して既定ブラウザへ渡す。確認ダイアログは出さない
+      // （利用者判断 2026-09-26）。http/https以外と認証情報付きURLはmainで拒否する。
       linkHandler: {
         allowNonHttpProtocols: false,
         activate: (_event, url) => {
-          if (!window.confirm(t("既定のブラウザでこのリンクを開きますか？\n\n{value0}", { value0: url }))) {
-            return;
-          }
           void cockpitApi.openExternalWebLink(url).then(
             (opened) => {
               if (!opened) {
@@ -346,7 +345,7 @@ class TerminalController {
       this.handleCustomKeyEvent(event),
     );
     this.terminal.onData((data) => {
-      const payload = describeDiagnosticPayload(data);
+      const payload = summarizeDiagnosticInput(data);
       const eventId = this.activeKeydownEventId ?? null;
       logRendererDiagnostic(
         DIAGNOSTIC_CATEGORIES.terminalKeyTranslation,
@@ -385,16 +384,17 @@ class TerminalController {
     this.keydownEventIds.set(event, eventId);
     this.activeKeydownEventId = eventId;
 
+    const diagnosticControlKey = /^(?:Alt|ArrowDown|ArrowLeft|ArrowRight|ArrowUp|Backspace|CapsLock|Control|Delete|End|Enter|Escape|Home|Insert|Meta|PageDown|PageUp|Shift|Tab|F(?:[1-9]|1[0-2]))$/u.test(event.key);
     logRendererDiagnostic(DIAGNOSTIC_CATEGORIES.terminalKeydown, {
       altKey: event.altKey,
-      code: event.code,
+      code: diagnosticControlKey ? event.code : "text-entry",
       ctrlKey: event.ctrlKey,
       eventId,
       handler: "terminal-host-capture-observer",
       handlerFired: true,
       isComposing: event.isComposing,
-      key: event.key,
-      keyCode: event.keyCode,
+      key: diagnosticControlKey ? event.key : "text-entry",
+      keyCode: diagnosticControlKey ? event.keyCode : null,
       metaKey: event.metaKey,
       phase: "observed",
       sessionId: this.sessionId,

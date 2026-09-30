@@ -12,8 +12,8 @@ Choose **English** on the [Releases page](https://github.com/quest-stack/ai-agen
 
 | Windows PC | English installer |
 | --- | --- |
-| Intel or AMD (x64) | `CLI-Cockpit-0.2.8-en-win-x64.exe` |
-| ARM64 | `CLI-Cockpit-0.2.8-en-win-arm64.exe` |
+| Intel or AMD (x64) | `CLI-Cockpit-0.2.10-en-win-x64.exe` |
+| ARM64 | `CLI-Cockpit-0.2.10-en-win-arm64.exe` |
 
 Check **Settings → System → About → System type** if you are unsure. The Japanese edition is a separate download. There is no language switch inside the app.
 
@@ -51,7 +51,7 @@ Search looks through the current scrollback of all open sessions. The workspace 
 
 - **Ctrl+V** or **Ctrl+Shift+V** pastes text or a screenshot. Images are saved as temporary PNG files and their paths are inserted into the CLI. The selected CLI must support image input.
 - Dropping files onto a terminal inserts their paths.
-- By default, **Ctrl+C interrupts the CLI**. Use the **Ctrl+C: Interrupt / Copy** button in the title bar to change it. In Copy mode, Ctrl+C copies the selection; with nothing selected, it does nothing. This prevents accidental interruption, and your choice is saved.
+- By default, **Ctrl+C interrupts the CLI**. Enable **Ctrl+C copies selected text** under **Settings > KEYS** to change it. In Copy mode, Ctrl+C copies the selection; with nothing selected, it does nothing. This prevents accidental interruption, and your choice is saved.
 - **Ctrl+Shift+C** copies selected text in either mode.
 - Normally, **Enter sends** and **Shift+Enter inserts a newline** in Claude Code and Codex. Enable **Enter inserts a newline** in Settings to reverse those two keys. This changes Cockpit's input handling, not your CLI configuration files.
 
@@ -81,7 +81,7 @@ These indicators are estimates based on terminal output. They do not approve req
 | Alt+arrow keys | Focus an adjacent pane |
 | Ctrl+Shift+F | Search all panes |
 | Ctrl+V / Ctrl+Shift+V | Paste text or an image |
-| Ctrl+C | Interrupt or copy, as selected in the title bar |
+| Ctrl+C | Interrupt or copy, as selected in Settings > KEYS |
 | Ctrl+Shift+C | Copy selected text |
 | Shift+Enter | Insert a newline, unless swapped in Settings |
 | Ctrl+Shift+R | Refresh the terminal display |
@@ -122,7 +122,7 @@ Anyone who can write to the inbox can cause work to start on this PC. Cockpit do
 - Windows only. Use the installer that matches your CPU architecture.
 - The app's minimum supported window width is 760 px; it is not a mobile interface.
 - Session status detection is approximate.
-- IME and terminal rendering behavior may vary across CLI and Windows versions. Version 0.2.9 fixes the reported IME positioning and committed-text loss cases. Native Japanese IME input was checked in Claude and Codex; long sessions, heavy output, and other Windows IME setups still need validation.
+- IME and terminal rendering behavior may vary across CLI and Windows versions. Version 0.2.10 fixes input stopping after cancellation and duplicate full-width spaces. Native IME comparisons and user trials on Windows ARM64 confirmed recovery from the input-stopping case. Long sessions, heavy output, and other Windows IME setups still need validation.
 - Restoring a workspace does not restore the previous process or terminal scrollback.
 - Cockpit never makes approval decisions on a CLI's behalf.
 

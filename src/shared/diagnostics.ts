@@ -30,6 +30,20 @@ export interface DiagnosticPayloadDescription {
   utf8ByteLength: number;
 }
 
+/** 入力内容を復元できない形式で、送信経路の診断に必要な長さだけ残す。 */
+export function summarizeDiagnosticInput(data: string): {
+  containsNonAscii: boolean;
+  utf16Length: number;
+  utf8ByteLength: number;
+} {
+  const utf8ByteLength = new globalThis.TextEncoder().encode(data).length;
+  return {
+    containsNonAscii: utf8ByteLength !== data.length,
+    utf16Length: data.length,
+    utf8ByteLength,
+  };
+}
+
 export interface ExtendedKeyModeRequest {
   mode: string;
   protocol:

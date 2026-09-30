@@ -113,6 +113,41 @@ for (const command of ["codex", "claude"]) {
       await expect.poll(async () => (await ime.writes()).slice(before)).toEqual(["最初の変換", "次", "最後の日本語"]);
     });
 
+    test("IME-on Space after a Japanese commit sends one full-width space", async ({ ime }) => {
+      await ready(ime);
+      await compose(ime, "あ");
+      await expect.poll(ime.writes).toContain("あ");
+      const before = (await ime.writes()).length;
+      // Native Windows IME delivers keyCode 229 and a short composition in one
+      // task. An awaited CDP call between those events would let xterm's timer
+      // run before the textarea changes and miss the duplicate.
+      await ime.helper.evaluate((textarea) => {
+        textarea.dispatchEvent(new window.KeyboardEvent("keydown", {
+          bubbles: true, cancelable: true, code: "Space", key: " ", keyCode: 229,
+        }));
+        textarea.dispatchEvent(new window.CompositionEvent("compositionstart", { bubbles: true, data: "" }));
+        textarea.value += "　";
+        textarea.dispatchEvent(new window.CompositionEvent("compositionupdate", { bubbles: true, data: "　" }));
+        textarea.dispatchEvent(new window.CompositionEvent("compositionend", { bubbles: true, data: "　" }));
+      });
+      // Both xterm's textarea-diff timer and composition-end work must finish.
+      await ime.page.evaluate(() => new Promise<void>((resolve) => window.setTimeout(resolve, 0)));
+      expect((await ime.writes()).slice(before)).toEqual(["　"]);
+    });
+
+    test("keyCode 229 without composition still sends inserted punctuation", async ({ ime }) => {
+      await ready(ime);
+      const before = (await ime.writes()).length;
+      await ime.helper.evaluate((textarea) => {
+        textarea.dispatchEvent(new window.KeyboardEvent("keydown", {
+          bubbles: true, cancelable: true, code: "Digit1", key: "Process", keyCode: 229,
+        }));
+        textarea.value += "！";
+      });
+      await ime.page.evaluate(() => new Promise<void>((resolve) => window.setTimeout(resolve, 0)));
+      expect((await ime.writes()).slice(before)).toEqual(["！"]);
+    });
+
     test("replacing stale textarea content does not swallow the committed Japanese", async ({ ime }) => {
       await ready(ime);
       await ime.page.keyboard.type("   ");
@@ -125,6 +160,86 @@ for (const command of ["codex", "claude"]) {
       });
       await ime.cdp.send("Input.insertText", { text: "あ" });
       await expect.poll(async () => (await ime.writes()).slice(before)).toEqual(["あ"]);
+    });
+
+    test("empty compositionend data uses the committed textarea change", async ({ ime }) => {
+      await ready(ime);
+      await ime.page.keyboard.type("   ");
+      const before = (await ime.writes()).length;
+      await ime.helper.evaluate((textarea) => {
+        textarea.dispatchEvent(new window.CompositionEvent("compositionstart", { bubbles: true, data: "" }));
+        textarea.value = "あ";
+        textarea.dispatchEvent(new window.CompositionEvent("compositionupdate", { bubbles: true, data: "あ" }));
+        textarea.dispatchEvent(new window.CompositionEvent("compositionend", { bubbles: true, data: "" }));
+      });
+      await expect.poll(async () => (await ime.writes()).slice(before)).toEqual(["あ"]);
+    });
+
+    test("empty compositionend data waits for the final textarea update", async ({ ime }) => {
+      await ready(ime);
+      const before = (await ime.writes()).length;
+      await ime.helper.evaluate((textarea) => {
+        textarea.dispatchEvent(new window.CompositionEvent("compositionstart", { bubbles: true, data: "" }));
+        textarea.dispatchEvent(new window.CompositionEvent("compositionupdate", { bubbles: true, data: "日本語" }));
+        textarea.dispatchEvent(new window.CompositionEvent("compositionend", { bubbles: true, data: "" }));
+        textarea.value += "日本語";
+      });
+      await expect.poll(async () => (await ime.writes()).slice(before)).toEqual(["日本語"]);
+    });
+
+    test("back-to-back empty compositionend events send each commit once", async ({ ime }) => {
+      await ready(ime);
+      const before = (await ime.writes()).length;
+      await ime.helper.evaluate((textarea) => {
+        for (const text of ["あ", "い"]) {
+          textarea.dispatchEvent(new window.CompositionEvent("compositionstart", { bubbles: true, data: "" }));
+          textarea.dispatchEvent(new window.CompositionEvent("compositionupdate", { bubbles: true, data: text }));
+          textarea.dispatchEvent(new window.CompositionEvent("compositionend", { bubbles: true, data: "" }));
+          textarea.value += text;
+        }
+      });
+      await expect.poll(async () => (await ime.writes()).slice(before)).toEqual(["あ", "い"]);
+    });
+
+    test("empty compositionend data on cancellation sends nothing", async ({ ime }) => {
+      await ready(ime);
+      const before = (await ime.writes()).length;
+      await ime.helper.evaluate((textarea) => {
+        const initial = textarea.value;
+        textarea.dispatchEvent(new window.CompositionEvent("compositionstart", { bubbles: true, data: "" }));
+        textarea.value = `${initial}取消`;
+        textarea.dispatchEvent(new window.CompositionEvent("compositionupdate", { bubbles: true, data: "取消" }));
+        textarea.value = initial;
+        textarea.dispatchEvent(new window.CompositionEvent("compositionend", { bubbles: true, data: "" }));
+      });
+      await ime.page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+      expect((await ime.writes()).slice(before)).toEqual([]);
+    });
+
+    test("cancelled IME composition refocuses the input for the next conversion", async ({ ime }) => {
+      await ready(ime);
+      const before = (await ime.writes()).length;
+      await ime.helper.evaluate((textarea) => {
+        textarea.dataset.testBlurCount = "0";
+        textarea.dataset.testFocusCount = "0";
+        textarea.addEventListener("blur", () => {
+          textarea.dataset.testBlurCount = String(Number(textarea.dataset.testBlurCount) + 1);
+        });
+        textarea.addEventListener("focus", () => {
+          textarea.dataset.testFocusCount = String(Number(textarea.dataset.testFocusCount) + 1);
+        });
+        textarea.dispatchEvent(new window.CompositionEvent("compositionstart", { bubbles: true, data: "" }));
+        textarea.value = "あ";
+        textarea.dispatchEvent(new window.CompositionEvent("compositionupdate", { bubbles: true, data: "あ" }));
+        textarea.value = "";
+        textarea.dispatchEvent(new window.CompositionEvent("compositionend", { bubbles: true, data: "" }));
+      });
+      await expect(ime.helper).toHaveAttribute("data-test-blur-count", "1");
+      await expect(ime.helper).toHaveAttribute("data-test-focus-count", "1");
+      await expect(ime.helper).toBeFocused();
+      expect((await ime.writes()).slice(before)).toEqual([]);
+      await compose(ime, "再入力");
+      await expect.poll(async () => (await ime.writes()).slice(before)).toEqual(["再入力"]);
     });
 
     test("cancelled composition sends no Japanese or stale text", async ({ ime }) => {

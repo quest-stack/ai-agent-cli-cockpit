@@ -109,6 +109,7 @@ for (const language of ["ja", "en"] as const) {
         await page.screenshot({ path: testInfo.outputPath("settings-760.png") });
         await page.getByRole("button", { name: ui("設定"), exact: true }).click();
         await page.setViewportSize({ width: 390, height: 900 });
+        await page.getByRole("button", { name: ui("設定"), exact: true }).click();
         await expect(page.getByTestId("ctrl-c-toggle")).toBeVisible();
         await page.screenshot({ path: testInfo.outputPath("launcher-390.png") });
         expect(errors).toEqual([]);
