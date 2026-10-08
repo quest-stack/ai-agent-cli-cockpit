@@ -1,5 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { Terminal } from "@xterm/xterm";
 
 import { t } from "../shared/i18n";
@@ -283,11 +284,14 @@ class TerminalController {
 
   constructor(readonly sessionId: string) {
     this.terminal = new Terminal({
+      // terminal.unicode（文字幅の版の切り替え）は提案中APIのため有効化が必要
+      allowProposedApi: true,
       allowTransparency: false,
       cursorBlink: true,
       cursorStyle: "bar",
       fontFamily:
-        '"JetBrains Mono", "Cascadia Code", "Cascadia Mono", Consolas, monospace',
+        // "Cockpit Symbols" は ①◔→ など曖昧幅の記号だけを1マスの字形で描く（styles.css）
+        '"JetBrains Mono", "Cascadia Code", "Cascadia Mono", "Cockpit Symbols", Consolas, monospace',
       fontSize: 13,
       ignoreBracketedPasteMode: false,
       letterSpacing: 0,
@@ -342,7 +346,17 @@ class TerminalController {
     });
     this.terminal.loadAddon(this.fitAddon);
     this.terminal.loadAddon(this.searchAddon);
-    // @xterm/xterm 6.0.0 には modifyOtherKeys / kitty keyboard protocol を有効化する
+    // 文字幅を Unicode 11 で数える。xterm 既定の Unicode 6 では ⏳✅📌 などの絵文字を
+    // 1桁と数え、2桁で配置する Claude Code / Codex と食い違う。その行だけ1桁詰まり、
+    // 画面を左右に分けたときの境界線（│）がずれて崩れていた（2026-10-07）。
+    this.terminal.loadAddon(new Unicode11Addon());
+    this.terminal.unicode.activeVersion = "11";
+    // WebGL 描画は一度描いた字形を覚えて使い回す。記号用フォントの読み込み前に描くと
+    // 潰れた字形が残るため、読み込みが終わったら覚えた字形を捨てて描き直す
+    void document.fonts
+      .load('13px "Cockpit Symbols"', "①")
+      .then(() => this.terminal.clearTextureAtlas())
+      .catch(() => undefined);    // @xterm/xterm 6.0.0 には modifyOtherKeys / kitty keyboard protocol を有効化する
     // 公開 option や addon がない。parser.registerCsiHandler は要求を観測できるだけで、
     // Shift の有無にかかわらず Enter を CR にする内蔵キーエンコーダは切り替わらない。
     // そのため Shift+Enter は terminal-behavior.ts の手動 CSI-u 送出を正とする。

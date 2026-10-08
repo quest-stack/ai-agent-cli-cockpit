@@ -1,3 +1,29 @@
+/*
+ * ①②③・◔◑◕・→ など「曖昧幅」の記号だけを、1マス用の字形を持つ Sarasa Term J で描く。
+ * CLI はこれらを1マス幅として扱うが、Windows 標準フォントには全角の字形しかなく、
+ * 1マスに押し込まれて潰れていた（2026-10-07）。範囲と出どころは
+ * third_party/fonts/sarasa-gothic/README.md。unicode-range は切り出した範囲と同じ値にする。
+ */
+@font-face {
+  font-family: "Cockpit Symbols";
+  src: url("./assets/fonts/SarasaTermJ-Symbols-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: block;
+  unicode-range: U+00A7, U+00B0-00B1, U+00B4, U+00B6, U+00D7, U+00F7, U+2010-2027,
+    U+2030-205E, U+2103, U+2116, U+2121, U+2122, U+2150-218F, U+2190-21FF, U+2200-22FF,
+    U+2460-24FF, U+25A0-25FF, U+2605-2606, U+2640, U+2642, U+2660-266F;
+}
+
+@font-face {
+  font-family: "Cockpit Symbols";
+  src: url("./assets/fonts/SarasaTermJ-Symbols-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: block;
+  unicode-range: U+00A7, U+00B0-00B1, U+00B4, U+00B6, U+00D7, U+00F7, U+2010-2027,
+    U+2030-205E, U+2103, U+2116, U+2121, U+2122, U+2150-218F, U+2190-21FF, U+2200-22FF,
+    U+2460-24FF, U+25A0-25FF, U+2605-2606, U+2640, U+2642, U+2660-266F;
+}
+
 :root {
   --bg-0: #0b0d10;
   --bg-1: #12151a;

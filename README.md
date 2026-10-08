@@ -436,6 +436,10 @@ MIT License です。詳細は [LICENSE](LICENSE) を参照してください。
 「著作権表示とライセンス本文を残すこと」だけです。無保証で提供しており、
 このソフトウェアの利用によって生じた損害について作者は責任を負いません。
 
+ただし、同梱しているフォント（`SarasaTermJ-Symbols-*.ttf`）は MIT ではなく
+SIL Open Font License 1.1 で配布しています。条件は THIRD-PARTY-NOTICES.md の
+「同梱フォント」を参照してください。
+
 利用しているオープンソースソフトウェアのライセンスは
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) にまとめています。
 インストール後は `resources` フォルダ内にも同じものが入っています。
