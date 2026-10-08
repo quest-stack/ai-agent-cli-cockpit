@@ -1,17 +1,17 @@
 {
-  "version": "0.2.11",
-  "notes": "端末内のURLが1クリックで2つ開く問題を修正しました。日本語IME・全角スペース・Ctrl+Cコピー設定と、Codexのスクショ二重貼り付け修正も引き継ぐ正式版です。",
+  "version": "0.2.12",
+  "notes": "絵文字を含む行で画面の区切り線がずれる問題と、①②③や◔◑◕、→などの記号が潰れて読めない問題を修正しました。",
   "downloadPage": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/latest",
   "urls": {
-    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.11/CLI-Cockpit-0.2.11-win-arm64.exe",
-    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.11/CLI-Cockpit-0.2.11-win-x64.exe"
+    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.12/CLI-Cockpit-0.2.12-win-arm64.exe",
+    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.12/CLI-Cockpit-0.2.12-win-x64.exe"
   },
   "editions": {
     "en": {
-      "notes": "Fixed terminal links opening twice from one click. Includes the Japanese IME, full-width space, Ctrl+C copy setting, and Codex duplicate-screenshot fixes.",
+      "notes": "Fixed divider lines shifting on rows that contain emoji, and symbols such as ①②③, ◔◑◕ and → being squashed and unreadable.",
       "urls": {
-        "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.11/CLI-Cockpit-0.2.11-en-win-arm64.exe",
-        "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.11/CLI-Cockpit-0.2.11-en-win-x64.exe"
+        "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.12/CLI-Cockpit-0.2.12-en-win-arm64.exe",
+        "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.12/CLI-Cockpit-0.2.12-en-win-x64.exe"
       }
     }
   }
