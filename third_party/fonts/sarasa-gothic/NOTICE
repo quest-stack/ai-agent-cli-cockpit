@@ -1,0 +1,9 @@
+Files: SarasaTermJ-Symbols-Regular.ttf, SarasaTermJ-Symbols-Bold.ttf
+対象ファイル: SarasaTermJ-Symbols-Regular.ttf / SarasaTermJ-Symbols-Bold.ttf
+
+These are Modified Versions of Sarasa Term J v1.0.42: only the symbol range
+(circled numbers, geometric shapes, arrows and similar) was extracted with fontTools.
+Sarasa Term J v1.0.42 から記号の範囲（丸数字・図形・矢印など）だけを切り出した改変版です。
+
+Source / 配布元: https://github.com/be5invis/Sarasa-Gothic/releases/tag/v1.0.42
+License / ライセンス: SIL Open Font License 1.1 (below / 以下)

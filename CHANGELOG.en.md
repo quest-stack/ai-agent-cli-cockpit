@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.12 — 2026-10-08
+
+- **Fixed divider lines shifting on rows that contain emoji.** Emoji such as ⏳✅📌 are now measured as two cells wide, matching how Claude Code and Codex lay out the screen. Vertical dividers beside side panels and table borders now line up.
+- **Fixed symbols such as ①②③, ◔◑◕ and → being squashed and unreadable.** These symbols now use glyphs designed to fit a single cell. Only the symbol range of Sarasa Term J (SIL Open Font License 1.1) is bundled; see THIRD-PARTY-NOTICES.md for the license.
+
 ## 0.2.11 — 2026-09-30
 
 - **Fixed terminal links opening twice from one click.** Cockpit now handles link clicks without forwarding the same gesture to the CLI. Ordinary mouse input, dragging, and Shift text selection remain available.

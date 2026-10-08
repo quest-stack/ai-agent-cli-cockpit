@@ -91,9 +91,27 @@ for (const entry of entries) {
   lines.push("---", "");
 }
 
+// 同梱フォント（npm 以外）。OFL は著作権表示とライセンス本文の同梱を再配布の条件にする。
+// third_party/fonts/<名前>/LICENSE を置けば、ここで機械的に一覧へ載る。
+const fontsDir = join(root, "third_party", "fonts");
+const fonts = existsSync(fontsDir)
+  ? readdirSync(fontsDir).filter((n) => existsSync(join(fontsDir, n, "LICENSE"))).sort()
+  : [];
+if (fonts.length > 0) {
+  lines.push("# Bundled fonts / 同梱フォント", "");
+  for (const name of fonts) {
+    lines.push(`## ${name}`, "", "License: OFL-1.1", "");
+    // NOTICE には対象ファイル・改変版であること・配布元を書く（どのファイルに効くかを示す）
+    const notice = join(fontsDir, name, "NOTICE");
+    if (existsSync(notice)) lines.push(readFileSync(notice, "utf8").trim(), "");
+    lines.push("```", readFileSync(join(fontsDir, name, "LICENSE"), "utf8").trim(), "```", "");
+    lines.push("---", "");
+  }
+}
+
 writeFileSync(join(root, "THIRD-PARTY-NOTICES.md"), lines.join("\n"), "utf8");
 
-console.log(`生成: ${entries.length} パッケージ`);
+console.log(`生成: ${entries.length} パッケージ／同梱フォント ${fonts.length}`);
 const counts = {};
 for (const e of entries) counts[e.license] = (counts[e.license] ?? 0) + 1;
 for (const [k, v] of Object.entries(counts).sort((a, b) => b[1] - a[1])) {

@@ -12,8 +12,8 @@ Choose **English** on the [Releases page](https://github.com/quest-stack/ai-agen
 
 | Windows PC | English installer |
 | --- | --- |
-| Intel or AMD (x64) | `CLI-Cockpit-0.2.11-en-win-x64.exe` |
-| ARM64 | `CLI-Cockpit-0.2.11-en-win-arm64.exe` |
+| Intel or AMD (x64) | `CLI-Cockpit-0.2.12-en-win-x64.exe` |
+| ARM64 | `CLI-Cockpit-0.2.12-en-win-arm64.exe` |
 
 Check **Settings → System → About → System type** if you are unsure. The Japanese edition is a separate download. There is no language switch inside the app.
 
@@ -154,6 +154,8 @@ For just one target, use `npm run package:editions -- --language=en --arch=x64`.
 ## License
 
 [MIT](LICENSE). See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for dependency notices.
+
+The bundled font files (`SarasaTermJ-Symbols-*.ttf`) are not MIT-licensed; they are distributed under the SIL Open Font License 1.1. See "Bundled fonts" in THIRD-PARTY-NOTICES.md.
 
 ## Bug reports and feature requests
 
