@@ -70,6 +70,8 @@ jobs:
           npm run build:editions
 
       - name: Verify PowerShell sessions and Japanese/English editions
+        env:
+          DEBUG: pw:browser
         run: npx --no-install playwright test tests/e2e/app.spec.ts tests/e2e/editions.spec.ts
 
       - name: Package unsigned installers

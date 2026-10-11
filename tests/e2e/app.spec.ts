@@ -18,10 +18,13 @@ test("PowerShell session, six-pane layout, search and restore work together", as
       },
     });
 
+  console.info("[PowerShell E2E] Launching application");
   let app = await launch();
+  console.info("[PowerShell E2E] Application launched; waiting for first window");
   try {
     let page = await app.firstWindow();
     await expect(page.getByTestId("launcher")).toBeVisible();
+    console.info("[PowerShell E2E] Launcher visible");
     await expect(
       page.evaluate(
         () =>
@@ -44,6 +47,7 @@ test("PowerShell session, six-pane layout, search and restore work together", as
     await expect(
       page.getByTestId(/^session-row-/u).filter({ hasText: "P0 PowerShell" }),
     ).toBeVisible();
+    console.info("[PowerShell E2E] PowerShell session created");
 
     // 1 回ごとにペインが増えたことを確かめてから次を押す。まとめて押すと
     // React の再描画が追いつかず、同じペインに対する分割が重なって取り
@@ -60,6 +64,7 @@ test("PowerShell session, six-pane layout, search and restore work together", as
       await expect(page.locator("[data-pane-id]")).toHaveCount(index + 2);
     }
     await expect(page.locator("[data-pane-id]")).toHaveCount(6);
+    console.info("[PowerShell E2E] Six panes created");
 
     await page.keyboard.press("Control+Shift+F");
     await expect(page.getByTestId("search-overlay")).toBeVisible();
@@ -95,17 +100,23 @@ test("PowerShell session, six-pane layout, search and restore work together", as
         }
       })
       .toBe(6);
+    console.info("[PowerShell E2E] Six panes saved; closing application");
     await app.close();
 
+    console.info("[PowerShell E2E] Application closed; relaunching");
     app = await launch();
+    console.info("[PowerShell E2E] Application relaunched");
     page = await app.firstWindow();
     await expect(page.locator("[data-pane-id]")).toHaveCount(6);
     // タブの終了ボタンや各ランチャーの履歴と区別して一覧の行を確認する。
     await expect(
       page.getByTestId(/^session-row-/u).filter({ hasText: "P0 PowerShell" }),
     ).toBeVisible();
+    console.info("[PowerShell E2E] Session and six panes restored");
   } finally {
+    console.info("[PowerShell E2E] Closing application during cleanup");
     await app.close().catch(() => undefined);
+    console.info("[PowerShell E2E] Application cleanup complete");
     await rm(userDataPath, { force: true, recursive: true }).catch(
       () => undefined,
     );
