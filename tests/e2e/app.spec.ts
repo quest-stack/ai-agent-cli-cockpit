@@ -4,6 +4,31 @@ import { join, resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 
+import type { Page } from "@playwright/test";
+
+async function verifyPowerShellResponse(page: Page): Promise<string> {
+  const row = page.getByTestId(/^session-row-/u).filter({ hasText: "P0 PowerShell" });
+  const testId = await row.getAttribute("data-testid");
+  if (!testId) throw new Error("PowerShell session ID is missing.");
+  const sessionId = testId.slice("session-row-".length);
+  await page.evaluate((id) => new Promise<void>((resolveResponse) => {
+    const api = window.cockpit;
+    if (!api) throw new Error("Electron preload API is missing.");
+    let output = "";
+    const unsubscribe = api.onPtyData((event) => {
+      if (event.sessionId !== id) return;
+      output = (output + event.data).slice(-8_000);
+      if (output.includes("COCKPIT_E2E_READY")) {
+        unsubscribe();
+        resolveResponse();
+      }
+    });
+    // Split the marker in the command so echoed input cannot satisfy the check.
+    api.writeSession({ sessionId: id, data: "[Console]::WriteLine(('COCKPIT_E2E_' + 'READY'))\r" });
+  }), sessionId);
+  return sessionId;
+}
+
 test("PowerShell session, six-pane layout, search and restore work together", async ({
 }, testInfo) => {
   const userDataPath = testInfo.outputPath("user-data");
@@ -48,6 +73,8 @@ test("PowerShell session, six-pane layout, search and restore work together", as
       page.getByTestId(/^session-row-/u).filter({ hasText: "P0 PowerShell" }),
     ).toBeVisible();
     console.info("[PowerShell E2E] PowerShell session created");
+    await verifyPowerShellResponse(page);
+    console.info("[PowerShell E2E] PowerShell command produced its response");
 
     // 1 回ごとにペインが増えたことを確かめてから次を押す。まとめて押すと
     // React の再描画が追いつかず、同じペインに対する分割が重なって取り
@@ -113,6 +140,23 @@ test("PowerShell session, six-pane layout, search and restore work together", as
       page.getByTestId(/^session-row-/u).filter({ hasText: "P0 PowerShell" }),
     ).toBeVisible();
     console.info("[PowerShell E2E] Session and six panes restored");
+    const restoredSessionId = await verifyPowerShellResponse(page);
+    console.info("[PowerShell E2E] Restored PowerShell produced its response");
+    // The restored row/layout appear before the asynchronous PTY starts. Verify
+    // the real shell, then let it exit before closing the test application;
+    // quitting immediately after rendering can strand ConPTY cleanup on CI.
+    const exitCode = await page.evaluate((id) => new Promise<number | undefined>((resolveExit) => {
+      const api = window.cockpit;
+      if (!api) throw new Error("Electron preload API is missing.");
+      const unsubscribe = api.onPtyStatus((event) => {
+        if (event.sessionId !== id || !["exited", "error"].includes(event.status)) return;
+        unsubscribe();
+        resolveExit(event.exitCode);
+      });
+      api.writeSession({ sessionId: id, data: "exit 0\r" });
+    }), restoredSessionId);
+    expect(exitCode).toBe(0);
+    console.info("[PowerShell E2E] Restored PowerShell exited cleanly");
   } finally {
     console.info("[PowerShell E2E] Closing application during cleanup");
     await app.close().catch(() => undefined);
