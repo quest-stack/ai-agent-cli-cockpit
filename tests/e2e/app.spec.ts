@@ -4,13 +4,31 @@ import { join, resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 
+import { DIAGNOSTIC_CATEGORIES } from "../../src/shared/diagnostics";
+
 import type { Page } from "@playwright/test";
 
-async function verifyPowerShellResponse(page: Page): Promise<string> {
+async function verifyPowerShellResponse(page: Page, userDataPath: string): Promise<string> {
   const row = page.getByTestId(/^session-row-/u).filter({ hasText: "P0 PowerShell" });
   const testId = await row.getAttribute("data-testid");
   if (!testId) throw new Error("PowerShell session ID is missing.");
   const sessionId = testId.slice("session-row-".length);
+  // Restored rows are rendered before PTY creation and the deferred bootstrap.
+  // Wait for that bootstrap in this launch's isolated log; its fallback is 12s.
+  await expect.poll(async () => {
+    try {
+      const log = await readFile(join(userDataPath, "diagnostic.log"), "utf8");
+      const currentLaunch = log.slice(log.lastIndexOf(`[${DIAGNOSTIC_CATEGORIES.appStart}]`));
+      return currentLaunch.split("\n").some((line) => {
+        const payload = line.split(`[${DIAGNOSTIC_CATEGORIES.ptyBootstrap}] `)[1];
+        if (!payload) return false;
+        const event = JSON.parse(payload) as { sessionId?: string; bootstrapWritten?: boolean };
+        return event.sessionId === sessionId && event.bootstrapWritten === true;
+      });
+    } catch {
+      return false;
+    }
+  }, { timeout: 15_000 }).toBe(true);
   await page.evaluate((id) => new Promise<void>((resolveResponse) => {
     const api = window.cockpit;
     if (!api) throw new Error("Electron preload API is missing.");
@@ -33,8 +51,9 @@ test("PowerShell session, six-pane layout, search and restore work together", as
 }, testInfo) => {
   const userDataPath = testInfo.outputPath("user-data");
   const projectRoot = resolve(process.cwd());
-  const launch = () =>
-    electron.launch({
+  const mainErrors: string[] = [];
+  const launch = async () => {
+    const launched = await electron.launch({
       args: ["."],
       cwd: projectRoot,
       env: {
@@ -42,6 +61,19 @@ test("PowerShell session, six-pane layout, search and restore work together", as
         COCKPIT_USER_DATA: userDataPath,
       },
     });
+    launched.on("console", (message) => {
+      if (message.text().includes("[PowerShell E2E] uncaught main-process exception")) {
+        mainErrors.push(message.text());
+      }
+    });
+    await launched.evaluate(() => {
+      // Observe the failure without suppressing Electron's normal error handling.
+      process.on("uncaughtExceptionMonitor", () => {
+        console.error("[PowerShell E2E] uncaught main-process exception");
+      });
+    });
+    return launched;
+  };
 
   console.info("[PowerShell E2E] Launching application");
   let app = await launch();
@@ -73,7 +105,7 @@ test("PowerShell session, six-pane layout, search and restore work together", as
       page.getByTestId(/^session-row-/u).filter({ hasText: "P0 PowerShell" }),
     ).toBeVisible();
     console.info("[PowerShell E2E] PowerShell session created");
-    await verifyPowerShellResponse(page);
+    await verifyPowerShellResponse(page, userDataPath);
     console.info("[PowerShell E2E] PowerShell command produced its response");
 
     // 1 回ごとにペインが増えたことを確かめてから次を押す。まとめて押すと
@@ -140,7 +172,7 @@ test("PowerShell session, six-pane layout, search and restore work together", as
       page.getByTestId(/^session-row-/u).filter({ hasText: "P0 PowerShell" }),
     ).toBeVisible();
     console.info("[PowerShell E2E] Session and six panes restored");
-    const restoredSessionId = await verifyPowerShellResponse(page);
+    const restoredSessionId = await verifyPowerShellResponse(page, userDataPath);
     console.info("[PowerShell E2E] Restored PowerShell produced its response");
     // The restored row/layout appear before the asynchronous PTY starts. Verify
     // the real shell, then let it exit before closing the test application;
@@ -164,5 +196,6 @@ test("PowerShell session, six-pane layout, search and restore work together", as
     await rm(userDataPath, { force: true, recursive: true }).catch(
       () => undefined,
     );
+    expect(mainErrors, "Electron must not raise an uncaught main-process error").toEqual([]);
   }
 });
