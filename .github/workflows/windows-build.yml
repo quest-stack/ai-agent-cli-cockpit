@@ -1,0 +1,95 @@
+name: Windows build
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Windows ${{ matrix.architecture }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            runner: windows-2025
+          - architecture: arm64
+            runner: windows-11-arm
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      COCKPIT_CI_ARCH: ${{ matrix.architecture }}
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          architecture: ${{ matrix.architecture }}
+          package-manager-cache: false
+
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+
+      # Electron 42 installs its runtime lazily on first require. Download it
+      # before Playwright starts a test's timeout on a cold hosted runner.
+      - name: Prepare Electron runtime before timed tests
+        run: node node_modules/electron/install.js
+
+      - name: Check types
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Build application and both editions
+        run: |
+          npm run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build:editions
+
+      - name: Verify PowerShell sessions and Japanese/English editions
+        env:
+          DEBUG: pw:browser
+        run: npx --no-install playwright test tests/e2e/app.spec.ts tests/e2e/editions.spec.ts
+
+      - name: Package unsigned installers
+        run: npm run package:editions -- --arch=$env:COCKPIT_CI_ARCH
+
+      - name: Collect installers, checksums and build metadata
+        run: node scripts/collect-ci-artifacts.mjs --arch=$env:COCKPIT_CI_ARCH
+
+      - name: Upload unsigned build artifacts
+        id: unsigned-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: unsigned-windows-${{ matrix.architecture }}
+          path: release/ci/${{ matrix.architecture }}/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      # After Foundation acceptance, submit this step's artifact-id to SignPath.
+      # Production signing must require a maintainer's manual approval.
+      # This workflow does not sign, publish releases, or update the manifest.

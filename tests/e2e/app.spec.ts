@@ -4,12 +4,56 @@ import { join, resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 
+import { DIAGNOSTIC_CATEGORIES } from "../../src/shared/diagnostics";
+
+import type { Page } from "@playwright/test";
+
+async function verifyPowerShellResponse(page: Page, userDataPath: string): Promise<string> {
+  const row = page.getByTestId(/^session-row-/u).filter({ hasText: "P0 PowerShell" });
+  const testId = await row.getAttribute("data-testid");
+  if (!testId) throw new Error("PowerShell session ID is missing.");
+  const sessionId = testId.slice("session-row-".length);
+  // Restored rows are rendered before PTY creation and the deferred bootstrap.
+  // Wait for that bootstrap in this launch's isolated log; its fallback is 12s.
+  await expect.poll(async () => {
+    try {
+      const log = await readFile(join(userDataPath, "diagnostic.log"), "utf8");
+      const currentLaunch = log.slice(log.lastIndexOf(`[${DIAGNOSTIC_CATEGORIES.appStart}]`));
+      return currentLaunch.split("\n").some((line) => {
+        const payload = line.split(`[${DIAGNOSTIC_CATEGORIES.ptyBootstrap}] `)[1];
+        if (!payload) return false;
+        const event = JSON.parse(payload) as { sessionId?: string; bootstrapWritten?: boolean };
+        return event.sessionId === sessionId && event.bootstrapWritten === true;
+      });
+    } catch {
+      return false;
+    }
+  }, { timeout: 15_000 }).toBe(true);
+  await page.evaluate((id) => new Promise<void>((resolveResponse) => {
+    const api = window.cockpit;
+    if (!api) throw new Error("Electron preload API is missing.");
+    let output = "";
+    const unsubscribe = api.onPtyData((event) => {
+      if (event.sessionId !== id) return;
+      output = (output + event.data).slice(-8_000);
+      if (output.includes("COCKPIT_E2E_READY")) {
+        unsubscribe();
+        resolveResponse();
+      }
+    });
+    // Split the marker in the command so echoed input cannot satisfy the check.
+    api.writeSession({ sessionId: id, data: "[Console]::WriteLine(('COCKPIT_E2E_' + 'READY'))\r" });
+  }), sessionId);
+  return sessionId;
+}
+
 test("PowerShell session, six-pane layout, search and restore work together", async ({
 }, testInfo) => {
   const userDataPath = testInfo.outputPath("user-data");
   const projectRoot = resolve(process.cwd());
-  const launch = () =>
-    electron.launch({
+  const mainErrors: string[] = [];
+  const launch = async () => {
+    const launched = await electron.launch({
       args: ["."],
       cwd: projectRoot,
       env: {
@@ -17,11 +61,27 @@ test("PowerShell session, six-pane layout, search and restore work together", as
         COCKPIT_USER_DATA: userDataPath,
       },
     });
+    launched.on("console", (message) => {
+      if (message.text().includes("[PowerShell E2E] uncaught main-process exception")) {
+        mainErrors.push(message.text());
+      }
+    });
+    await launched.evaluate(() => {
+      // Observe the failure without suppressing Electron's normal error handling.
+      process.on("uncaughtExceptionMonitor", () => {
+        console.error("[PowerShell E2E] uncaught main-process exception");
+      });
+    });
+    return launched;
+  };
 
+  console.info("[PowerShell E2E] Launching application");
   let app = await launch();
+  console.info("[PowerShell E2E] Application launched; waiting for first window");
   try {
     let page = await app.firstWindow();
     await expect(page.getByTestId("launcher")).toBeVisible();
+    console.info("[PowerShell E2E] Launcher visible");
     await expect(
       page.evaluate(
         () =>
@@ -44,6 +104,9 @@ test("PowerShell session, six-pane layout, search and restore work together", as
     await expect(
       page.getByTestId(/^session-row-/u).filter({ hasText: "P0 PowerShell" }),
     ).toBeVisible();
+    console.info("[PowerShell E2E] PowerShell session created");
+    await verifyPowerShellResponse(page, userDataPath);
+    console.info("[PowerShell E2E] PowerShell command produced its response");
 
     // 1 回ごとにペインが増えたことを確かめてから次を押す。まとめて押すと
     // React の再描画が追いつかず、同じペインに対する分割が重なって取り
@@ -60,6 +123,7 @@ test("PowerShell session, six-pane layout, search and restore work together", as
       await expect(page.locator("[data-pane-id]")).toHaveCount(index + 2);
     }
     await expect(page.locator("[data-pane-id]")).toHaveCount(6);
+    console.info("[PowerShell E2E] Six panes created");
 
     await page.keyboard.press("Control+Shift+F");
     await expect(page.getByTestId("search-overlay")).toBeVisible();
@@ -95,19 +159,43 @@ test("PowerShell session, six-pane layout, search and restore work together", as
         }
       })
       .toBe(6);
+    console.info("[PowerShell E2E] Six panes saved; closing application");
     await app.close();
 
+    console.info("[PowerShell E2E] Application closed; relaunching");
     app = await launch();
+    console.info("[PowerShell E2E] Application relaunched");
     page = await app.firstWindow();
     await expect(page.locator("[data-pane-id]")).toHaveCount(6);
     // タブの終了ボタンや各ランチャーの履歴と区別して一覧の行を確認する。
     await expect(
       page.getByTestId(/^session-row-/u).filter({ hasText: "P0 PowerShell" }),
     ).toBeVisible();
+    console.info("[PowerShell E2E] Session and six panes restored");
+    const restoredSessionId = await verifyPowerShellResponse(page, userDataPath);
+    console.info("[PowerShell E2E] Restored PowerShell produced its response");
+    // The restored row/layout appear before the asynchronous PTY starts. Verify
+    // the real shell, then let it exit before closing the test application;
+    // quitting immediately after rendering can strand ConPTY cleanup on CI.
+    const exitCode = await page.evaluate((id) => new Promise<number | undefined>((resolveExit) => {
+      const api = window.cockpit;
+      if (!api) throw new Error("Electron preload API is missing.");
+      const unsubscribe = api.onPtyStatus((event) => {
+        if (event.sessionId !== id || !["exited", "error"].includes(event.status)) return;
+        unsubscribe();
+        resolveExit(event.exitCode);
+      });
+      api.writeSession({ sessionId: id, data: "exit 0\r" });
+    }), restoredSessionId);
+    expect(exitCode).toBe(0);
+    console.info("[PowerShell E2E] Restored PowerShell exited cleanly");
   } finally {
+    console.info("[PowerShell E2E] Closing application during cleanup");
     await app.close().catch(() => undefined);
+    console.info("[PowerShell E2E] Application cleanup complete");
     await rm(userDataPath, { force: true, recursive: true }).catch(
       () => undefined,
     );
+    expect(mainErrors, "Electron must not raise an uncaught main-process error").toEqual([]);
   }
 });

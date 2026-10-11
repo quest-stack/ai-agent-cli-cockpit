@@ -28,6 +28,7 @@ Claude Code CLI と Codex CLI のセッションを、1つのウィンドウの�
 - [設定の保存先](#設定の保存先)
 - [既知の制限](#既知の制限)
 - [開発](#開発)
+- [Code signing policy](#code-signing-policy)
 - [ライセンス](#ライセンス)
 
 ---
@@ -70,6 +71,8 @@ CLI 本体はこのアプリに含まれません。**先に各 CLI を入れて
 
 ## インストール
 
+インストーラは[Releasesページ](https://github.com/quest-stack/ai-agent-cli-cockpit/releases)からダウンロードできます。
+
 CPU に合うインストーラを選びます。
 
 英語版は別ダウンロードです。アプリ内の言語切り替えはありません。英語版のファイル名には `-en-` が付きます。
@@ -94,6 +97,9 @@ CPU に合うインストーラを選びます。
 
 更新は手動です。新しい版のインストーラを実行してください（上書きで問題ありません）。
 **設定・タブ・セッションは引き継がれます。**
+
+署名の導入状況は[Code signing policy](docs/CODE_SIGNING_POLICY.md)、
+情報の取り扱いは[プライバシー方針](docs/PRIVACY.md)を参照してください。
 
 ---
 
@@ -362,8 +368,12 @@ Windows では CLI へ画像を直接貼り付けられないことが多く、A
 場合の逃げ道になります。
 
 **テレメトリは行いません。** ワークスペースの状態は PC 内だけに保存します。
-外部への通信は「新しい版が出ていないかの確認」だけで、**こちらから情報は送りません**。
+Cockpit自身は起動後にGitHubへ「新しい版が出ていないかの確認」を行います。
+セッション内容やプロジェクトファイルは送りませんが、通常のHTTPS通信に伴う
+IPアドレスやリクエストヘッダーはGitHubへ届きます。
 確認に失敗してもアプリの動作には影響せず、オフラインでもそのまま使えます。
+起動したCLIの通信や、画像・診断ログの保存については
+[プライバシー方針](docs/PRIVACY.md)を参照してください。
 
 ---
 
@@ -427,6 +437,16 @@ npm run package:editions -- --language=en --arch=x64
 ```
 
 ---
+
+## Code signing policy
+
+SignPath Foundationの導入準備中です。現在のインストーラは未署名です。
+採択後にGitHub Actionsの成果物と人による承認を使った署名を組み込みます。
+役割・署名手順・情報の取り扱いは[Code signing policy](docs/CODE_SIGNING_POLICY.md)を参照してください。
+
+開発用の自動ビルドは[Windows build](.github/workflows/windows-build.yml)です。
+日本語・英語のARM64／x64版を作り、成果物とSHA-256ハッシュをActionsへ保存します。
+署名やリリースの公開は、このワークフローでは行いません。
 
 ## ライセンス
 

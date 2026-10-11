@@ -56,6 +56,8 @@ for (const edition of languages) {
       ...manifest.build.extraResources,
       { from: edition === "en" ? "README.en.md" : "README.md", to: "README.md" },
       { from: edition === "en" ? "CHANGELOG.en.md" : "CHANGELOG.md", to: "CHANGELOG.md" },
+      { from: "docs/CODE_SIGNING_POLICY.md", to: "docs/CODE_SIGNING_POLICY.md" },
+      { from: "docs/PRIVACY.md", to: "docs/PRIVACY.md" },
     ],
     win: {
       ...manifest.build.win,
