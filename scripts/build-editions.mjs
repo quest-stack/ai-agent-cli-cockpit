@@ -73,5 +73,5 @@ for (const edition of languages) {
   };
   const configPath = resolve(output, "builder.config.json");
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-  run("node_modules/electron-builder/out/cli/cli.js", ["--config", configPath, "--win", "nsis", ...archArgs], env);
+  run("node_modules/electron-builder/out/cli/cli.js", ["--config", configPath, "--win", "nsis", "--publish", "never", ...archArgs], env);
 }
