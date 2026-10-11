@@ -49,6 +49,11 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
 
+      # Electron 42 installs its runtime lazily on first require. Download it
+      # before Playwright starts a test's timeout on a cold hosted runner.
+      - name: Prepare Electron runtime before timed tests
+        run: node node_modules/electron/install.js
+
       - name: Check types
         run: npm run typecheck
 

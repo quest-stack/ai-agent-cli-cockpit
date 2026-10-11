@@ -7,6 +7,8 @@ on GitHub-hosted x64 and ARM64 Windows runners. Each target uses native Node.js
 and the committed dependency lockfile, including node-pty's upstream Windows
 prebuilds. Type checks, lint, unit tests, and the existing PowerShell / language
 edition E2E checks must pass before collecting artifacts.
+Electron 42's lazy runtime download is performed in a separate setup step
+before timed Playwright tests. The test timeout remains unchanged.
 
 `scripts/collect-ci-artifacts.mjs` accepts only the runner's native Windows
 architecture. It collects exactly the two expected installer names, checks
