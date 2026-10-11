@@ -29,6 +29,9 @@ Run the installer and follow the prompts. These installers are unsigned, so Wind
 
 Updates are manual. Close Cockpit, then run the newer installer for the **same language and CPU architecture**. Your saved workspace and settings are retained. The Japanese and English editions share the same application identity and settings; they are alternatives, not separate apps to run together.
 
+See the [Code signing policy](docs/CODE_SIGNING_POLICY.md) for signing status
+and the [Privacy policy](docs/PRIVACY.md) for data handling.
+
 ## Start a session
 
 1. Choose **New Session**.
@@ -117,6 +120,11 @@ Anyone who can write to the inbox can cause work to start on this PC. Cockpit do
 - Settings are stored in `%APPDATA%\claude-cli-cockpit`. This folder name is retained for compatibility.
 - Pasted images are written to your Windows temporary folder. Treat them like the screenshots they contain.
 
+The automatic update check sends ordinary HTTPS connection information to
+GitHub. Local diagnostic logs may contain paths and limited character / output
+details. See the full [Privacy policy](docs/PRIVACY.md), including third-party
+service policies and local file retention.
+
 ## Known limitations
 
 - Windows only. Use the installer that matches your CPU architecture.
@@ -150,6 +158,17 @@ npm run package:editions
 ```
 
 For just one target, use `npm run package:editions -- --language=en --arch=x64`. Build outputs are isolated under `dist/editions/<language>`; installers are under `release/<version>/<language>`. Packaging requires the appropriate Electron/node-pty native binaries. No language-setting preference is stored in the workspace.
+
+## Code signing policy
+
+SignPath Foundation integration is being prepared. Current installers are
+unsigned. After acceptance, signing will use GitHub Actions artifacts and a
+human approver. See the [Code signing policy](docs/CODE_SIGNING_POLICY.md) for
+roles, release rules, and privacy information.
+
+The [Windows build](.github/workflows/windows-build.yml) workflow builds both
+languages for ARM64 and x64 and stores artifacts with SHA-256 checksums. It
+does not sign installers or publish releases.
 
 ## License
 
