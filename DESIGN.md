@@ -9,6 +9,8 @@ prebuilds. Type checks, lint, unit tests, and the existing PowerShell / language
 edition E2E checks must pass before collecting artifacts.
 Electron 42's lazy runtime download is performed in a separate setup step
 before timed Playwright tests. The test timeout remains unchanged.
+Edition packaging explicitly passes `--publish never` to electron-builder so
+main-branch CI cannot trigger its implicit GitHub release publishing.
 
 `scripts/collect-ci-artifacts.mjs` accepts only the runner's native Windows
 architecture. It collects exactly the two expected installer names, checks
