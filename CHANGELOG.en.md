@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.13 — 2026-10-16
+
+- **Codex sessions now automatically attach to the shared server when CLI remote control is already enabled.** Standard launches and pane restarts preserve the working directory. PCs without that existing opt-in keep their previous startup behavior. See `docs/CODEX_REMOTE.md` for setup.
+
 ## 0.2.12 — 2026-10-08
 
 - **Fixed divider lines shifting on rows that contain emoji.** Emoji such as ⏳✅📌 are now measured as two cells wide, matching how Claude Code and Codex lay out the screen. Vertical dividers beside side panels and table borders now line up.

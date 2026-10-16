@@ -58,6 +58,7 @@ for (const edition of languages) {
       { from: edition === "en" ? "CHANGELOG.en.md" : "CHANGELOG.md", to: "CHANGELOG.md" },
       { from: "docs/CODE_SIGNING_POLICY.md", to: "docs/CODE_SIGNING_POLICY.md" },
       { from: "docs/PRIVACY.md", to: "docs/PRIVACY.md" },
+      { from: "docs/CODEX_REMOTE.md", to: "docs/CODEX_REMOTE.md" },
     ],
     win: {
       ...manifest.build.win,

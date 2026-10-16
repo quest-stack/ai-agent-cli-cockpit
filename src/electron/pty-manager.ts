@@ -10,6 +10,7 @@ import {
   summarizeDiagnosticInput,
 } from "../shared/diagnostics";
 
+import { createBootstrapCommand, isCodexRemoteControlEnabled } from "./cli-bootstrap";
 import { StatusDetector } from "./status-detector";
 
 import type {
@@ -142,41 +143,6 @@ function getPtyEnvironment(): Record<string, string> {
   environment.LANG = "ja_JP.UTF-8";
   environment.TERM = "xterm-256color";
   return environment;
-}
-
-function createBootstrapCommand(command: string): string {
-  const encodingSetup = [
-    "[Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false)",
-    "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)",
-    "$OutputEncoding=[Console]::OutputEncoding",
-    "chcp.com 65001 | Out-Null",
-    // claude / codex は .ps1 ラッパー。既定の実行ポリシー(Restricted/RemoteSigned)
-    // だと読み込めず PSSecurityException で起動失敗する。
-    // このプロセス(セッション)内だけ Bypass にする（システム設定は不変・可逆）。
-    "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force",
-  ].join("; ");
-
-  return command === "powershell"
-    ? `${encodingSetup}\r`
-    : `${encodingSetup}; ${command}${getCliArguments(command)}\r`;
-}
-
-/**
- * CLI ごとに付ける起動引数。
- *
- * Codex は入力欄に点字文字（U+2800 ブロック）の装飾アニメーションを描く。
- * 待機中も止まらず、実測では 150ms ごと（約 7 回/秒）に同じ位置を書き換え続ける
- * ため、ペイン内では細かい明滅として見える。Claude Code は同種の描画を一切
- * 行わない（無操作 10 秒の受信バイト数: Codex 44,545 / Claude 0）。
- *
- * `tui.whimsy=false` を付けるとこの装飾だけが止まり、無操作時の出力は 0 になる。
- * スピナーや進捗表示は `tui.animations` 側の管轄なので残る。
- *
- * 利用者の ~/.codex/config.toml は変更しない。Cockpit のペインで起動するときだけ
- * 付けるので、ターミナルから直接 codex を起動したときの見え方は変わらない。
- */
-function getCliArguments(command: string): string {
-  return command === "codex" ? " -c tui.whimsy=false" : "";
 }
 
 export class PtyManager {
@@ -354,7 +320,10 @@ export class PtyManager {
       }),
     );
 
-    target.process.write(createBootstrapCommand(pending.command));
+    target.process.write(createBootstrapCommand(
+      pending.command,
+      pending.command === "codex" && isCodexRemoteControlEnabled(),
+    ));
   }
 
   /**

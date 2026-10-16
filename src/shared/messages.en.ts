@@ -1,5 +1,6 @@
 /** English UI copy. Keys are the Japanese edition's original messages. */
 export const englishMessages = {
+  "Codexの共有サーバーを起動できませんでした。codex app-server daemon start でエラーを確認してください。": "Could not start the shared Codex server. Run codex app-server daemon start to inspect the error.",
   "フォルダを選択": "Select a folder",
   "CLIが入力または承認を待っています。": "A CLI session is waiting for your input or approval.",
   "予期しないエラーが発生しました。": "An unexpected error occurred.",
