@@ -1,17 +1,17 @@
 {
-  "version": "0.2.12",
-  "notes": "絵文字を含む行で画面の区切り線がずれる問題と、①②③や◔◑◕、→などの記号が潰れて読めない問題を修正しました。",
+  "version": "0.2.13",
+  "notes": "Codex CLI??????????????Cockpit????????????????????????????????????????????????????????????",
   "downloadPage": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/latest",
   "urls": {
-    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.12/CLI-Cockpit-0.2.12-win-arm64.exe",
-    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.12/CLI-Cockpit-0.2.12-win-x64.exe"
+    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.13/CLI-Cockpit-0.2.13-win-arm64.exe",
+    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.13/CLI-Cockpit-0.2.13-win-x64.exe"
   },
   "editions": {
     "en": {
-      "notes": "Fixed divider lines shifting on rows that contain emoji, and symbols such as ①②③, ◔◑◕ and → being squashed and unreadable.",
+      "notes": "Codex now automatically connects to the shared server when CLI remote control is already enabled, preventing competing writers with mobile access while preserving the working directory.",
       "urls": {
-        "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.12/CLI-Cockpit-0.2.12-en-win-arm64.exe",
-        "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.12/CLI-Cockpit-0.2.12-en-win-x64.exe"
+        "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.13/CLI-Cockpit-0.2.13-en-win-arm64.exe",
+        "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.13/CLI-Cockpit-0.2.13-en-win-x64.exe"
       }
     }
   }
