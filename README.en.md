@@ -8,6 +8,8 @@ Keep work on different projects separate, see which sessions need attention, and
 
 ## Download and install
 
+For Codex shared-server startup in 0.2.13 and later, see [mobile access setup](docs/CODEX_REMOTE.md#english).
+
 Choose **English** on the [Releases page](https://github.com/quest-stack/ai-agent-cli-cockpit/releases), then select the installer for your PC:
 
 | Windows PC | English installer |

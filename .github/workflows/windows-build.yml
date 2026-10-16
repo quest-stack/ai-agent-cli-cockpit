@@ -69,13 +69,20 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build:editions
 
-      - name: Verify PowerShell sessions and Japanese/English editions
+      - name: Verify PowerShell, shared Codex startup and both editions
         env:
           DEBUG: pw:browser
-        run: npx --no-install playwright test tests/e2e/app.spec.ts tests/e2e/editions.spec.ts
+        run: npx --no-install playwright test tests/e2e/app.spec.ts tests/e2e/editions.spec.ts tests/e2e/codex-shared-start.spec.ts
 
       - name: Package unsigned installers
         run: npm run package:editions -- --arch=$env:COCKPIT_CI_ARCH
+
+      - name: Verify shared Codex startup in the packaged application
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $unpacked = if ($env:COCKPIT_CI_ARCH -eq 'x64') { 'win-unpacked' } else { 'win-arm64-unpacked' }
+          $env:COCKPIT_PACKAGED_EXECUTABLE = Join-Path $PWD "release/$version/ja/$unpacked/CLI Cockpit.exe"
+          npx --no-install playwright test tests/e2e/codex-shared-start.spec.ts
 
       - name: Collect installers, checksums and build metadata
         run: node scripts/collect-ci-artifacts.mjs --arch=$env:COCKPIT_CI_ARCH

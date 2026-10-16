@@ -7,6 +7,8 @@ on GitHub-hosted x64 and ARM64 Windows runners. Each target uses native Node.js
 and the committed dependency lockfile, including node-pty's upstream Windows
 prebuilds. Type checks, lint, unit tests, and the existing PowerShell / language
 edition E2E checks must pass before collecting artifacts.
+Shared Codex startup is tested through the real PowerShell PTY and again in the
+packaged application on each native architecture before uploading installers.
 Electron 42's lazy runtime download is performed in a separate setup step
 before timed Playwright tests. The test timeout remains unchanged.
 Edition packaging explicitly passes `--publish never` to electron-builder so
@@ -48,3 +50,18 @@ processes have their own network behavior and data policies.
 This change does not alter app behavior, saved settings, dependency versions,
 the update manifest, or existing releases. Other worktrees hold the separate
 session-status and circled-number changes.
+
+## Codex shared-server startup
+
+For the standard `codex` session command, Cockpit reads the existing boolean
+`remoteControlEnabled` from the user's Codex managed-daemon settings. An explicit
+true value selects shared startup; missing, disabled or malformed settings retain
+the existing independent CLI startup. Cockpit does not enable remote access,
+create pairings, read credentials, or write Codex configuration.
+
+Shared startup first starts the existing managed daemon, then runs the terminal
+client with `--remote unix://` and the pane's explicit current directory. A failed
+daemon start leaves an actionable error in the shell and does not fall back to an
+independent writer. This selection happens for new or restarted panes; existing
+processes are not migrated or interrupted. Claude, PowerShell and custom commands
+retain their existing startup behavior.
