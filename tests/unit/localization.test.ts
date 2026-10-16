@@ -68,6 +68,17 @@ test("edition download URLs must pass the same validation as legacy URLs", () =>
   } } }).success, false);
 });
 
+test("published update notes retain Japanese text without lossy encoding", () => {
+  const contents: unknown = JSON.parse(readFileSync("update-manifest.json", "utf8"));
+  const parsed = updateManifestSchema.safeParse(contents);
+  assert.ok(parsed.success, "The published manifest must match the update schema.");
+  const japanese = getUpdateForEdition(parsed.data, "ja", "x64");
+  assert.match(japanese.notes, /[\u3040-\u30ff\u4e00-\u9fff]/u);
+  for (const notes of [parsed.data.notes, ...Object.values(parsed.data.editions ?? {}).map((edition) => edition.notes)]) {
+    assert.doesNotMatch(notes, /\?{3,}|\uFFFD/u, "Release notes contain lossy character replacements.");
+  }
+});
+
 test("UI source has no Japanese copy outside the translation dictionary", () => {
   const japanese = /[\u3040-\u30ff\u4e00-\u9fff]/u;
   const files = (directory: string): string[] => readdirSync(directory, { withFileTypes: true })
