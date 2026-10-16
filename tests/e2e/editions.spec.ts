@@ -1,16 +1,19 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { expect, test, _electron as electron } from "@playwright/test";
 
 import { createDefaultWorkspace } from "../../src/electron/defaults";
 import { translate } from "../../src/shared/i18n";
+import { updateManifestSchema } from "../../src/shared/schema";
+import { getUpdateForEdition } from "../../src/shared/update-edition";
 
 import type { Page, TestInfo } from "@playwright/test";
 import type { AppLanguage, MessageKey } from "../../src/shared/i18n";
 import type { SpawnSessionRequest } from "../../src/shared/types";
 
 async function launchEdition(language: AppLanguage, testInfo: TestInfo, update = false) {
+  const manifest = updateManifestSchema.parse(JSON.parse(await readFile("update-manifest.json", "utf8")));
   const userData = testInfo.outputPath("user-data");
   await mkdir(userData, { recursive: true });
   const workspace = createDefaultWorkspace();
@@ -31,12 +34,9 @@ async function launchEdition(language: AppLanguage, testInfo: TestInfo, update =
       return { canceled: true, filePaths: [] };
     };
     shell.openExternal = async (url) => { globalThis.editionCalls.opened.push(url); };
-    net.fetch = async () => new Response(JSON.stringify({
-      version: ${JSON.stringify(update ? "99.0.0" : "0.0.0")},
-      notes: '日本語の更新案内', downloadPage: 'https://example.com/releases',
-      urls: { arm64: 'https://example.com/ja-arm64.exe', x64: 'https://example.com/ja-x64.exe' },
-      editions: { en: { notes: 'English update notes', urls: { arm64: 'https://example.com/en-arm64.exe', x64: 'https://example.com/en-x64.exe' } } }
-    }), { status: 200 });
+    net.fetch = async () => new Response(${JSON.stringify(JSON.stringify({
+      ...manifest, version: update ? manifest.version : "0.0.0",
+    }))}, { status: 200 });
     require(${JSON.stringify(resolve(`dist/editions/${language}/electron/main.js`))});
   `, "utf8");
   const app = await electron.launch({
@@ -52,7 +52,8 @@ async function launchEdition(language: AppLanguage, testInfo: TestInfo, update =
       session: { ...request, status: "idle", startedAt: Date.now(), shouldRestore: true },
     }));
   });
-  return { app, page, errors, ui: (key: MessageKey) => translate(language, key) };
+  return { app, page, errors, ui: (key: MessageKey) => translate(language, key),
+    releaseUpdate: getUpdateForEdition(manifest, language, process.arch) };
 }
 
 async function assertEnglishUi(page: Page, language: AppLanguage): Promise<void> {
@@ -139,13 +140,15 @@ for (const language of ["ja", "en"] as const) {
     });
 
     test("update notices and downloads retain the edition language", async ({}, testInfo) => {
-      const { app, page, ui } = await launchEdition(language, testInfo, true);
+      const { app, page, ui, releaseUpdate } = await launchEdition(language, testInfo, true);
       try {
         const banner = page.getByTestId("update-banner");
-        await expect(banner).toContainText(language === "en" ? "English update notes" : "日本語の更新案内");
+        await expect(banner).toContainText(releaseUpdate.notes);
+        await expect(banner).not.toContainText(/\?{3,}|\uFFFD/u);
+        await banner.screenshot({ path: testInfo.outputPath("update-notice.png") });
         await banner.getByRole("button", { name: ui("ダウンロード"), exact: true }).click();
         expect(await app.evaluate(() => (globalThis as unknown as { editionCalls: { opened: string[] } }).editionCalls.opened))
-          .toEqual([`https://example.com/${language}-${process.arch}.exe`]);
+          .toEqual([releaseUpdate.downloadUrl]);
       } finally { await app.close(); }
     });
   });
