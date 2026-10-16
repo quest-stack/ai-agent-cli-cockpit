@@ -73,6 +73,21 @@ test("the Codex launcher attaches to the opted-in shared server through the real
       ["app-server", "daemon", "start"],
       ["--remote", "unix://", "--cd", project, "-c", "tui.whimsy=false"],
     ]);
+    // The stub returns to PowerShell. Let that real shell exit before quitting
+    // Electron; an active ConPTY can otherwise strand native cleanup on CI.
+    const row = page.getByTestId(/^session-row-/u);
+    const sessionId = (await row.getAttribute("data-testid"))!.slice("session-row-".length);
+    const exitCode = await page.evaluate((id) => new Promise<number | undefined>((resolveExit) => {
+      const api = window.cockpit;
+      if (!api) throw new Error("Electron preload API is missing.");
+      const unsubscribe = api.onPtyStatus((event) => {
+        if (event.sessionId !== id || !["exited", "error"].includes(event.status)) return;
+        unsubscribe();
+        resolveExit(event.exitCode);
+      });
+      api.writeSession({ sessionId: id, data: "exit 0\r" });
+    }), sessionId);
+    expect(exitCode).toBe(0);
   } finally {
     await app.close();
   }
