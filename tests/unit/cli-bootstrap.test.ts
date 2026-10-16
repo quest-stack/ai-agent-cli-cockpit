@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import test from "node:test";
@@ -40,9 +40,12 @@ test("shared startup requires the CLI's explicit remote-control opt-in", () => {
 
 function runBootstrap(root: string, command: string, shared: boolean, daemonExit = 0) {
   const bin = join(root, "bin");
-  const cwd = join(root, "space & apostrophe's work");
+  const requestedCwd = join(root, "space & apostrophe's work");
   mkdirSync(bin, { recursive: true });
-  mkdirSync(cwd, { recursive: true });
+  mkdirSync(requestedCwd, { recursive: true });
+  // Hosted Windows runners can expose TEMP as an 8.3 path. PowerShell's
+  // Get-Location expands it to the long path, so compare canonical locations.
+  const cwd = realpathSync.native(requestedCwd);
   const trace = join(root, "calls.jsonl");
   const recorder = join(root, "record.cjs");
   writeFileSync(recorder,
