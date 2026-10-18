@@ -140,7 +140,7 @@ for (const renderer of ["dom", "webgl"] as const) {
       }
       const screen = terminal.locator(".xterm-screen");
       // Assert actual rasterized width too: merely loading the font did not fix 0.2.12.
-      await expect.poll(async () => {
+      const blueGlyphWidth = async (): Promise<number> => {
         const screenshot = await screen.screenshot();
         return app.evaluate(({ nativeImage }, input) => {
           const image = nativeImage.createFromBuffer(Buffer.from(input.png, "base64"));
@@ -162,8 +162,20 @@ for (const renderer of ["dom", "webgl"] as const) {
           }
           return (last - first + 1) / scale;
         }, { ...metrics, png: screenshot.toString("base64") });
-      }).toBeGreaterThanOrEqual(9);
+      };
+      await expect.poll(blueGlyphWidth).toBeGreaterThanOrEqual(9);
       await screen.screenshot({ path: testInfo.outputPath(`${renderer}-circles.png`) });
+      if (renderer === "webgl") {
+        // Without a following space, the glyph must fit its original one cell
+        // and leave the next letter readable. Keep only the circle blue.
+        await send("\x1b[H\x1b[2K\x1b[94;1m①\x1b[91mSAMPLE\x1b[6n");
+        await expect.poll(() => state.evaluate((state) => state.written.some((request) => request.data === "\x1b[1;8R"))).toBe(true);
+        await expect.poll(blueGlyphWidth).toBeGreaterThan(0);
+        await screen.screenshot({ path: testInfo.outputPath("webgl-compact.png") });
+        await expect.poll(blueGlyphWidth).toBeLessThanOrEqual(metrics.cellWidth + 1);
+        await send("\x1b[H\x1b[2K\x1b[94;1m① SAMPLE");
+        await expect.poll(blueGlyphWidth).toBeGreaterThanOrEqual(9);
+      }
       if (renderer === "dom") {
         const spans = await terminal.locator(".xterm-rows").evaluate((rows) =>
           Array.from(rows.children).slice(0, 6).map((row) =>

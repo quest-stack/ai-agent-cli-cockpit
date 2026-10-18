@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.14 — Release candidate
+## 0.2.14 — 2026-10-18
 
 - **Added a Japanese Mac trial for Apple Silicon and Intel.** Command shortcuts, pane splits, copying and screenshot paste are supported. See [the trial guide](docs/MACOS_TRIAL.md) for installation and limitations.
 - **Improved circled numbers followed by a space.** The glyph uses the existing two terminal cells without changing text, cursor position or copied content. Adjacent circled numbers retain their compact width.

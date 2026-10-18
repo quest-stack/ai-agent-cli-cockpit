@@ -88,8 +88,10 @@ the update manifest, or existing releases.
 
 A circled number immediately followed by an ASCII space is joined for drawing
 within its existing two cells. The terminal buffer, Unicode width rules, cursor
-reports and copied text are unchanged. Compact circled numbers use the existing
-Sarasa symbol font; joined numbers use the OS symbol font, including Hiragino on
+reports and copied text are unchanged. Compact circled numbers in DOM use the
+existing Sarasa symbol font; WebGL rescales oversized one-cell glyphs to avoid
+overlap. xterm excludes emoji from that rescaling. Joined numbers use the OS
+symbol font, including Hiragino on
 Mac. DOM spans use screen-grid measurements rather than xterm's shared character
 measurement element, which can contain an arbitrary cached glyph. Tests cover
 DOM/WebGL geometry, raster width, cursor reporting and copied text.

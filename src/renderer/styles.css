@@ -3,7 +3,9 @@
   font-family: "Cockpit Circled Numbers";
   src: local("Segoe UI Symbol"), local("Segoe UI"), local("HiraginoSans-W3"), local("Hiragino Kaku Gothic ProN W3"), local("Apple Symbols");
   font-weight: 400;
-  unicode-range: U+2460-2473, U+24EA-24FF, U+2776-2793;
+  size-adjust: 120%;
+  /* xtermはDingbatsを絵文字扱いし縮小しないため、❶などは従来のSarasaを使う。 */
+  unicode-range: U+2460-2473, U+24EA-24FF;
 }
 
 /*

@@ -291,6 +291,9 @@ class TerminalController {
         // 丸数字＋空白は既存の2セルを使う。その他の記号は従来の半角字形。
         '"Cockpit Circled Numbers", "JetBrains Mono", "Cascadia Code", "Cascadia Mono", "Cockpit Symbols", Consolas, monospace',
       fontSize: 13,
+      // Joined headings have two cells; unjoined ambiguous glyphs must stay
+      // inside one cell in WebGL. xterm excludes emoji from this rescaling.
+      rescaleOverlappingGlyphs: true,
       ignoreBracketedPasteMode: false,
       letterSpacing: 0,
       lineHeight: 1.24,
