@@ -54,6 +54,12 @@ jobs:
       - name: Prepare Electron runtime before timed tests
         run: node node_modules/electron/install.js
 
+      # Actual hooks run after a PowerShell PTY is ready. Hosted x64 images can
+      # take over five seconds on their very first PowerShell launch; perform
+      # that cold initialization before the unit test's unchanged time limit.
+      - name: Prepare PowerShell before timed hook tests
+        run: powershell.exe -NoLogo -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.ToString()'
+
       - name: Check types
         run: npm run typecheck
 

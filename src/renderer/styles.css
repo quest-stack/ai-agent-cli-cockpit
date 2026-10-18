@@ -1,7 +1,7 @@
 /* 空白を伴う丸数字は2セルにまとめ、OS同梱の丸い字形で描く。 */
 @font-face {
   font-family: "Cockpit Circled Numbers";
-  src: local("Segoe UI Symbol"), local("Segoe UI"), local("Hiragino Sans"), local("Apple Symbols");
+  src: local("Segoe UI Symbol"), local("Segoe UI"), local("HiraginoSans-W3"), local("Hiragino Kaku Gothic ProN W3"), local("Apple Symbols");
   font-weight: 400;
   unicode-range: U+2460-2473, U+24EA-24FF, U+2776-2793;
 }

@@ -36,7 +36,7 @@ for (const renderer of ["dom", "webgl"] as const) {
         window.localStorage.setItem("cockpit.disableWebgl", mode === "dom" ? "1" : "0");
         window.localStorage.setItem("cockpit.forceWebgl", mode === "webgl" ? "1" : "0");
       }, renderer);
-      const state = await app.evaluateHandle(({ ipcMain }) => {
+      const state = await app.evaluateHandle(({ ipcMain, clipboard }) => {
         const state = { written: [] as PtyWriteRequest[], copied: [] as string[], resized: [] as PtyResizeRequest[] };
         ipcMain.removeHandler("cockpit:pty-spawn");
         ipcMain.handle("cockpit:pty-spawn", (_event, request: SpawnSessionRequest) => ({
@@ -45,7 +45,10 @@ for (const renderer of ["dom", "webgl"] as const) {
         ipcMain.on("cockpit:pty-write", (_event, request: PtyWriteRequest) => state.written.push(request));
         ipcMain.on("cockpit:pty-resize", (_event, request: PtyResizeRequest) => state.resized.push(request));
         ipcMain.removeHandler("cockpit:clipboard-write-text");
-        ipcMain.handle("cockpit:clipboard-write-text", (_event, text: string) => state.copied.push(text));
+        ipcMain.handle("cockpit:clipboard-write-text", (_event, text: string) => {
+          state.copied.push(text);
+          clipboard.writeText(text);
+        });
         return state;
       });
       const launcher = page.getByTestId("launcher").filter({ visible: true });
@@ -86,8 +89,13 @@ for (const renderer of ["dom", "webgl"] as const) {
         context.font = `bold ${fontSize}px ${family}`;
         const circleWidth = context.measureText("①").width;
         const screenBounds = screen.getBoundingClientRect();
-        return { cellWidth, circleWidth, width: screenBounds.width, height: screenBounds.height };
+        const fonts = [family, '"HiraginoSans-W3"', '"Hiragino Sans"', '"Apple Symbols"'].map((font) => {
+          context.font = `bold ${fontSize}px ${font}`;
+          return { font, width: context.measureText("①").width };
+        });
+        return { cellWidth, circleWidth, fonts, width: screenBounds.width, height: screenBounds.height };
       }, cols);
+      console.log(JSON.stringify({ platform: process.platform, renderer, metrics }));
       expect(metrics.circleWidth).toBeGreaterThanOrEqual(10);
       expect(metrics.circleWidth).toBeLessThanOrEqual(metrics.cellWidth * 2);
       if (renderer === "dom") {
@@ -168,13 +176,17 @@ for (const renderer of ["dom", "webgl"] as const) {
       await page.mouse.move(bounds.x + metrics.cellWidth * 8 - 0.5, bounds.y + 8);
       await page.mouse.up();
       await page.keyboard.press(process.platform === "darwin" ? "Meta+c" : "Control+Shift+c");
-      await expect.poll(() => state.evaluate((state) => state.copied)).toEqual(["① SAMPLE"]);
+      if (process.platform === "darwin") {
+        await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe("① SAMPLE");
+      } else await expect.poll(() => state.evaluate((state) => state.copied)).toEqual(["① SAMPLE"]);
       await page.mouse.move(bounds.x + 0.5, bounds.y + 8);
       await page.mouse.down();
       await page.mouse.move(bounds.x + metrics.cellWidth - 0.5, bounds.y + 8);
       await page.mouse.up();
       await page.keyboard.press(process.platform === "darwin" ? "Meta+c" : "Control+Shift+c");
-      await expect.poll(() => state.evaluate((state) => state.copied)).toEqual(["① SAMPLE", "①"]);
+      if (process.platform === "darwin") {
+        await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe("①");
+      } else await expect.poll(() => state.evaluate((state) => state.copied)).toEqual(["① SAMPLE", "①"]);
       expect(errors).toEqual([]);
     } finally {
       await app.close();
