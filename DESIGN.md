@@ -81,9 +81,35 @@ it does not claim that all network access is user-initiated. Session content and
 diagnostics are not automatically uploaded to the maintainer. Third-party CLI
 processes have their own network behavior and data policies.
 
-This change does not alter app behavior, saved settings, dependency versions,
-the update manifest, or existing releases. Other worktrees hold the separate
-session-status and circled-number changes.
+Signing preparation does not change saved settings, dependency versions,
+the update manifest, or existing releases.
+
+## Circled-number rendering
+
+A circled number immediately followed by an ASCII space is joined for drawing
+within its existing two cells. The terminal buffer, Unicode width rules, cursor
+reports and copied text are unchanged. Compact circled numbers use the existing
+Sarasa symbol font; joined numbers use the OS symbol font, including Hiragino on
+Mac. DOM spans use screen-grid measurements rather than xterm's shared character
+measurement element, which can contain an arbitrary cached glyph. Tests cover
+DOM/WebGL geometry, raster width, cursor reporting and copied text.
+
+## Subagent activity detection
+
+On Windows, standard Claude and independent Codex launches receive per-invocation
+observational hooks. The PowerShell hook saves only validated lifecycle IDs and
+event types locally, never stdin text, prompts, paths or transcripts. Atomic
+files, session directories, ownership locks and bounded polling isolate sessions.
+Hooks stay silent and never change approval, sandbox or trust settings; Codex's
+own hook review remains required.
+
+Active child IDs keep an otherwise idle terminal busy. Approval prompts take
+priority, and one child's lifecycle cannot clear siblings. Exit and disposal
+clear activity and reject late events. Output heuristics remain the fallback
+when hooks are disabled, untrusted or unavailable. Mac does not run PowerShell
+hooks. Shared Codex also keeps output detection: its existing daemon owns server
+configuration, and client overrides are not assumed to reconfigure that daemon.
+Shared startup and phone opt-in are preserved.
 
 ## Codex shared-server startup
 

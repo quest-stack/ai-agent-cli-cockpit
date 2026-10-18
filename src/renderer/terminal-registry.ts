@@ -20,6 +20,11 @@ import { shouldRunPreventiveRedraw } from "../shared/preventive-redraw";
 
 import { cockpitApi } from "./bridge";
 import {
+  getCircledNumberJoinRanges,
+  getCompactCircledNumberCount,
+  isSpacedCircledNumber,
+} from "./circled-number-rendering";
+import {
   resolveCompositionHorizontalLayout,
   resolveCompositionTranslateY,
 } from "./composition-layout";
@@ -44,7 +49,7 @@ interface SearchMatch {
 interface CharacterCellMeasurement {
   charHeightPx: number | "unavailable";
   charWidthPx: number | "unavailable";
-  source: "dom-char-measure" | "unavailable";
+  source: "screen-grid" | "unavailable";
 }
 
 interface WebglGpuFallbackDecision {
@@ -58,14 +63,6 @@ type ObservedMutationRecords = Parameters<
 
 const WEBGL_LAYOUT_STABILIZATION_FRAMES = 2;
 
-/**
- * xterm が `.xterm-char-measure-element` に並べる文字数。
- *
- * xterm 本体は `textContent = "W".repeat(32)` としたうえで `offsetWidth / 32`
- * で 1 セル幅を求める。こちらも同じ数で割らないと 32 文字ぶんの幅を
- * 1 文字ぶんと誤認する。
- */
-const MEASURE_ELEMENT_CHAR_COUNT = 32;
 /** IME 変換文字列を包む span のクラス（背景を文字の背後だけに限定するため）。 */
 /**
  * リサイズが止まってから「確定」とみなすまでの待ち。
@@ -291,8 +288,8 @@ class TerminalController {
       cursorBlink: true,
       cursorStyle: "bar",
       fontFamily:
-        // "Cockpit Symbols" は ①◔→ など曖昧幅の記号だけを1マスの字形で描く（styles.css）
-        '"JetBrains Mono", "Cascadia Code", "Cascadia Mono", "Cockpit Symbols", Consolas, monospace',
+        // 丸数字＋空白は既存の2セルを使う。その他の記号は従来の半角字形。
+        '"Cockpit Circled Numbers", "JetBrains Mono", "Cascadia Code", "Cascadia Mono", "Cockpit Symbols", Consolas, monospace',
       fontSize: 13,
       ignoreBracketedPasteMode: false,
       letterSpacing: 0,
@@ -354,10 +351,18 @@ class TerminalController {
     this.terminal.unicode.activeVersion = "11";
     // WebGL 描画は一度描いた字形を覚えて使い回す。記号用フォントの読み込み前に描くと
     // 潰れた字形が残るため、読み込みが終わったら覚えた字形を捨てて描き直す
-    void document.fonts
-      .load('13px "Cockpit Symbols"', "①")
-      .then(() => this.terminal.clearTextureAtlas())
-      .catch(() => undefined);    // @xterm/xterm 6.0.0 には modifyOtherKeys / kitty keyboard protocol を有効化する
+    void Promise.all(
+      ["Cockpit Symbols", "Cockpit Circled Numbers"].flatMap((family) =>
+        ["", "bold "].map((weight) =>
+          document.fonts.load(`${weight}13px "${family}"`, "①"),
+        ),
+      ),
+    ).then(() => {
+      if (this.disposed || !this.opened) return;
+      this.terminal.clearTextureAtlas();
+      this.terminal.refresh(0, this.terminal.rows - 1);
+    }).catch(() => undefined);
+    // @xterm/xterm 6.0.0 には modifyOtherKeys / kitty keyboard protocol を有効化する
     // 公開 option や addon がない。parser.registerCsiHandler は要求を観測できるだけで、
     // Shift の有無にかかわらず Enter を CR にする内蔵キーエンコーダは切り替わらない。
     // そのため Shift+Enter は terminal-behavior.ts の手動 CSI-u 送出を正とする。
@@ -685,11 +690,11 @@ class TerminalController {
   }
 
   private measureCharacterCell(): CharacterCellMeasurement {
-    const measureElement =
+    const screen =
       this.terminal.element?.querySelector<HTMLElement>(
-        ".xterm-char-measure-element",
+        ".xterm-screen",
       );
-    if (!measureElement) {
+    if (!screen || this.terminal.cols < 1 || this.terminal.rows < 1) {
       return {
         charHeightPx: "unavailable",
         charWidthPx: "unavailable",
@@ -697,17 +702,14 @@ class TerminalController {
       };
     }
 
-    const bounds = measureElement.getBoundingClientRect();
-    // xterm は測定要素に 1 文字を 32 個並べて入れ（"W".repeat(32)）、
-    // offsetWidth を 32 で割って 1 セル幅を得る。要素の幅をそのまま読むと
-    // 常に 32 文字ぶんになり、実測でも 243.75px（= 7.617 × 32）や
-    // 416px（= 13.0 × 32）が観測された。全 441 回の測定がこの理由で
-    // "ありえない値" として捨てられ、セル幅が一度も得られていなかった。
-    const charWidthPx = bounds.width / MEASURE_ELEMENT_CHAR_COUNT;
-    // 割ってもなお範囲外なら、測定中や フォント未読込の値なので捨てる。
+    const bounds = screen.getBoundingClientRect();
+    // DOMのWidthCacheも同名の測定spanを使い、直前に測った任意の字形を残す。
+    // 丸数字や日本語の幅をセル幅と誤認しないよう、描画済みグリッドから求める。
+    // WebGLでも同じ公開DOM要素を使い、xtermの内部APIには依存しない。
+    const charWidthPx = bounds.width / this.terminal.cols;
     if (!isPlausibleCharacterWidth(charWidthPx)) {
       logRendererDiagnostic(DIAGNOSTIC_CATEGORIES.terminalFit, {
-        elementWidthPx: bounds.width,
+        screenWidthPx: bounds.width,
         event: "implausible-char-width",
         measuredWidthPx: charWidthPx,
         sessionId: this.sessionId,
@@ -720,14 +722,14 @@ class TerminalController {
     }
 
     return {
-      charHeightPx: bounds.height > 0 ? bounds.height : "unavailable",
+      charHeightPx: bounds.height > 0 ? bounds.height / this.terminal.rows : "unavailable",
       charWidthPx,
-      source: "dom-char-measure",
+      source: "screen-grid",
     };
   }
 
   /**
-   * DOM レンダラが生成した絵文字専用 span に、実測セル幅由来の幅を渡す。
+   * DOM レンダラが生成した絵文字・丸数字の span に、実測セル幅由来の幅を渡す。
    * WebGL では .xterm-rows 自体が無いため、canvas や他の UI には作用しない。
    */
   private decorateEmojiSpans(startRow: number, endRow: number): void {
@@ -758,7 +760,7 @@ class TerminalController {
     }
   }
 
-  /** xterm が差し替えた span のうち、絵文字だけのものへ幅を付ける。 */
+  /** xterm が差し替えた絵文字・丸数字の span に幅を付ける。 */
   private decorateEmojiSpan(
     candidate: HTMLElement,
     rowContainer: HTMLElement,
@@ -771,7 +773,23 @@ class TerminalController {
       return;
     }
 
-    const emojiCellCount = getEmojiCellCount(candidate.textContent ?? "");
+    const text = candidate.textContent ?? "";
+    const spacedCircledNumber = isSpacedCircledNumber(text);
+    const circledNumberCount = getCompactCircledNumberCount(text);
+    // xterm DOMの結合spanはletter-spacingが2文字ともに適用され、表示幅が不足する。
+    // 丸数字＋空白だけを明示的に2セルへ固定。結合できない場合は半角字形へ戻す。
+    if (spacedCircledNumber || circledNumberCount !== null) {
+      const width = `${cellWidthPx * (spacedCircledNumber ? 2 : circledNumberCount!)}px`;
+      if (candidate.style.getPropertyValue("--cockpit-circled-width") !== width) {
+        candidate.style.setProperty("--cockpit-circled-width", width);
+      }
+      const className = spacedCircledNumber ? "cockpit-spaced-circled" : "cockpit-compact-circled";
+      candidate.classList.remove(spacedCircledNumber ? "cockpit-compact-circled" : "cockpit-spaced-circled");
+      if (!candidate.classList.contains(className)) candidate.classList.add(className);
+      return;
+    }
+
+    const emojiCellCount = getEmojiCellCount(text);
     if (emojiCellCount === null) {
       return;
     }
@@ -1356,6 +1374,7 @@ class TerminalController {
     if (!this.opened) {
       host.replaceChildren();
       this.terminal.open(host);
+      this.terminal.registerCharacterJoiner(getCircledNumberJoinRanges);
       this.linkMouse.attach(this.terminal);
       this.disposeCompositionSync = synchronizeCompositionPosition(this.terminal);
       this.disposeCompositionInput = synchronizeCompositionInput(this.terminal, (fields) => {

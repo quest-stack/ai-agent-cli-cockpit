@@ -38,6 +38,14 @@ test("shared startup requires the CLI's explicit remote-control opt-in", () => {
   });
 });
 
+test("observational hooks apply only to independent Windows CLI invocations", () => {
+  const hooks = " --settings 'test-hooks.json'";
+  assert.ok(createBootstrapCommand("claude", false, "win32", hooks).includes(hooks));
+  assert.ok(createBootstrapCommand("codex", false, "win32", hooks).includes(hooks));
+  assert.ok(!createBootstrapCommand("codex", true, "win32", hooks).includes(hooks));
+  assert.ok(!createBootstrapCommand("claude", false, "darwin", hooks).includes(hooks));
+});
+
 function runBootstrap(root: string, command: string, shared: boolean, daemonExit = 0) {
   const bin = join(root, "bin");
   const requestedCwd = join(root, "space & apostrophe's work");

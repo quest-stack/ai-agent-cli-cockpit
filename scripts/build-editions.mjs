@@ -59,6 +59,7 @@ for (const edition of languages) {
       { from: "docs/CODE_SIGNING_POLICY.md", to: "docs/CODE_SIGNING_POLICY.md" },
       { from: "docs/PRIVACY.md", to: "docs/PRIVACY.md" },
       { from: "docs/CODEX_REMOTE.md", to: "docs/CODEX_REMOTE.md" },
+      { from: "docs/MACOS_TRIAL.md", to: "docs/MACOS_TRIAL.md" },
     ],
     win: {
       ...manifest.build.win,

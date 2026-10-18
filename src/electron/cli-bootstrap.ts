@@ -24,7 +24,9 @@ export function isCodexRemoteControlEnabled(userHome = homedir()): boolean {
   }
 }
 
-export function createBootstrapCommand(command: string, sharedCodex = false, platform = process.platform): string {
+export function createBootstrapCommand(
+  command: string, sharedCodex = false, platform = process.platform, activityArguments = "",
+): string {
   if (platform !== "win32") {
     if (command === "shell" || command === "powershell") return "\r";
     if (command === "codex" && sharedCodex) {
@@ -56,5 +58,5 @@ export function createBootstrapCommand(command: string, sharedCodex = false, pla
 
   // Disable only Codex's idle decoration; preserve its progress animations.
   const argumentsText = command === "codex" ? " -c tui.whimsy=false" : "";
-  return `${encodingSetup}; ${command}${argumentsText}\r`;
+  return `${encodingSetup}; ${command}${argumentsText}${activityArguments}\r`;
 }

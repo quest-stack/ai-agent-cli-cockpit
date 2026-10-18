@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.14 — Release candidate
+
+- **Added a Japanese Mac trial for Apple Silicon and Intel.** Command shortcuts, pane splits, copying and screenshot paste are supported. See [the trial guide](docs/MACOS_TRIAL.md) for installation and limitations.
+- **Improved circled numbers followed by a space.** The glyph uses the existing two terminal cells without changing text, cursor position or copied content. Adjacent circled numbers retain their compact width.
+- **Windows activity indicators can stay busy while subagents work silently.** Supported for standard Claude Code and independent Codex launches with hooks enabled and any required Codex trust review complete. Approval prompts take priority. Shared Codex, Mac and unavailable hooks retain terminal-output detection.
+- **Added concrete README examples for screenshot requests and parallel work with the same or different AI CLIs.**
+
+Includes the update-notice encoding fix published on October 16. This does not imply that every display issue or unexpected character in an AI CLI's own output is resolved.
+
 ## 0.2.13 — 2026-10-16
 
 - **Codex sessions now automatically attach to the shared server when CLI remote control is already enabled.** Standard launches and pane restarts preserve the working directory. PCs without that existing opt-in keep their previous startup behavior. See `docs/CODEX_REMOTE.md` for setup.

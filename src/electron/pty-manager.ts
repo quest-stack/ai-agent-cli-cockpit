@@ -10,6 +10,7 @@ import {
 } from "../shared/diagnostics";
 
 import { createBootstrapCommand, isCodexRemoteControlEnabled } from "./cli-bootstrap";
+import { CliActivityBridge } from "./cli-activity-bridge";
 import { StatusDetector } from "./status-detector";
 import { getShellLaunch } from "./shell-launch";
 
@@ -21,6 +22,7 @@ import type {
 } from "../shared/types";
 
 interface ManagedPty {
+  activity?: CliActivityBridge;
   detector: StatusDetector;
   process: pty.IPty;
   /**
@@ -135,7 +137,10 @@ function getPtyEnvironment(): Record<string, string> {
 export class PtyManager {
   private readonly processes = new Map<string, ManagedPty>();
 
-  constructor(private readonly events: PtyManagerEvents) {}
+  constructor(
+    private readonly events: PtyManagerEvents,
+    private readonly activityDirectory?: string,
+  ) {}
 
   spawn(request: SpawnSessionRequest): SessionState {
     if (this.processes.has(request.id)) {
@@ -186,6 +191,20 @@ export class PtyManager {
       detector,
       process: terminalProcess,
     };
+    // The observational hook currently uses PowerShell. Shared Codex runs in
+    // an existing daemon whose hook configuration belongs to that daemon.
+    if (process.platform === "win32" && this.activityDirectory &&
+      (request.command === "claude" ||
+        (request.command === "codex" && !isCodexRemoteControlEnabled()))) {
+      try {
+        managed.activity = new CliActivityBridge(
+          this.activityDirectory, request.id,
+          (event) => detector.handleActivityEvent(event),
+        );
+      } catch {
+        // Keep terminal-output detection when hooks are unavailable.
+      }
+    }
     this.processes.set(request.id, managed);
 
     terminalProcess.onData((data) => {
@@ -230,6 +249,7 @@ export class PtyManager {
     });
 
     terminalProcess.onExit(({ exitCode }) => {
+      managed.activity?.dispose();
       detector.dispose();
       this.clearBootstrapTimers(managed);
       this.processes.delete(request.id);
@@ -311,6 +331,8 @@ export class PtyManager {
     target.process.write(createBootstrapCommand(
       pending.command,
       pending.command === "codex" && isCodexRemoteControlEnabled(),
+      process.platform,
+      target.activity?.argumentsFor(pending.command),
     ));
   }
 
@@ -520,6 +542,7 @@ export class PtyManager {
       return;
     }
 
+    target.activity?.dispose();
     target.detector.dispose();
     this.clearBootstrapTimers(target);
     target.process.kill();

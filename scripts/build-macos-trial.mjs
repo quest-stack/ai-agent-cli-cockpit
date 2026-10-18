@@ -13,8 +13,8 @@ if (process.platform !== "darwin" || architecture !== process.arch
 const output = resolve(root, "release", "mac-trial", architecture);
 await mkdir(output, { recursive: true });
 const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
-const run = (script, args = []) => execFileSync(process.execPath,
-  [resolve(root, script), ...args], { cwd: root, stdio: "inherit" });
+const run = (script, args = [], env = process.env) => execFileSync(process.execPath,
+  [resolve(root, script), ...args], { cwd: root, stdio: "inherit", env });
 run("scripts/generate-third-party-notices.mjs");
 run("scripts/build-editions.mjs", ["--language=ja"]);
 
@@ -61,4 +61,11 @@ const config = {
 const configPath = resolve(output, "builder.config.json");
 await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
 run("node_modules/electron-builder/out/cli/cli.js",
-  ["--config", configPath, "--mac", "dmg", "zip", `--${architecture}`, "--publish", "never"]);
+  ["--config", configPath, "--mac", "dmg", "zip", `--${architecture}`, "--publish", "never"], {
+    ...process.env,
+    // PR builds otherwise skip even identity="-", leaving Electron's original
+    // bundle signature invalid after packaging. This uses only ad-hoc signing:
+    // no identity lookup, certificate, notarization or publishing credentials.
+    CSC_FOR_PULL_REQUEST: "true",
+    CSC_IDENTITY_AUTO_DISCOVERY: "false",
+  });

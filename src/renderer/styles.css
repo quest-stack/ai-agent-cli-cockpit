@@ -1,5 +1,13 @@
+/* 空白を伴う丸数字は2セルにまとめ、OS同梱の丸い字形で描く。 */
+@font-face {
+  font-family: "Cockpit Circled Numbers";
+  src: local("Segoe UI Symbol"), local("Segoe UI"), local("Hiragino Sans"), local("Apple Symbols");
+  font-weight: 400;
+  unicode-range: U+2460-2473, U+24EA-24FF, U+2776-2793;
+}
+
 /*
- * ①②③・◔◑◕・→ など「曖昧幅」の記号だけを、1マス用の字形を持つ Sarasa Term J で描く。
+ * 空白のない①②③・◔◑◕・→ など「曖昧幅」の記号は、1マス用の Sarasa Term J が代替する。
  * CLI はこれらを1マス幅として扱うが、Windows 標準フォントには全角の字形しかなく、
  * 1マスに押し込まれて潰れていた（2026-10-07）。範囲と出どころは
  * third_party/fonts/sarasa-gothic/README.md。unicode-range は切り出した範囲と同じ値にする。
@@ -1210,6 +1218,22 @@ select:focus-visible,
 .terminal-host .xterm-viewport {
   scrollbar-color: #343a45 transparent;
   scrollbar-width: thin;
+}
+
+/* DOMの結合spanは丸数字＋空白で2セル、連続丸数字は元のセル数へ固定する。 */
+.terminal-host .xterm-rows > div > span.cockpit-spaced-circled,
+.terminal-host .xterm-rows > div > span.cockpit-compact-circled {
+  /* 結合できない丸数字は従来の半角字形。隣のセルや選択位置を侵食しない。 */
+  display: inline-block;
+  inline-size: var(--cockpit-circled-width);
+  letter-spacing: normal !important;
+  overflow: hidden;
+  vertical-align: top;
+}
+
+.terminal-host .xterm-rows > div > span.cockpit-compact-circled {
+  font-family: "Cockpit Symbols", Consolas, monospace;
+  text-align: center;
 }
 
 .terminal-closing {

@@ -581,7 +581,7 @@ app.whenReady().then(async () => {
     onStatus: (event) => {
       sendToRenderer(IPC_CHANNELS.ptyStatus, event);
     },
-  });
+  }, join(userDataDirectory, "cli-activity"));
 
   remoteLaunchWatcher = new RemoteLaunchWatcher({
     diagnosticCategory: DIAGNOSTIC_CATEGORIES.remoteLaunch,

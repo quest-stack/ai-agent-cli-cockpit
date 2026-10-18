@@ -52,7 +52,7 @@ jobs:
           npm run rebuild:native
           npm run build
       - name: Verify real Mac shell, screenshot paste and pane controls
-        run: npx --no-install playwright test tests/e2e/macos-trial.spec.ts
+        run: npx --no-install playwright test tests/e2e/macos-trial.spec.ts tests/e2e/circled-numbers.spec.ts
       - name: Build ad-hoc-signed trial packages
         run: node scripts/build-macos-trial.mjs ${{ matrix.architecture }}
       - name: Verify the packaged application
@@ -63,7 +63,7 @@ jobs:
           bundle="release/mac-trial/${{ matrix.architecture }}/$bundle_dir/CLI Cockpit.app"
           codesign --verify --deep --strict "$bundle"
           file "$bundle/Contents/MacOS/CLI Cockpit"
-          COCKPIT_PACKAGED_EXECUTABLE="$PWD/$bundle/Contents/MacOS/CLI Cockpit" npx --no-install playwright test tests/e2e/macos-trial.spec.ts
+          COCKPIT_PACKAGED_EXECUTABLE="$PWD/$bundle/Contents/MacOS/CLI Cockpit" npx --no-install playwright test tests/e2e/macos-trial.spec.ts tests/e2e/circled-numbers.spec.ts
       - name: Collect packages, guide and checksums
         run: node scripts/collect-macos-trial.mjs ${{ matrix.architecture }}
       - name: Upload trial packages

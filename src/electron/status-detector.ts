@@ -1,4 +1,5 @@
 import type { SessionStatus } from "../shared/types";
+import type { CliActivityEvent } from "./cli-activity-bridge";
 
 export const STATUS_SETTLE_DELAY_MS = 900;
 const WAITING_RELEASE_OUTPUT_LENGTH = 80;
@@ -36,6 +37,10 @@ export class StatusDetector {
   private buffer = "";
   private settleTimer: ReturnType<typeof setTimeout> | undefined;
   private status: SessionStatus = "idle";
+  private terminalStatus: SessionStatus = "idle";
+  private readonly activeSubagents = new Set<string>();
+  private readonly knownSubagents = new Set<string>();
+  private disposed = false;
   private waitingLocked = false;
   private waitingOutput = "";
 
@@ -45,6 +50,7 @@ export class StatusDetector {
   ) {}
 
   handleData(data: string): void {
+    if (this.disposed) return;
     const visibleData = stripTerminalSequences(data);
 
     if (this.waitingLocked) {
@@ -90,12 +96,51 @@ export class StatusDetector {
     this.buffer = "";
   }
 
+  // CLI が静かでも、開始を確認した Subagent の作業は継続している。
+  // 承認依頼は terminalStatus 側で優先し、CLI の操作には介入しない。
+  handleSubagent(agentId: string, active: boolean): void {
+    if (this.disposed) return;
+    if (active) {
+      this.knownSubagents.add(agentId);
+      this.activeSubagents.add(agentId);
+    }
+    else this.activeSubagents.delete(agentId);
+    this.setStatus(this.terminalStatus);
+  }
+
+  clearSubagents(): void {
+    this.activeSubagents.clear();
+    this.knownSubagents.clear();
+    if (!this.disposed) this.setStatus(this.terminalStatus);
+  }
+
+  handleActivityEvent(event: CliActivityEvent): void {
+    // Codex の子スレッド内の hook は session_id が子の ID になる。
+    // agent_id のない通常イベントでも、開始を確認した子だけを追跡する。
+    const agentId = event.agentId ??
+      (this.knownSubagents.has(event.sessionId) ? event.sessionId : undefined);
+    if (event.event === "SubagentStart" ||
+      ((event.event === "UserPromptSubmit" || event.event === "PreToolUse") && agentId)) {
+      if (agentId) this.handleSubagent(agentId, true);
+    } else if (event.event === "SubagentStop") {
+      if (agentId) this.handleSubagent(agentId, false);
+    } else if (event.event === "SessionEnd" || event.event === "Interrupt" ||
+      (event.event === "SessionStart" && event.source !== "compact")) {
+      if (agentId) {
+        if (event.event !== "SessionStart") this.handleSubagent(agentId, false);
+      } else this.clearSubagents();
+    }
+  }
+
   handleExit(exitCode: number): void {
     this.dispose();
     this.setStatus(exitCode === 0 ? "exited" : "error");
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.activeSubagents.clear();
+    this.knownSubagents.clear();
     if (this.settleTimer) {
       clearTimeout(this.settleTimer);
       this.settleTimer = undefined;
@@ -105,6 +150,10 @@ export class StatusDetector {
   }
 
   private setStatus(nextStatus: SessionStatus): void {
+    this.terminalStatus = nextStatus;
+    if (nextStatus === "idle" && this.activeSubagents.size > 0) {
+      nextStatus = "busy";
+    }
     if (nextStatus === this.status) {
       return;
     }
