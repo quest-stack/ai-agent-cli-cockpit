@@ -21,8 +21,16 @@ for (const renderer of ["dom", "webgl"] as const) {
       app.on('browser-window-created',(_,win)=>{win.show=()=>{};win.showInactive=()=>{}});
       require(${JSON.stringify(resolve(process.env.COCKPIT_TEST_APP_ROOT ?? process.cwd(), "dist/electron/main.js"))});
     `, "utf8");
+    const launchArgs = process.env.COCKPIT_PACKAGED_EXECUTABLE ? [] : [entry];
+    // The Intel macOS hosted VM has no usable hardware WebGL. Exercise the
+    // actual WebGL renderer with SwiftShader only in this trusted CI fixture;
+    // production launches and the other Mac behavior tests keep their defaults.
+    if (renderer === "webgl" && process.platform === "darwin" &&
+      process.arch === "x64" && process.env.CI) {
+      launchArgs.unshift("--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader");
+    }
     const app = await electron.launch({
-      args: process.env.COCKPIT_PACKAGED_EXECUTABLE ? [] : [entry],
+      args: launchArgs,
       ...(process.env.COCKPIT_PACKAGED_EXECUTABLE
         ? { executablePath: process.env.COCKPIT_PACKAGED_EXECUTABLE } : {}),
       env: { ...process.env, COCKPIT_USER_DATA: directory },

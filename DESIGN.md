@@ -93,6 +93,9 @@ Sarasa symbol font; joined numbers use the OS symbol font, including Hiragino on
 Mac. DOM spans use screen-grid measurements rather than xterm's shared character
 measurement element, which can contain an arbitrary cached glyph. Tests cover
 DOM/WebGL geometry, raster width, cursor reporting and copied text.
+The Intel macOS hosted VM's WebGL fixture explicitly uses SwiftShader because
+that VM has no hardware WebGL. This is limited to the trusted test process;
+normal app launches retain the existing automatic DOM fallback.
 
 ## Subagent activity detection
 
