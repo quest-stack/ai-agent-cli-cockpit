@@ -54,6 +54,9 @@ const test = base.extend<{ cockpit: ClipboardFixture }>({
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       await expect(page.getByTestId("launcher")).toBeVisible();
+      // Text/selection assertions below target xterm's DOM renderer. Keep that
+      // fixture deterministic on both GPU-capable CI and DOM-fallback devices.
+      await page.evaluate(() => window.localStorage.setItem("cockpit.disableWebgl", "1"));
       const state = await app.evaluateHandle(({ ipcMain }) => {
         const state = {
           value: { kind: "empty" } as ClipboardPasteResult,

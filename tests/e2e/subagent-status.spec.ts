@@ -74,6 +74,9 @@ async function launchFixture(command: "claude" | "codex", testInfo: TestInfo) {
   });
   const page = await app.firstWindow();
   await expect(page.getByTestId("launcher")).toBeVisible();
+  // This fixture reads terminal text from the DOM. GPU-capable hosted runners
+  // otherwise use canvas, whose output has no textContent to assert against.
+  await page.evaluate(() => window.localStorage.setItem("cockpit.disableWebgl", "1"));
   await page.getByRole("combobox", { name: "プロジェクト" }).fill(process.cwd());
   await page.getByLabel("CLI").selectOption(command);
   await page.getByLabel("セッション名").fill("Subagent signal test");
