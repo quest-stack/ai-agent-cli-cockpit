@@ -62,6 +62,8 @@ type ObservedMutationRecords = Parameters<
 >[0];
 
 const WEBGL_LAYOUT_STABILIZATION_FRAMES = 2;
+const circledFontFamily = cockpitApi.platform === "darwin"
+  ? "Cockpit Mac Circled Numbers" : "Cockpit Circled Numbers";
 
 /** IME 変換文字列を包む span のクラス（背景を文字の背後だけに限定するため）。 */
 /**
@@ -289,7 +291,7 @@ class TerminalController {
       cursorStyle: "bar",
       fontFamily:
         // 丸数字＋空白は既存の2セルを使う。その他の記号は従来の半角字形。
-        '"Cockpit Circled Numbers", "JetBrains Mono", "Cascadia Code", "Cascadia Mono", "Cockpit Symbols", Consolas, monospace',
+        `"${circledFontFamily}", "JetBrains Mono", "Cascadia Code", "Cascadia Mono", "Cockpit Symbols", Consolas, monospace`,
       fontSize: 13,
       // Joined headings have two cells; unjoined ambiguous glyphs must stay
       // inside one cell in WebGL. xterm excludes emoji from this rescaling.
@@ -355,7 +357,7 @@ class TerminalController {
     // WebGL 描画は一度描いた字形を覚えて使い回す。記号用フォントの読み込み前に描くと
     // 潰れた字形が残るため、読み込みが終わったら覚えた字形を捨てて描き直す
     void Promise.all(
-      ["Cockpit Symbols", "Cockpit Circled Numbers"].flatMap((family) =>
+      ["Cockpit Symbols", circledFontFamily].flatMap((family) =>
         ["", "bold "].map((weight) =>
           document.fonts.load(`${weight}13px "${family}"`, "①"),
         ),

@@ -91,7 +91,8 @@ for (const renderer of ["dom", "webgl"] as const) {
         const screen = host.querySelector<HTMLElement>(".xterm-screen")!;
         const cellWidth = screen.getBoundingClientRect().width / cols;
         const fontSize = 13;
-        const family = rows ? window.getComputedStyle(rows).fontFamily : '"Cockpit Circled Numbers"';
+        const family = rows ? window.getComputedStyle(rows).fontFamily
+          : window.cockpit?.platform === "darwin" ? '"Cockpit Mac Circled Numbers"' : '"Cockpit Circled Numbers"';
         const canvas = document.createElement("canvas");
         const context = canvas.getContext("2d")!;
         context.font = `bold ${fontSize}px ${family}`;
