@@ -14,6 +14,7 @@ import { StatusDot } from "./StatusDot";
 import { TerminalView } from "./TerminalView";
 
 import { t } from "../../shared/i18n";
+import { shortcutLabel } from "../platform";
 
 import type { LaunchInput } from "./Launcher";
 import type {
@@ -149,7 +150,7 @@ export function PaneGrid(props: PaneGridProps) {
         event.stopPropagation();
         onToggleZoom(node.id);
       }}
-      title={`${zoomLabel} (Ctrl+Shift+Enter)`}
+      title={`${zoomLabel} (${shortcutLabel("Ctrl+Shift+Enter")})`}
       type="button"
     >
       {maximized

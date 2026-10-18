@@ -1,3 +1,5 @@
+import { isPrimaryShortcut } from "../shared/platform";
+
 interface TerminalKeyEvent {
   altKey: boolean;
   code: string;
@@ -255,7 +257,12 @@ export function resolveTerminalKeyAction(
   event: TerminalKeyEvent,
   hasSelection: boolean,
   ctrlCCopies = false,
+  platform = "win32",
 ): TerminalKeyAction {
+  if (platform === "darwin" && event.type === "keydown"
+    && isPrimaryShortcut(event, platform) && event.key.toLowerCase() === "c") {
+    return hasSelection ? "copy-selection" : "ignore";
+  }
   if (
     event.type === "keydown" &&
     event.ctrlKey &&

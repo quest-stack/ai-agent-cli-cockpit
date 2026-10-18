@@ -13,7 +13,7 @@ export const SESSION_STATUSES = [
 
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
-export const CLI_COMMANDS = ["claude", "codex", "powershell"] as const;
+export const CLI_COMMANDS = ["claude", "codex", "powershell", "shell"] as const;
 
 export type CliCommand = (typeof CLI_COMMANDS)[number];
 
@@ -219,6 +219,7 @@ export interface PtyWriteRequest {
 }
 
 export interface CockpitApi {
+  readonly platform: string;
   diagnosticLog: (message: string) => void;
   getAppVersion: () => Promise<string>;
   getBootstrap: () => Promise<BootstrapPayload>;

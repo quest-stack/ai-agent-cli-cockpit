@@ -18,6 +18,7 @@ import {
 } from "../../shared/session-labels";
 
 import { cockpitApi } from "../bridge";
+import { normalizeShellCommand } from "../../shared/platform";
 
 import { t } from "../../shared/i18n";
 
@@ -54,7 +55,7 @@ export function Launcher({
   recent,
   settings,
 }: LauncherProps) {
-  const [command, setCommand] = useState(settings.defaultCommand);
+  const [command, setCommand] = useState(normalizeShellCommand(settings.defaultCommand, cockpitApi.platform));
   const [browseError, setBrowseError] = useState<string>();
   const [browsing, setBrowsing] = useState(false);
   const [cwd, setCwd] = useState(() =>
@@ -278,7 +279,9 @@ export function Launcher({
             >
               <option value="claude">claude</option>
               <option value="codex">codex</option>
-              <option value="powershell">{t("PowerShell（空端末）")}</option>
+              {cockpitApi.platform === "darwin"
+                ? <option value="shell">{t("シェル（空端末）")}</option>
+                : <option value="powershell">{t("PowerShell（空端末）")}</option>}
             </select>
           </label>
           <label>

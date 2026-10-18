@@ -64,6 +64,12 @@ body {
   color: var(--fg);
 }
 
+/* Leave room for native macOS traffic lights without moving Windows controls. */
+:root[data-platform="darwin"] .title-bar {
+  padding-left: 88px;
+  padding-right: 12px;
+}
+
 button,
 input,
 select {

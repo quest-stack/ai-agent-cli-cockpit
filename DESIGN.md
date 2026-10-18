@@ -1,5 +1,39 @@
 # Cockpit build and signing boundaries
 
+## macOS trial
+
+The Mac trial reuses the renderer, workspace format and Electron IPC boundary.
+`shell-launch.ts` selects an interactive login zsh/bash and adds common local
+CLI locations for Finder/Dock launches. POSIX bootstrap commands preserve the
+pane directory and Codex's existing opt-in behavior; Windows retains PowerShell,
+UTF-8 initialization and ConPTY settings. No shell profiles or CLI settings change.
+The legacy `powershell` workspace command remains readable; Mac launchers offer
+`shell` for an empty terminal instead.
+
+The sandboxed preload exposes only the host platform alongside the existing
+restricted API. Mac app shortcuts use Command; Control+C remains terminal input
+unless the existing user setting explicitly changes it, and Control+Tab stays
+Control+Tab because Command+Tab belongs to macOS. Native Edit-menu clipboard
+events and keyboard paste converge on one image-aware paste path. POSIX dropped
+paths are single-quoted, including literal shell metacharacters.
+
+Mac windows reserve room for native traffic lights and provide native app/edit/
+window menus. As on Windows, closing the last window quits the app and its CLIs.
+Mac trials skip the Windows-only public update manifest entirely. The Windows
+release, version, manifest, app-data location and dependencies are unchanged.
+
+`macos-trial.yml` runs on native Apple Silicon and Intel GitHub runners. It checks
+types/lint/unit tests, rebuilds node-pty for Electron, tests real shell startup,
+Command+V/native-menu image paste, pane restoration and opted-in Codex bootstrap,
+then packages and repeats those checks in the packaged app. `build-macos-trial.mjs`
+generates an ICNS icon from the committed ICO and builds Japanese DMG/ZIP packages
+with `--publish never`. They use ad-hoc signing, without Developer ID credentials
+or notarization. `collect-macos-trial.mjs` collects only packages, user guidance,
+license/privacy documents, checksums and source metadata into CI artifacts.
+There is no automatic GitHub release, signing-secret addition or public update.
+The trial must still be checked with real Japanese IME and the actual AI CLIs on
+the recipient's Mac; stub tests do not claim to cover those providers' behavior.
+
 ## Windows build
 
 `.github/workflows/windows-build.yml` builds Japanese and English installers

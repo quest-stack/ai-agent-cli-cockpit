@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 
 import { t } from "../../shared/i18n";
+import { isMac, shortcutLabel } from "../platform";
 
 interface HelpPanelProps {
   onClose: () => void;
@@ -78,7 +79,7 @@ export function HelpPanel({ onClose, version }: HelpPanelProps) {
             {t("画面が真っ黒になる、文字が欠ける、枠と中身がずれる。これらは")}
             <strong>{t("アプリが自動で直します")}</strong>
             {t("。何もしなくても数分以内に戻ります。すぐ直したいときは")}
-            <strong>Ctrl + Shift + R</strong>{t("を押してください。")}
+            <strong>{shortcutLabel("Ctrl + Shift + R")}</strong>{t("を押してください。")}
           </p>
           <p className="help-note">{t("自動でも手動でも CLI には何も送りません。画面を描き直すだけなので、 作業中でも安全です。崩れているのは表示だけで、CLI 側は 動いています。")}</p>
         </section>
@@ -86,10 +87,10 @@ export function HelpPanel({ onClose, version }: HelpPanelProps) {
         <section>
           <h3>{t("ショートカット")}</h3>
           <dl className="help-shortcuts">
-            {SHORTCUTS.map((entry) => (
+            {[...(isMac ? [{ keys: "⌘ + C", what: t("選択範囲をコピー") }] : []), ...SHORTCUTS].map((entry: ShortcutEntry) => (
               <div className="help-shortcut" key={entry.keys}>
                 <dt>
-                  <kbd>{entry.keys}</kbd>
+                  <kbd>{shortcutLabel(entry.keys)}</kbd>
                 </dt>
                 <dd>
                   {entry.what}
@@ -107,7 +108,7 @@ export function HelpPanel({ onClose, version }: HelpPanelProps) {
           <p>{t("設定（歯車）で「受け取った依頼でセッションを起動する」を オンにすると、受付フォルダに置かれた JSON から Claude を 起動します。フォルダの場所は同じ設定画面に出ます。")}</p>
           <pre className="help-code">
 {JSON.stringify({
-  cwd: "C:\\Users\\you\\project",
+  cwd: isMac ? "/Users/you/project" : "C:\\Users\\you\\project",
   title: t("見出し"),
   prompt: t("最初に伝えたいこと"),
 }, null, 2)}

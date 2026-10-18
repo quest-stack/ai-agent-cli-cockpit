@@ -45,6 +45,7 @@ const CHANNELS = {
 } as const satisfies IpcChannels;
 
 const api: CockpitApi = {
+  platform: process.platform,
   diagnosticLog: (message) => {
     ipcRenderer.send(CHANNELS.diagnosticLog, message);
   },

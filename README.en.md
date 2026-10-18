@@ -2,6 +2,8 @@
 
 [日本語](https://github.com/quest-stack/ai-agent-cli-cockpit/blob/main/README.md) · English
 
+An experimental Japanese-language Mac build has a separate [trial guide](docs/MACOS_TRIAL.md). The regular releases and update manifest remain Windows-only.
+
 A Windows terminal app that brings your Claude Code and Codex CLI sessions into one window, with tabs and split panes.
 
 Keep work on different projects separate, see which sessions need attention, and switch between them without hunting through terminal windows. Cockpit manages the workspace; you control the CLIs and their approvals.

@@ -232,6 +232,7 @@ function createDemoApi(): CockpitApi {
   };
 
   const api: CockpitApi = {
+    platform: window.navigator.platform.startsWith("Mac") ? "darwin" : "win32",
     diagnosticLog: () => undefined,
     getAppVersion: async () => "0.1.7",
     getBootstrap: async (): Promise<BootstrapPayload> => ({

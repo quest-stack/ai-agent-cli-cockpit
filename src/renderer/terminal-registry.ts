@@ -4,6 +4,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { Terminal } from "@xterm/xterm";
 
 import { t } from "../shared/i18n";
+import { isPrimaryShortcut } from "../shared/platform";
 
 import type { WebglAddon } from "@xterm/addon-webgl";
 
@@ -461,6 +462,7 @@ class TerminalController {
       event,
       this.terminal.hasSelection(),
       terminalRegistry.getCtrlCCopies(),
+      cockpitApi.platform,
     );
 
     if (action !== "passthrough") {
@@ -616,9 +618,7 @@ class TerminalController {
     if (
       event.type !== "keydown" ||
       event.target !== this.terminal.textarea ||
-      !event.ctrlKey ||
-      event.altKey ||
-      event.metaKey ||
+      !isPrimaryShortcut(event, cockpitApi.platform) ||
       event.key.toLowerCase() !== "v"
     ) {
       return;
@@ -639,6 +639,25 @@ class TerminalController {
     }
     this.terminal.paste(result.text);
   }
+
+  // macOS Edit-menu accelerators may dispatch clipboard events without a
+  // keydown. Capture before xterm so native menu Paste and Command+V use the
+  // same image-aware path exactly once. Other editable fields stay native.
+  private handleNativePaste = (event: ClipboardEvent): void => {
+    if (cockpitApi.platform !== "darwin" || event.target !== this.terminal.textarea) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void this.pasteFromClipboard().catch(() => {
+      terminalRegistry.reportInputError(t("貼り付けできませんでした。コピーし直して、もう一度お試しください。"));
+    });
+  };
+
+  private handleNativeCopy = (event: ClipboardEvent): void => {
+    if (cockpitApi.platform !== "darwin" || event.target !== this.terminal.textarea) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    event.clipboardData?.setData("text/plain", this.terminal.getSelection());
+  };
 
   private observeFontReadiness(): void {
     void document.fonts.ready.then(() => {
@@ -1322,6 +1341,12 @@ class TerminalController {
     // xtermのtextarea captureより前でCtrl+Vを止める。同じtextareaに
     // 後から登録すると、先に0x16がCLIへ届き、画像の二重貼り付けや
     // コマンドの前に不要なキーが入る。host変更時も必ず張り替える。
+    if (this.pasteHost !== host) {
+      this.pasteHost?.removeEventListener("paste", this.handleNativePaste, true);
+      this.pasteHost?.removeEventListener("copy", this.handleNativeCopy, true);
+      host.addEventListener("paste", this.handleNativePaste, true);
+      host.addEventListener("copy", this.handleNativeCopy, true);
+    }
     this.pasteHost = rebindCaptureKeydown(
       this.pasteHost,
       host,
@@ -1414,6 +1439,8 @@ class TerminalController {
       this.lineFeedHost = undefined;
     }
     if (this.pasteHost === host) {
+      host.removeEventListener("paste", this.handleNativePaste, true);
+      host.removeEventListener("copy", this.handleNativeCopy, true);
       host.removeEventListener("keydown", this.handlePasteKey, true);
       this.pasteHost = undefined;
     }
@@ -1667,6 +1694,8 @@ class TerminalController {
       this.handlePasteKey,
       true,
     );
+    this.pasteHost?.removeEventListener("paste", this.handleNativePaste, true);
+    this.pasteHost?.removeEventListener("copy", this.handleNativeCopy, true);
     this.pasteHost = undefined;
     // Enter 系は host（祖先）の capture に張っているので、そちらから外す。
     this.lineFeedHost?.removeEventListener(

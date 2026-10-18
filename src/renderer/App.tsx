@@ -41,6 +41,7 @@ import {
 } from "../shared/types";
 
 import { cockpitApi } from "./bridge";
+import { primaryShortcut } from "./platform";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { HelpPanel } from "./components/HelpPanel";
 import { LogoMark } from "./components/LogoMark";
@@ -1208,7 +1209,7 @@ export function App() {
         return;
       }
 
-      if (event.ctrlKey && event.shiftKey && event.key === "Enter") {
+      if (primaryShortcut(event) && event.shiftKey && event.key === "Enter") {
         if (event.isComposing || helpOpen || searchOpen || settingsOpen) {
           return;
         }
@@ -1219,17 +1220,17 @@ export function App() {
         }
         return;
       }
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "t") {
+      if (primaryShortcut(event) && event.shiftKey && event.key.toLowerCase() === "t") {
         event.preventDefault();
         newTab();
         return;
       }
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "w") {
+      if (primaryShortcut(event) && event.shiftKey && event.key.toLowerCase() === "w") {
         event.preventDefault();
         requestCloseTab(workspace.activeTabId);
         return;
       }
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "d") {
+      if (primaryShortcut(event) && event.shiftKey && event.key.toLowerCase() === "d") {
         event.preventDefault();
         setZoomedTabId((current) => current === activeTab.id ? null : current);
         const result = splitPane(
@@ -1245,7 +1246,7 @@ export function App() {
         }));
         return;
       }
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "e") {
+      if (primaryShortcut(event) && event.shiftKey && event.key.toLowerCase() === "e") {
         event.preventDefault();
         setZoomedTabId((current) => current === activeTab.id ? null : current);
         const result = splitPane(
@@ -1261,7 +1262,7 @@ export function App() {
         }));
         return;
       }
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "f") {
+      if (primaryShortcut(event) && event.shiftKey && event.key.toLowerCase() === "f") {
         event.preventDefault();
         setSearchOpen(true);
         return;
@@ -1269,7 +1270,7 @@ export function App() {
       // 表示が壊れた（文字が出ない・欠ける）時の手動回復。グリフの
       // テクスチャアトラスを作り直して全ペインを描き直す。CLI へ入力は
       // 送らないので、実行中の作業を邪魔しない。
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "r") {
+      if (primaryShortcut(event) && event.shiftKey && event.key.toLowerCase() === "r") {
         event.preventDefault();
         terminalRegistry.redrawAll();
         return;

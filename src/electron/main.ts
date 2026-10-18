@@ -41,7 +41,7 @@ import { PtyManager } from "./pty-manager";
 import { RemoteLaunchWatcher } from "./remote-launch-watcher";
 import { SessionStore } from "./session-store";
 
-import { configureAppLanguage, getAppLanguage, resolveAppLanguage, t } from "../shared/i18n";
+import { configureAppLanguage, configureAppPlatform, getAppLanguage, resolveAppLanguage, t } from "../shared/i18n";
 
 import type {
   IpcMainEvent,
@@ -61,6 +61,7 @@ configureAppLanguage(app.isPackaged
     readFileSync(join(app.getAppPath(), "package.json"), "utf8"),
   ) as unknown).cockpitLanguage
   : resolveAppLanguage(process.env.COCKPIT_LANGUAGE));
+configureAppPlatform(process.platform);
 
 const UPDATE_CHECK_DELAY_MS = 5_000;
 const UPDATE_CHECK_TIMEOUT_MS = 10_000;
@@ -228,6 +229,9 @@ async function checkForUpdates(): Promise<void> {
 }
 
 function scheduleUpdateCheck(): void {
+  // The public manifest contains Windows installers. A Mac trial must never
+  // advertise or open those downloads, and does not change that manifest.
+  if (process.platform !== "win32") return;
   if (updateCheckTimer) {
     return;
   }
@@ -329,7 +333,7 @@ function registerIpcHandlers(): void {
       await writeFile(imagePath, image.toPNG());
       return {
         kind: "image",
-        text: formatClipboardImagePath(imagePath),
+        text: formatClipboardImagePath(imagePath, process.platform),
       };
     },
   );
@@ -518,12 +522,12 @@ async function createWindow(): Promise<void> {
     minWidth: 760,
     show: false,
     title: "CLI Cockpit",
-    titleBarOverlay: {
+    ...(process.platform === "darwin" ? { trafficLightPosition: { x: 14, y: 12 } } : { titleBarOverlay: {
       color: "#0b0d10",
       height: 40,
       symbolColor: "#8b93a1",
-    },
-    titleBarStyle: "hidden",
+    } }),
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
     webPreferences: {
       contextIsolation: true,
       devTools: Boolean(process.env.VITE_DEV_SERVER_URL),
@@ -535,10 +539,12 @@ async function createWindow(): Promise<void> {
     width: 1440,
   });
 
-  // メニューは登録しない。コピー/ペーストは renderer の keydown ハンドラで
-  // preload 経由のクリップボード IPC を使って自前処理する（メニューの role:paste を
-  // 併用すると paste イベントが二重発火するため、経路を1本に絞る）。
-  Menu.setApplicationMenu(null);
+  // Windows keeps its existing keyboard-only clipboard route. Mac needs a
+  // native Edit menu for text fields; terminal clipboard events are captured
+  // before xterm and converge on the same image-aware IPC route.
+  Menu.setApplicationMenu(process.platform === "darwin" ? Menu.buildFromTemplate([
+    { role: "appMenu" }, { role: "editMenu" }, { role: "windowMenu" },
+  ]) : null);
   mainWindow.setMenuBarVisibility(false);
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("will-navigate", (event) => {

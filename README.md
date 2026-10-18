@@ -2,6 +2,8 @@
 
 日本語 · [English](https://github.com/quest-stack/ai-agent-cli-cockpit/blob/main/README.en.md)
 
+Mac向けは[日本語の試用版ガイド](docs/MACOS_TRIAL.md)を参照してください。通常の公開版と更新通知は引き続きWindows用です。
+
 Claude Code CLI と Codex CLI のセッションを、1つのウィンドウのタブとペインで
 束ねる Windows 向けターミナルアプリです。
 

@@ -144,7 +144,7 @@ export function TerminalView({
         return "";
       }
     });
-    const input = formatDroppedFilePaths(filePaths);
+    const input = formatDroppedFilePaths(filePaths, cockpitApi.platform);
     if (input) {
       cockpitApi.writeSession({
         data: input,
