@@ -103,6 +103,19 @@ jobs:
           retention-days: 14
           compression-level: 0
 
+      - name: Preserve shared-start failure evidence
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: windows-test-${{ matrix.architecture }}-attempt-${{ github.run_attempt }}
+          path: |
+            test-results/codex-shared-start-*/error-context.md
+            test-results/codex-shared-start-*/trace.zip
+            test-results/codex-shared-start-*/fixture/calls.jsonl
+            test-results/codex-shared-start-*/fixture/user-data/diagnostic.log
+          if-no-files-found: ignore
+          retention-days: 7
+
       # After Foundation acceptance, submit this step's artifact-id to SignPath.
       # Production signing must require a maintainer's manual approval.
       # This workflow does not sign, publish releases, or update the manifest.

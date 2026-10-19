@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 import { expect, test, _electron as electron } from "@playwright/test";
 
@@ -26,7 +27,7 @@ test("the Codex launcher attaches to the opted-in shared server through the real
   const trace = join(root, "calls.jsonl");
   const recorder = join(root, "record.cjs");
   await writeFile(recorder,
-    'require("node:fs").appendFileSync(process.env.COCKPIT_TEST_TRACE, JSON.stringify(process.argv.slice(2)) + "\\n");',
+    'require("node:fs").appendFileSync(process.env.COCKPIT_TEST_TRACE, JSON.stringify(process.argv.slice(2)) + "\\n"); if(process.argv[2] === "--remote") process.stdout.write("COCKPIT_REMOTE_DONE\\r\\n");',
     "utf8");
   await writeFile(join(bin, "codex.cmd"),
     '@echo off\r\nnode "%COCKPIT_TEST_RECORDER%" %*\r\nexit /b 0\r\n', "utf8");
@@ -59,9 +60,16 @@ test("the Codex launcher attaches to the opted-in shared server through the real
   try {
     const page = await app.firstWindow();
     await expect(page.getByTestId("launcher")).toBeVisible();
+    console.info("[Shared Codex E2E] Launcher ready");
+    const output = await page.evaluateHandle(() => {
+      const state = { text: "" };
+      window.cockpit!.onPtyData((event) => { state.text = (state.text + event.data).slice(-32_000); });
+      return state;
+    });
     await page.getByRole("combobox", { name: "プロジェクト" }).fill(project);
     await page.getByTestId(`cli-option-${"codex"}`).check();
     await page.getByRole("button", { name: /Start Session/u }).click();
+    console.info("[Shared Codex E2E] Session requested");
     await expect.poll(async () => {
       try {
         return (await readFile(trace, "utf8")).trim().split(/\r?\n/u)
@@ -73,6 +81,17 @@ test("the Codex launcher attaches to the opted-in shared server through the real
       ["app-server", "daemon", "start"],
       ["--remote", "unix://", "--cd", project, "-c", "tui.whimsy=false"],
     ]);
+    console.info("[Shared Codex E2E] Daemon and client arguments verified");
+    // The call file is written before the stub process exits. Sending exit at
+    // that point can deliver it to the child rather than PSReadLine. Wait for
+    // the real parent shell's prompt after the remote stub's final marker.
+    await expect.poll(async () => {
+      const plain = stripVTControlCharacters((await output.jsonValue()).text);
+      const marker = "COCKPIT_REMOTE_DONE";
+      const lastMarker = plain.lastIndexOf(marker);
+      return lastMarker >= 0 && plain.slice(lastMarker + marker.length).includes(`PS ${project}>`);
+    }).toBe(true);
+    console.info("[Shared Codex E2E] PowerShell prompt restored");
     // The stub returns to PowerShell. Let that real shell exit before quitting
     // Electron; an active ConPTY can otherwise strand native cleanup on CI.
     const row = page.getByTestId(/^session-row-/u);
@@ -88,7 +107,10 @@ test("the Codex launcher attaches to the opted-in shared server through the real
       api.writeSession({ sessionId: id, data: "exit 0\r" });
     }), sessionId);
     expect(exitCode).toBe(0);
+    console.info("[Shared Codex E2E] PowerShell exited");
   } finally {
+    console.info("[Shared Codex E2E] Closing Electron");
     await app.close();
+    console.info("[Shared Codex E2E] Electron closed");
   }
 });
