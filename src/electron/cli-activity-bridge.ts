@@ -15,13 +15,18 @@ import { z } from "zod";
 
 const EVENTS = [
   "SessionStart", "SessionEnd", "SubagentStart", "SubagentStop",
-  "UserPromptSubmit", "PreToolUse", "Interrupt",
+  "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure",
+  "Stop", "StopFailure", "Interrupt",
 ] as const;
+const CLAUDE_EVENTS = EVENTS.filter((event) => event !== "Interrupt");
+const CODEX_EVENTS = EVENTS.filter((event) =>
+  event !== "PostToolUseFailure" && event !== "StopFailure");
 const idSchema = z.string().min(1).max(200).regex(/^[\w-]+$/u);
 export const cliActivityEventSchema = z.object({
   event: z.enum(EVENTS),
   sessionId: idSchema,
   agentId: idSchema.optional(),
+  toolUseId: idSchema.optional(),
   source: z.string().max(64).optional(),
 });
 export type CliActivityEvent = z.infer<typeof cliActivityEventSchema>;
@@ -39,12 +44,14 @@ $ProgressPreference = 'SilentlyContinue'
 try {
   $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json
   $event = [string]$payload.hook_event_name
-  if ($event -notin @('SessionStart','SessionEnd','SubagentStart','SubagentStop','UserPromptSubmit','PreToolUse','Interrupt')) { exit 0 }
+  if ($event -notin @('SessionStart','SessionEnd','SubagentStart','SubagentStop','UserPromptSubmit','PreToolUse','PostToolUse','PostToolUseFailure','Stop','StopFailure','Interrupt')) { exit 0 }
   $session = [string]$payload.session_id
   $agent = [string]$payload.agent_id
+  $tool = [string]$payload.tool_use_id
   if ($session.Length -eq 0 -or $session.Length -gt 200 -or $session -notmatch '^[a-zA-Z0-9_-]+$') { exit 0 }
   $record = @{ event = $event; sessionId = $session }
   if ($agent.Length -gt 0 -and $agent.Length -le 200 -and $agent -match '^[a-zA-Z0-9_-]+$') { $record.agentId = $agent }
+  if ($tool.Length -gt 0 -and $tool.Length -le 200 -and $tool -match '^[a-zA-Z0-9_-]+$') { $record.toolUseId = $tool }
   if ($event -eq 'SessionStart') { $record.source = [string]$payload.source }
   $name = [DateTime]::UtcNow.Ticks.ToString('D18') + '-' + [Guid]::NewGuid().ToString('N')
   $temporary = Join-Path $PSScriptRoot ($name + '.tmp')
@@ -58,6 +65,7 @@ exit 0
 export class CliActivityBridge {
   readonly directory: string;
   readonly command: string;
+  readonly environment: Record<string, string>;
   private readonly settingsFile: string;
   private readonly ownerFile: string;
   private readonly ownerDescriptor: number;
@@ -72,6 +80,7 @@ export class CliActivityBridge {
     // 復元したセッションでは hook 定義を一定に保ち、外部 ID をパスへ
     // 直接埋め込まない。同じ保存設定の別インスタンスは所有ロックで分離する。
     const key = createHash("sha256").update(sessionId).digest("hex");
+    this.environment = { COCKPIT_ACTIVITY_DIRECTORY: storageDirectory };
     this.directory = join(storageDirectory, key);
     mkdirSync(this.directory, { recursive: true });
     this.ownerFile = join(this.directory, "owner.pid");
@@ -97,12 +106,17 @@ export class CliActivityBridge {
       this.removeEventFiles();
       const script = join(this.directory, "activity.ps1");
       writeFileSync(script, ACTIVITY_HOOK_SCRIPT, "utf8");
-      const encoded = Buffer.from(`& ${powershellLiteral(script)}`, "utf16le")
+      // Repeat only a bounded relative path in Codex's hook overrides. Repeating
+      // an encoded absolute path can exceed cmd.exe's limit for .cmd launchers.
+      // This environment is confined to the pane, never written to user config.
+      const encoded = Buffer.from(
+        `& ([IO.Path]::Combine($env:COCKPIT_ACTIVITY_DIRECTORY,'${key}/activity.ps1'))`, "utf16le",
+      )
         .toString("base64");
       this.command = "powershell.exe -NoLogo -NoProfile -NonInteractive " +
         `-ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
       this.settingsFile = join(this.directory, "hooks.json");
-      const hooks = Object.fromEntries(EVENTS.filter((event) => event !== "Interrupt")
+      const hooks = Object.fromEntries(CLAUDE_EVENTS
         .map((event) => [event, [{ hooks: [{
           type: "command", command: this.command, timeout: 3,
         }] }]]));
@@ -123,7 +137,7 @@ export class CliActivityBridge {
     if (command === "codex") {
       // セッションの CLI override に追加する。ホーム・案件の設定や既存の
       // hook を書き換えない。CLI 自身の /hooks 信頼確認は迂回しない。
-      return EVENTS.map((event) => {
+      return CODEX_EVENTS.map((event) => {
         // Windows PowerShell 5.1 のネイティブ引数変換で二重引用符が
         // 脱落しないよう、TOML の文字列には単一引用符を使う。
         const config = `hooks.${event}=[{hooks=[{type='command',command='${this.command}',timeout=3}]}]`;

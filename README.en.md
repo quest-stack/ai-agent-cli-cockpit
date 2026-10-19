@@ -116,7 +116,7 @@ Pasted text is passed through the terminal's bracketed-paste handling. How a mul
 | Red | Needs approval or attention |
 | Gray | Exited |
 
-These indicators are estimates. On Windows, standard Claude Code and independent Codex launches also track subagent lifecycle hooks to remain yellow during quiet work. If Codex asks to trust hooks, review them with its `/hooks` command. Cockpit does not bypass that review or change approval settings. Shared Codex, the Mac trial and unavailable hooks rely on terminal output, so quiet work can appear idle. The indicators do not approve requests or send responses. Use the bell icon to turn Windows attention notifications on or off.
+These indicators are estimates. On Windows, standard Claude Code and independent Codex launches also track subagent and tool-call lifecycle hooks to remain yellow during quiet work. Direct calls from Claude Code to Codex, or the reverse, stay busy while the caller's tool waits for the result. Detached background work after that tool returns is not covered. If Codex asks to trust hooks, review them with its `/hooks` command. Cockpit does not bypass that review or change approval settings. Shared Codex, the Mac trial and unavailable hooks rely on terminal output, so quiet work can appear idle. The indicators do not approve requests or send responses. Use the bell icon to turn Windows attention notifications on or off.
 
 ## Keyboard shortcuts
 

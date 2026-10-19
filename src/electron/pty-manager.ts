@@ -158,7 +158,10 @@ export class PtyManager {
       {
         cols: request.cols,
         cwd: request.cwd,
-        env: { ...getPtyEnvironment(), PATH: shell.path },
+        env: {
+          ...getPtyEnvironment(), PATH: shell.path,
+          ...(this.activityDirectory ? { COCKPIT_ACTIVITY_DIRECTORY: this.activityDirectory } : {}),
+        },
         name: "xterm-256color",
         rows: request.rows,
         // OS 標準 ConPTY は DEC 2026 の終了を本文・カーソル移動より先に
@@ -435,7 +438,7 @@ export class PtyManager {
       return;
     }
 
-    target.detector.handleInput();
+    target.detector.handleInput(data);
     target.process.write(data);
   }
 

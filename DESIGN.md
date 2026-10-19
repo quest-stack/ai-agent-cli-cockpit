@@ -118,7 +118,7 @@ The Intel macOS hosted VM's WebGL fixture explicitly uses SwiftShader because
 that VM has no hardware WebGL. This is limited to the trusted test process;
 normal app launches retain the existing automatic DOM fallback.
 
-## Subagent activity detection
+## CLI activity detection
 
 On Windows, standard Claude and independent Codex launches receive per-invocation
 observational hooks. The PowerShell hook saves only validated lifecycle IDs and
@@ -127,9 +127,28 @@ files, session directories, ownership locks and bounded polling isolate sessions
 Hooks stay silent and never change approval, sandbox or trust settings; Codex's
 own hook review remains required.
 
-Active child IDs keep an otherwise idle terminal busy. Approval prompts take
-priority, and one child's lifecycle cannot clear siblings. Exit and disposal
-clear activity and reject late events. Output heuristics remain the fallback
+Active child IDs and in-flight tool-call IDs keep an otherwise idle terminal
+busy. Direct Claude-to-Codex or Codex-to-Claude calls do not require a Subagent:
+the caller's PreToolUse/PostToolUse lifecycle holds the indicator until the
+call returns. IDs are scoped by session and agent so parallel calls cannot
+clear each other. Claude additionally reports PostToolUseFailure and StopFailure;
+Codex reports nonzero shell exits through PostToolUse. Only supported events
+are configured for each provider. Tool IDs are validated and saved locally;
+commands, arguments, outputs and error messages are never saved by this bridge.
+The hook's storage root is inherited through a pane-local environment variable;
+only a bounded relative path is repeated in the encoded hook command. Long
+storage paths therefore cannot push the Codex .cmd launcher over cmd.exe's
+command-line limit. The environment is not written to the OS or CLI settings.
+
+Approval prompts take priority. A child's lifecycle cannot clear siblings or
+the parent's tools. Stop, session end, a new turn and explicit Ctrl+C/Escape
+input recover missing tool endings. Ctrl+C/Escape only release the tool
+observation and return to output detection: the CLI decides what it interrupts,
+and existing Subagent observations remain. Exit and disposal reject late events.
+Detached background work whose launching tool has already returned is not
+covered unless its CLI reports the running call through completion (such as
+Codex unified-exec polling). No process existence or transcript scraping is
+used to infer completion. Output heuristics remain the fallback
 when hooks are disabled, untrusted or unavailable. Mac does not run PowerShell
 hooks. Shared Codex also keeps output detection: its existing daemon owns server
 configuration, and client overrides are not assumed to reconfigure that daemon.

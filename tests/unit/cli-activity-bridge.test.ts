@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import test from "node:test";
@@ -32,7 +32,8 @@ test("actual PowerShell hook saves only lifecycle metadata with no output", { sk
       hook_event_name: "SubagentStart", session_id: "parent", agent_id: "agent-1",
       cwd: "private-folder", transcript_path: "private-transcript",
       prompt: "private-prompt", last_assistant_message: "private-answer",
-    }), encoding: "utf8", timeout: 5_000, windowsHide: true });
+    }), encoding: "utf8", timeout: 5_000, windowsHide: true,
+      env: { ...process.env, ...bridge.environment } });
     assert.equal(result.error, undefined);
     assert.equal(result.status, 0);
     assert.equal(result.stdout, "");
@@ -62,8 +63,42 @@ test("CLI arguments add hooks only to this invocation and preserve trust gates",
     const codex = bridge.argumentsFor("codex");
     assert.match(codex, /hooks\.SubagentStart/u);
     assert.match(codex, /hooks\.SubagentStop/u);
+    assert.match(codex, /hooks\.PostToolUse=/u);
+    assert.match(codex, /hooks\.Stop=/u);
+    assert.doesNotMatch(codex, /PostToolUseFailure|StopFailure/u);
+    const settings = JSON.parse(readFileSync(join(bridge.directory, "hooks.json"), "utf8")) as {
+      hooks: Record<string, unknown>;
+    };
+    assert.ok(settings.hooks.PostToolUse);
+    assert.ok(settings.hooks.PostToolUseFailure);
+    assert.ok(settings.hooks.Stop);
+    assert.ok(settings.hooks.StopFailure);
+    assert.equal(settings.hooks.Interrupt, undefined);
     assert.doesNotMatch(codex, /bypass-hook-trust|features\.hooks|approval|sandbox/u);
     assert.equal(bridge.argumentsFor("powershell"), "");
+  } finally { dispose(); }
+});
+
+test("actual tool hooks preserve only validated IDs, never commands or results", { skip: process.platform !== "win32" }, () => {
+  const { bridge, events, dispose } = fixture();
+  try {
+    for (const event of ["PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "StopFailure", "Interrupt"]) {
+      const result = spawnSync("powershell.exe", [
+        "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", bridge.command.split(" ").at(-1) as string,
+      ], { input: JSON.stringify({
+        hook_event_name: event, session_id: "parent", tool_use_id: "call_123-abc",
+        tool_name: "Bash", tool_input: { command: "private-command" },
+        tool_response: "private-result", error: "private-error", prompt: "private-prompt",
+      }), encoding: "utf8", timeout: 5_000, windowsHide: true,
+        env: { ...process.env, ...bridge.environment } });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 0);
+      assert.equal(result.stdout, "");
+      assert.equal(result.stderr, "");
+    }
+    bridge.poll();
+    assert.deepEqual(events.map((event) => ({ ...event, event: "event" })),
+      Array.from({ length: 6 }, () => ({ event: "event", sessionId: "parent", toolUseId: "call_123-abc" })));
   } finally { dispose(); }
 });
 
@@ -77,6 +112,29 @@ test("activity from another Cockpit session stays isolated", () => {
     bridge.poll();
     assert.deepEqual(events, []);
   } finally { other.dispose(); dispose(); }
+});
+
+test("hook launch arguments stay bounded with long paths and quoting characters", { skip: process.platform !== "win32" }, () => {
+  const { base, dispose } = fixture();
+  const events: CliActivityEvent[] = [];
+  const storage = join(base, "long-path-".repeat(4), "日本語 user's directory");
+  const bridge = new CliActivityBridge(storage, "long-path-session", (event) => events.push(event));
+  try {
+    assert.ok(bridge.argumentsFor("codex").length < 6_000);
+    assert.ok(bridge.command.length < 500);
+    const result = spawnSync("powershell.exe", [
+      "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", bridge.command.split(" ").at(-1) as string,
+    ], { input: JSON.stringify({
+      hook_event_name: "PreToolUse", session_id: "parent", tool_use_id: "direct",
+    }), encoding: "utf8", timeout: 5_000, windowsHide: true,
+      env: { ...process.env, ...bridge.environment } });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "");
+    bridge.poll();
+    assert.deepEqual(events, [{ event: "PreToolUse", sessionId: "parent", toolUseId: "direct" }]);
+  } finally { bridge.dispose(); dispose(); }
 });
 
 test("an occupied activity directory cannot mix app instances, and restart keeps command stable", () => {
