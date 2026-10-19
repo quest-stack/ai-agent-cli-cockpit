@@ -245,7 +245,7 @@ for (const command of ["claude", "codex", "powershell"]) {
   });
 }
 
-test("CLI buttons remember every selection across reload, new tabs and splits", async ({ cockpit }) => {
+test("CLI buttons remember every selection across reload, new tabs and splits", async ({ cockpit }, testInfo) => {
   const { page } = cockpit;
   for (const command of ["powershell", "claude", "codex"]) {
     await page.getByTestId(`cli-option-${command}`).check();
@@ -263,6 +263,14 @@ test("CLI buttons remember every selection across reload, new tabs and splits", 
   await page.keyboard.press("Space");
   await page.keyboard.press("ArrowRight");
   await expect(launchers.last().getByTestId("cli-option-codex")).toBeChecked();
+  await page.setViewportSize({ width: 1024, height: 900 });
+  for (const launcher of await launchers.all()) {
+    expect(await launcher.evaluate((element) => {
+      const pane = element.closest(".empty-pane")!;
+      return pane.scrollWidth <= pane.clientWidth;
+    })).toBe(true);
+  }
+  await page.screenshot({ path: testInfo.outputPath("split-cli-buttons-1024.png") });
 });
 
 test("reopening a recent CLI makes it the next launch preference", async ({ cockpit }) => {

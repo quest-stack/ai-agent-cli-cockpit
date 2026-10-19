@@ -1300,7 +1300,7 @@ select:focus-visible,
   align-items: center;
   display: flex;
   justify-content: center;
-  min-width: 466px;
+  min-width: 0;
   min-height: 100%;
   padding: 28px;
   width: 100%;
@@ -1315,7 +1315,7 @@ select:focus-visible,
     0 24px 60px #00000033,
     inset 0 1px 0 #ffffff05;
   max-width: 690px;
-  min-width: 410px;
+  min-width: 0;
   overflow-wrap: normal;
   padding: 22px;
   position: relative;
@@ -1359,7 +1359,7 @@ select:focus-visible,
   font-weight: 650;
   letter-spacing: -0.025em;
   margin: 0;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .launcher-heading p {
@@ -1580,7 +1580,7 @@ select:focus-visible,
 .cli-options {
   display: grid;
   gap: 6px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
 }
 
 .cli-option {
