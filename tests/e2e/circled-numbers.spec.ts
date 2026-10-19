@@ -61,7 +61,7 @@ for (const renderer of ["dom", "webgl"] as const) {
       });
       const launcher = page.getByTestId("launcher").filter({ visible: true });
       await launcher.getByRole("combobox", { name: "プロジェクト" }).fill(resolve(process.cwd()));
-      await launcher.getByLabel("CLI").selectOption(process.platform === "darwin" ? "shell" : "powershell");
+      await launcher.getByTestId(`cli-option-${process.platform === "darwin" ? "shell" : "powershell"}`).check();
       await launcher.getByRole("button", { name: /Start Session/u }).click();
       const terminal = page.getByTestId(/^terminal-/u).filter({ visible: true });
       await expect(terminal.locator(".xterm-helper-textarea")).toBeAttached();

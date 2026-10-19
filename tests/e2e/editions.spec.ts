@@ -121,7 +121,7 @@ for (const language of ["ja", "en"] as const) {
       const { app, page, ui, errors } = await launchEdition(language, testInfo);
       try {
         await page.getByRole("combobox", { name: ui("プロジェクト") }).fill("C:/work/project");
-        await page.getByLabel("CLI").selectOption("codex");
+        await page.getByTestId(`cli-option-${"codex"}`).check();
         await page.getByLabel(ui("セッション名"), { exact: true }).fill("作業名 {value0}");
         await page.getByRole("button", { name: /Start Session/u }).click();
         const row = page.getByTestId(/^session-row-/u);

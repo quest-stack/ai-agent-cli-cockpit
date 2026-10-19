@@ -1,5 +1,21 @@
 # Cockpit build and signing boundaries
 
+## Launcher preference and explicit input cancellation
+
+The launcher's three native radio controls are styled as buttons. Selection is
+controlled by the existing persisted `settings.defaultCommand`; every launcher,
+new tab and split reads that same value. Reopening a standard recent CLI updates
+it too. Remote requests and restored sessions retain their own commands and do
+not change the user's selection. Legacy PowerShell/Shell values are normalized
+for the host platform without changing the workspace schema.
+
+The pane's Cancel input button and Control+Shift+X (Command+Shift+X on Mac)
+send exactly one ETX byte through the existing PTY input IPC. Key repeats and
+IME composition do not trigger additional cancellation. The CLI decides how
+to handle ETX: pending input may be cancelled and running work interrupted.
+The existing Ctrl+C copy preference remains in effect. No process is killed
+or restarted by this control, and it is disabled for closed/error sessions.
+
 ## macOS trial
 
 The Mac trial reuses the renderer, workspace format and Electron IPC boundary.

@@ -77,7 +77,7 @@ test.afterEach(async ({}, testInfo) => {
 
 async function start(command: string): Promise<void> {
   await page.getByRole("combobox", { name: "プロジェクト" }).fill(project);
-  await page.getByLabel("CLI").selectOption(command);
+  await page.getByTestId(`cli-option-${command}`).check();
   await page.getByRole("button", { name: /Start Session/u }).click();
   await expect(page.locator(".xterm-screen")).toBeVisible();
   await expect.poll(async () => {
@@ -137,4 +137,36 @@ test("Mac Codex launcher attaches only after starting the opted-in daemon", asyn
     { command: "codex", args: ["app-server", "daemon", "start"], cwd: project },
     { command: "codex", args: ["--remote", "unix://", "--cd", project, "-c", "tui.whimsy=false"], cwd: project },
   ]);
+});
+
+test("Mac remembers the selected CLI across app restart and a new pane", async () => {
+  await page.getByTestId("cli-option-codex").check();
+  await expect.poll(async () => (JSON.parse(await readFile(join(userData, "session.json"), "utf8")) as PersistedWorkspace)
+    .settings.defaultCommand).toBe("codex");
+  await app.close();
+  app = await launch();
+  page = await app.firstWindow();
+  page.on("pageerror", (error) => errors.push(error.message));
+  await expect(page.getByTestId("cli-option-codex")).toBeChecked();
+  await page.keyboard.press("Meta+Shift+d");
+  await expect(page.getByTestId("cli-option-codex")).toHaveCount(2);
+  await expect(page.getByTestId("cli-option-codex").last()).toBeChecked();
+});
+
+test("Mac cancel shortcut and button send Ctrl+C without changing copy mode", async () => {
+  await start("shell");
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  await page.getByTestId("ctrl-c-toggle").check();
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  const input = page.locator(".xterm-helper-textarea");
+  await input.focus();
+  await page.keyboard.press("Control+c");
+  await page.keyboard.press("Meta+c");
+  await page.keyboard.press("Meta+Shift+x");
+  await expect.poll(async () => (await observedWrites.jsonValue()).filter((event) => event.data === "\x03")).toHaveLength(1);
+  await page.getByTestId("cancel-input").click();
+  await expect(input).toBeFocused();
+  await expect.poll(async () => (await observedWrites.jsonValue()).filter((event) => event.data === "\x03")).toHaveLength(2);
+  await expect.poll(async () => (JSON.parse(await readFile(join(userData, "session.json"), "utf8")) as PersistedWorkspace)
+    .settings.ctrlCCopies).toBe(true);
 });

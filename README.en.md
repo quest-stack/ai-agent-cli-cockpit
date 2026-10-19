@@ -82,7 +82,7 @@ and the [Privacy policy](docs/PRIVACY.md) for data handling.
 
 1. Choose **New Session**.
 2. Select a project folder with **Browse**, enter its path, or choose a recent folder. Pin folders you use often.
-3. Choose `claude`, `codex`, or **PowerShell (shell only)**.
+3. Choose the **Claude Code**, **Codex**, or **PowerShell** button (Shell on Mac). Your selection is remembered for new tabs, panes and the next app launch.
 4. Optionally name the session after the task. The CLI name is used if you leave this blank.
 5. Choose **Start Session** or press Enter.
 
@@ -102,6 +102,7 @@ Search looks through the current scrollback of all open sessions. The workspace 
 - Dropping files onto a terminal inserts their paths.
 - By default, **Ctrl+C interrupts the CLI**. Enable **Ctrl+C copies selected text** under **Settings > KEYS** to change it. In Copy mode, Ctrl+C copies the selection; with nothing selected, it does nothing. This prevents accidental interruption, and your choice is saved.
 - **Ctrl+Shift+C** copies selected text in either mode.
+- **Ctrl+Shift+X** or the pane's **Cancel input** button sends Ctrl+C to the CLI while keeping Copy mode enabled. It cancels pending input or interrupts work in progress. On Mac, use **Command+Shift+X**.
 - Normally, **Enter sends** and **Shift+Enter inserts a newline** in Claude Code and Codex. Enable **Enter inserts a newline** in Settings to reverse those two keys. This changes Cockpit's input handling, not your CLI configuration files.
 
 Pasted text is passed through the terminal's bracketed-paste handling. How a multiline command is interpreted still depends on the receiving shell or CLI; review it before submitting.

@@ -51,6 +51,11 @@ const SHORTCUTS: ShortcutEntry[] = [
     note: t("Ctrl+Cのモードにかかわらずコピーできます"),
     what: t("選択範囲をコピー"),
   },
+  {
+    keys: "Ctrl + Shift + X",
+    note: t("コピー設定のまま使えます。ペイン上部の「入力取消」も同じ操作です。処理中は中断します。"),
+    what: t("入力を取り消す（Ctrl+CをCLIへ送る）"),
+  },
 ];
 
 export function HelpPanel({ onClose, version }: HelpPanelProps) {

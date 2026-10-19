@@ -70,7 +70,7 @@ test("「Enter で改行」有効でも日本語の変換中に文字キーが�
     }
 
     await page.getByRole("combobox", { name: "プロジェクト" }).fill(projectRoot);
-    await page.getByLabel("CLI").selectOption("powershell");
+    await page.getByTestId(`cli-option-${"powershell"}`).check();
     await page.getByLabel("セッション名").fill("IME stuck");
     await page.getByRole("button", { name: /Start Session/u }).click();
     await expect(page.locator(".xterm-helper-textarea")).toBeAttached();

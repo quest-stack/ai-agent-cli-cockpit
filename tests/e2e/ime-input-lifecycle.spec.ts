@@ -50,7 +50,7 @@ const test = base.extend<{ ime: ImeFixture; command: string }>({
       });
       await page.evaluate(() => window.localStorage.setItem("cockpit.disableWebgl", "1"));
       await page.getByRole("combobox", { name: "プロジェクト" }).fill(resolve(process.cwd()));
-      await page.getByLabel("CLI").selectOption(command);
+      await page.getByTestId(`cli-option-${command}`).check();
       await page.getByRole("button", { name: /Start Session/u }).click();
       const host = page.getByTestId(/^terminal-/u);
       const helper = host.locator(".xterm-helper-textarea");

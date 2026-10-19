@@ -1649,6 +1649,10 @@ export function App() {
                   onStart={async (paneId, input) => {
                     await startSession(tab.id, paneId, input);
                   }}
+                  onSelectCommand={(command) => setWorkspace((current) => current ? {
+                    ...current,
+                    settings: { ...current.settings, defaultCommand: command },
+                  } : current)}
                   onTogglePin={togglePin}
                   onToggleZoom={(paneId) => togglePaneZoom(tab.id, paneId)}
                   paneCount={collectPanes(tab.root).length}

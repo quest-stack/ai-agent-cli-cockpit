@@ -1,7 +1,9 @@
 # Changelog
 
-## 0.2.14 — 2026-10-18
+## 0.2.14 — 2026-10-19
 
+- **CLI selection uses buttons and remembers your choice.** Pick Claude Code, Codex or PowerShell (Shell on Mac) with one click. New tabs, panes and app restarts retain the selection.
+- **Added Cancel input and Ctrl+Shift+X.** Send Ctrl+C explicitly while keeping Copy mode enabled. This cancels pending input or interrupts work in progress. Use Command+Shift+X on Mac.
 - **Added a Japanese Mac trial for Apple Silicon and Intel.** Command shortcuts, pane splits, copying and screenshot paste are supported. See [the trial guide](docs/MACOS_TRIAL.md) for installation and limitations.
 - **Improved circled numbers followed by a space.** The glyph uses the existing two terminal cells without changing text, cursor position or copied content. Adjacent circled numbers retain their compact width.
 - **Windows activity indicators can stay busy while subagents work silently.** Supported for standard Claude Code and independent Codex launches with hooks enabled and any required Codex trust review complete. Approval prompts take priority. Shared Codex, Mac and unavailable hooks retain terminal-output detection.

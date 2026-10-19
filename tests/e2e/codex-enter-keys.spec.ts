@@ -29,7 +29,7 @@ async function startCodex(
   await page
     .getByRole("combobox", { name: "プロジェクト" })
     .fill(projectRoot);
-  await page.getByLabel("CLI").selectOption("codex");
+  await page.getByTestId(`cli-option-${"codex"}`).check();
   await page.getByLabel("セッション名").fill("Enter 検証");
   await page.getByRole("button", { name: /Start Session/u }).click();
 

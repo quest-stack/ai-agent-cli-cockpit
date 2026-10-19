@@ -65,7 +65,7 @@ test.describe.serial("terminal links open through the external-browser IPC", () 
     const tour = page.getByTestId("tour-overlay");
     if (await tour.isVisible()) await page.getByRole("button", { name: "スキップ" }).click();
     await page.getByRole("combobox", { name: "プロジェクト" }).fill(process.cwd());
-    await page.getByLabel("CLI").selectOption("powershell");
+    await page.getByTestId(`cli-option-${"powershell"}`).check();
     await page.getByLabel("セッション名").fill("Link regression");
     await page.getByRole("button", { name: /Start Session/u }).click();
     const terminal = page.getByTestId(/^terminal-/u);

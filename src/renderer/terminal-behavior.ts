@@ -10,6 +10,7 @@ interface TerminalKeyEvent {
   metaKey: boolean;
   shiftKey: boolean;
   type: string;
+  repeat?: boolean;
 }
 
 const TERMINAL_ENTER_CODES = new Set(["Enter", "NumpadEnter"]);
@@ -72,6 +73,7 @@ export const TERMINAL_SUBMIT_SEQUENCE = "\r";
 export type TerminalEnterRole = "newline" | "submit";
 
 export type TerminalKeyAction =
+  | "cancel-input"
   | "copy-selection"
   | "ignore"
   | "passthrough";
@@ -259,6 +261,11 @@ export function resolveTerminalKeyAction(
   ctrlCCopies = false,
   platform = "win32",
 ): TerminalKeyAction {
+  if (event.type === "keydown" && event.shiftKey
+    && isPrimaryShortcut(event, platform) && event.key.toLowerCase() === "x"
+    && !isImeComposing(event)) {
+    return event.repeat ? "ignore" : "cancel-input";
+  }
   if (platform === "darwin" && event.type === "keydown"
     && isPrimaryShortcut(event, platform) && event.key.toLowerCase() === "c") {
     return hasSelection ? "copy-selection" : "ignore";

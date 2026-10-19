@@ -8,7 +8,7 @@ Claude CodeやCodex CLIを、タブと分割画面でまとめて使うMac向け
 1. Appleメニュー →「このMacについて」で、チップまたはプロセッサを確認してください。Mシリーズはarm64、Intelはx64です。
 2. 対応するDMGを開き、CLI CockpitをApplications（アプリケーション）へドラッグします。ZIPの場合も展開したアプリをApplicationsへ移します。
 3. CLI Cockpitを開きます。Claude CodeやCodex本体は含まれません。使いたいCLIを先に導入・ログインし、Macのターミナルで`claude`または`codex`が起動する状態にしてください。
-4. 作業フォルダーを選び、CLIを選んで「Start Session」を押します。動作を試すだけなら「シェル（空端末）」を選べます。
+4. 作業フォルダーを選び、Claude Code／Codex／ShellのボタンからCLIを選んで「Start Session」を押します。動作を試すだけならShell（空端末）を選べます。前回の選択は新しいタブ・ペインや次回起動時にも引き継ぎます。
 
 試用版はアドホック署名で、AppleのDeveloper ID署名・公証は行っていません。初回はMacの警告が出る場合があります。配布元と同梱のSHA-256を確認できた場合に限り、macOSの「システム設定 → プライバシーとセキュリティ」で当該アプリを開く操作を行ってください。Mac全体の保護設定を無効にする必要はありません。確認できなければ開かず、配布元へ相談してください。
 
@@ -21,6 +21,7 @@ Claude CodeやCodex CLIを、タブと分割画面でまとめて使うMac向け
 - 左右に分ける：Command + Shift + D。上下に分ける：Command + Shift + E。
 - タブを増やす：Command + Shift + T。タブを切り替える：Control + Tab。
 - コピーする：範囲を選びCommand + C。Control + CはCLIの中断です（設定でControl + Cをコピーに変更した場合を除く）。
+- 入力を取り消す：ペイン上部の「入力取消」、またはCommand + Shift + X。コピー設定のままControl + CをCLIへ送ります。処理中は中断します。
 - 表示が崩れたら：Command + Shift + R。作業への入力を送らず再描画します。
 - 使い方を見る：右上の「?」かF1。Macの設定によってはfn + F1です。
 

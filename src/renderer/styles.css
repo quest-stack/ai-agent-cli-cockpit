@@ -1391,8 +1391,7 @@ select:focus-visible,
 }
 
 .project-combobox > input,
-.launcher-fields-row input,
-.launcher-fields-row select {
+.launcher-fields-row input {
   background: #0d1014;
   border: 1px solid #2b313a;
   border-radius: 8px;
@@ -1410,15 +1409,13 @@ select:focus-visible,
   padding: 0 40px 0 36px;
 }
 
-.launcher-fields-row input,
-.launcher-fields-row select {
+.launcher-fields-row input {
   font-size: 11px;
   padding: 0 10px;
 }
 
 .project-combobox > input:focus,
-.launcher-fields-row input:focus,
-.launcher-fields-row select:focus {
+.launcher-fields-row input:focus {
   border-color: #f5a62388;
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
@@ -1570,7 +1567,79 @@ select:focus-visible,
 .launcher-fields-row {
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(180px, 1.2fr);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.cli-picker {
+  border: 0;
+  margin: 0 0 14px;
+  min-width: 0;
+  padding: 0;
+}
+
+.cli-options {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.cli-option {
+  cursor: pointer;
+  min-width: 0;
+  position: relative;
+}
+
+.cli-option input {
+  cursor: pointer;
+  height: 100%;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.cli-option span {
+  align-items: center;
+  background: #0d1014;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg-dim);
+  display: flex;
+  font-size: 11px;
+  font-weight: 600;
+  justify-content: center;
+  min-height: 38px;
+  padding: 7px 4px;
+  white-space: nowrap;
+}
+
+.cli-option:hover span {
+  border-color: var(--accent);
+}
+
+.cli-option input:checked + span {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.cli-option input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.cli-picker-note {
+  color: var(--fg-dim);
+  font-size: 10px;
+  margin: 6px 0 0;
+}
+
+.pane-actions .cancel-input-button {
+  font-size: 10px;
+  padding-inline: 7px;
+  white-space: nowrap;
+  width: auto;
 }
 
 .launcher-fields-row label {
@@ -1949,10 +2018,12 @@ select:focus-visible,
 
   .launcher-shell {
     align-items: flex-start;
+    min-width: 0;
     padding: 44px 10px 14px;
   }
 
   .launcher-card {
+    min-width: 0;
     padding: 15px;
   }
 

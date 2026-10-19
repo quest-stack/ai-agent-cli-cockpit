@@ -70,7 +70,7 @@ const test = base.extend<{ cockpit: CockpitFixture }>({
         start: async (title) => {
           const launcher = page.getByTestId("launcher").filter({ visible: true });
           await launcher.getByRole("combobox", { name: "プロジェクト" }).fill(resolve(process.cwd()));
-          await launcher.getByLabel("CLI").selectOption("powershell");
+          await launcher.getByTestId(`cli-option-${"powershell"}`).check();
           await launcher.getByLabel("セッション名").fill(title);
           await launcher.getByRole("button", { name: /Start Session/u }).click();
           const row = page.getByTestId(/^session-row-/u).filter({ hasText: title });

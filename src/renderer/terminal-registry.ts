@@ -488,6 +488,10 @@ class TerminalController {
     if (action === "ignore") {
       return false;
     }
+    if (action === "cancel-input") {
+      this.cancelInput();
+      return false;
+    }
 
     // Ctrl+V と Shift+Enter はここでは処理しない。Enter 系は host の capture
     // リスナ（handleLineFeedKey）で xterm より先に処理する。
@@ -1616,6 +1620,13 @@ class TerminalController {
 
   focus(): void {
     this.terminal.focus();
+  }
+
+  /** Explicit alternative to Ctrl+C in copy mode. The CLI owns cancellation. */
+  cancelInput(): void {
+    this.pendingImeEnterSuppression = false;
+    cockpitApi.writeSession({ data: "\x03", sessionId: this.sessionId });
+    this.focus();
   }
 
   /** このペインの CLI を覚える。改行シーケンスの選択に使う。 */

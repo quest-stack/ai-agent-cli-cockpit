@@ -1,5 +1,10 @@
 /** English UI copy. Keys are the Japanese edition's original messages. */
 export const englishMessages = {
+  "前回の選択を次回も使います": "Your selection is remembered for next time.",
+  "入力取消": "Cancel input",
+  "入力取消 ({value0}) — Ctrl+CをCLIに送ります。処理中は中断します。": "Cancel input ({value0}) — Sends Ctrl+C to the CLI. Interrupts work in progress.",
+  "コピー設定のまま使えます。ペイン上部の「入力取消」も同じ操作です。処理中は中断します。": "Works in copy mode. The pane's Cancel input button does the same. Interrupts work in progress.",
+  "入力を取り消す（Ctrl+CをCLIへ送る）": "Cancel input (send Ctrl+C to the CLI)",
   "シェル（空端末）": "Shell (empty terminal)",
   "Codexの共有サーバーを起動できませんでした。codex app-server daemon start でエラーを確認してください。": "Could not start the shared Codex server. Run codex app-server daemon start to inspect the error.",
   "フォルダを選択": "Select a folder",

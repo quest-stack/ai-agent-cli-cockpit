@@ -60,7 +60,7 @@ test("the Codex launcher attaches to the opted-in shared server through the real
     const page = await app.firstWindow();
     await expect(page.getByTestId("launcher")).toBeVisible();
     await page.getByRole("combobox", { name: "プロジェクト" }).fill(project);
-    await page.getByLabel("CLI").selectOption("codex");
+    await page.getByTestId(`cli-option-${"codex"}`).check();
     await page.getByRole("button", { name: /Start Session/u }).click();
     await expect.poll(async () => {
       try {
