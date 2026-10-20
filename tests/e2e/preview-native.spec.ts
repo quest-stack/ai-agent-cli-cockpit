@@ -33,7 +33,7 @@ const test = base.extend<{ cockpit: NativeFixture }>({ cockpit: async ({}, provi
   const address = server.address(); if (!address || typeof address === "string") throw new Error("No fixture port");
   const url = `http://127.0.0.1:${address.port}/`;
   const entry = join(directory, "hidden-entry.cjs");
-  await writeFile(entry, `const {app}=require('electron');app.on('web-contents-created',(_e,c)=>c.setBackgroundThrottling(false));app.on('browser-window-created',(_e,w)=>{w.show=()=>{};w.showInactive=()=>{}});require(${JSON.stringify(resolve("dist/electron/main.js"))});`, "utf8");
+  await writeFile(entry, `const {app}=require('electron');app.on('web-contents-created',(_e,c)=>c.setBackgroundThrottling(false));if(process.platform!=='darwin')app.on('browser-window-created',(_e,w)=>{w.show=()=>{};w.showInactive=()=>{}});require(${JSON.stringify(resolve("dist/electron/main.js"))});`, "utf8");
   const packagedExecutable = process.env.COCKPIT_PACKAGED_EXECUTABLE;
   const app = await electron.launch({
     args: packagedExecutable ? [] : [entry],
@@ -713,12 +713,25 @@ test("MP4 plays in Electron, pauses when closed, keeps position and applies upda
   await expect.poll(async () => { try { return await cockpit.guest(id, "document.querySelector('video')?.readyState"); } catch { return 0; } }).toBeGreaterThanOrEqual(2);
   await cockpit.guest(id, "document.querySelector('video').muted=true;document.querySelector('video').play()");
   await expect.poll(() => cockpit.guest(id, "document.querySelector('video').currentTime")).toBeGreaterThan(0);
-  await cockpit.app.evaluate(async ({ webContents }, id) => {
+  await cockpit.app.evaluate(async ({ BrowserWindow, webContents }, id) => {
     const view = webContents.getAllWebContents().find((wc) => wc.getURL().includes(id))!;
+    // macOS completes its native fullscreen animation after the HTML promise.
+    const entered = process.platform === "darwin"
+      ? new Promise<void>((done) => BrowserWindow.getAllWindows()[0].once("enter-full-screen", () => done()))
+      : Promise.resolve();
     await view.executeJavaScript("document.querySelector('video').requestFullscreen()", true);
+    await entered;
   }, id);
   await expect.poll(() => cockpit.guest(id, "document.fullscreenElement?.tagName")).toBe("VIDEO");
-  await cockpit.guest(id, "document.exitFullscreen()");
+  await cockpit.app.evaluate(async ({ BrowserWindow, webContents }, id) => {
+    const view = webContents.getAllWebContents().find((wc) => wc.getURL().includes(id))!;
+    const left = process.platform === "darwin"
+      ? new Promise<void>((done) => BrowserWindow.getAllWindows()[0].once("leave-full-screen", () => done()))
+      : Promise.resolve();
+    await view.executeJavaScript("document.exitFullscreen()");
+    await left;
+  }, id);
+  await expect.poll(() => cockpit.guest(id, "Boolean(document.fullscreenElement)")).toBe(false);
   await cockpit.page.getByRole("button", { name: "プレビューを閉じる", exact: true }).click();
   await expect.poll(() => cockpit.guest(id, "document.querySelector('video').paused")).toBe(true);
   await cockpit.page.getByTestId("preview-toggle").click();
