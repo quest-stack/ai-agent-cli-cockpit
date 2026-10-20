@@ -1,17 +1,17 @@
 {
-  "version": "0.2.13",
-  "notes": "Codex CLIのリモート操作が有効な場合、Cockpitも共有サーバーへ自動接続するようになりました。モバイルからの接続との競合を防ぎ、作業フォルダを引き継ぎます。",
+  "version": "0.2.14",
+  "notes": "Previewで修正前後を左右に並べ、変更箇所を強調して確認できます。プレビューの自動表示、表示幅の切替、CLI選択の記憶にも対応しました。Mac日本語試用版の制限と注意点はReleaseページをご確認ください。",
   "downloadPage": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/latest",
   "urls": {
-    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.13/CLI-Cockpit-0.2.13-win-arm64.exe",
-    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.13/CLI-Cockpit-0.2.13-win-x64.exe"
+    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.14/CLI-Cockpit-0.2.14-win-arm64.exe",
+    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.14/CLI-Cockpit-0.2.14-win-x64.exe"
   },
   "editions": {
     "en": {
-      "notes": "Codex now automatically connects to the shared server when CLI remote control is already enabled, preventing competing writers with mobile access while preserving the working directory.",
+      "notes": "Preview now opens supported pages automatically and compares saved before/after pages with highlighted changes. CLI choices are remembered. The Release page also explains the Mac trial and its limitations.",
       "urls": {
-        "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.13/CLI-Cockpit-0.2.13-en-win-arm64.exe",
-        "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.13/CLI-Cockpit-0.2.13-en-win-x64.exe"
+        "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.14/CLI-Cockpit-0.2.14-en-win-arm64.exe",
+        "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.14/CLI-Cockpit-0.2.14-en-win-x64.exe"
       }
     }
   }
