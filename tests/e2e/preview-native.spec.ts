@@ -645,7 +645,9 @@ test("detected localhost URLs automatically open for every CLI and respect an ex
       const png = await cockpit.app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString("base64"));
       await writeFile(testInfo.outputPath("automatic-preview-desktop.png"), Buffer.from(png, "base64"));
     }
-    const input = terminal.locator("textarea"); const node = await input.elementHandle();
+    // A narrow Mac display can switch to Preview and hide the retained terminal.
+    const input = cockpit.page.getByTestId(`terminal-${sessionId}`).locator("textarea");
+    const node = await input.elementHandle();
     await active.getByRole("button", { name: "プレビューを閉じる", exact: true }).click();
     expect(await node!.evaluate((element) => element.isConnected)).toBe(true);
     // Empty the target list so a remaining target cannot mask an unwanted reopen.
