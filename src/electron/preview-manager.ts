@@ -346,6 +346,9 @@ export class PreviewManager {
           if (isMainFrame && code !== -3) { record.target.error = "missing"; this.emit(record); }
         });
         view.webContents.on("did-finish-load", () => {
+          // Navigation can reset Chromium's emulation even when its key is unchanged.
+          record.emulation = undefined;
+          if (this.active?.id === record.target.id) this.clampBounds();
           record.target.error = undefined; this.emit(record);
           if (record.scroll) {
             const state = record.scroll;
