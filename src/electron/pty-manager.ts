@@ -1,5 +1,4 @@
 import { existsSync, statSync } from "node:fs";
-import { join } from "node:path";
 
 import * as pty from "node-pty";
 
@@ -11,7 +10,9 @@ import {
 } from "../shared/diagnostics";
 
 import { createBootstrapCommand, isCodexRemoteControlEnabled } from "./cli-bootstrap";
+import { CliActivityBridge } from "./cli-activity-bridge";
 import { StatusDetector } from "./status-detector";
+import { getShellLaunch } from "./shell-launch";
 
 import type {
   PtyDataEvent,
@@ -21,6 +22,7 @@ import type {
 } from "../shared/types";
 
 interface ManagedPty {
+  activity?: CliActivityBridge;
   detector: StatusDetector;
   process: pty.IPty;
   /**
@@ -85,19 +87,6 @@ interface PtyManagerEvents {
   onStatus: (event: PtyStatusEvent) => void;
 }
 
-function getPowerShellPath(): string {
-  const systemRoot = process.env.SystemRoot ?? "C:\\Windows";
-  const systemPowerShell = join(
-    systemRoot,
-    "System32",
-    "WindowsPowerShell",
-    "v1.0",
-    "powershell.exe",
-  );
-
-  return existsSync(systemPowerShell) ? systemPowerShell : "powershell.exe";
-}
-
 // Cockpit 自体が別の Claude Code / Codex CLI セッションの子プロセスとして
 // 起動されると、process.env に親セッション固有の変数が入り込む。これをそのまま
 // pty に渡すと、ペイン内で起動した claude が「自分は子セッション/ブリッジ配下」と
@@ -140,7 +129,7 @@ function getPtyEnvironment(): Record<string, string> {
   }
 
   environment.COLORTERM = "truecolor";
-  environment.LANG = "ja_JP.UTF-8";
+  environment.LANG = process.platform === "win32" ? "ja_JP.UTF-8" : process.env.LANG || "en_US.UTF-8";
   environment.TERM = "xterm-256color";
   return environment;
 }
@@ -148,7 +137,10 @@ function getPtyEnvironment(): Record<string, string> {
 export class PtyManager {
   private readonly processes = new Map<string, ManagedPty>();
 
-  constructor(private readonly events: PtyManagerEvents) {}
+  constructor(
+    private readonly events: PtyManagerEvents,
+    private readonly activityDirectory?: string,
+  ) {}
 
   spawn(request: SpawnSessionRequest): SessionState {
     if (this.processes.has(request.id)) {
@@ -159,18 +151,22 @@ export class PtyManager {
       throw new Error(`Working directory does not exist: ${request.cwd}`);
     }
 
+    const shell = getShellLaunch();
     const terminalProcess = pty.spawn(
-      getPowerShellPath(),
-      ["-NoLogo", "-NoExit"],
+      shell.file,
+      shell.args,
       {
         cols: request.cols,
         cwd: request.cwd,
-        env: getPtyEnvironment(),
+        env: {
+          ...getPtyEnvironment(), PATH: shell.path,
+          ...(this.activityDirectory ? { COCKPIT_ACTIVITY_DIRECTORY: this.activityDirectory } : {}),
+        },
         name: "xterm-256color",
         rows: request.rows,
         // OS 標準 ConPTY は DEC 2026 の終了を本文・カーソル移動より先に
         // 転送することがあり、同期描画が崩れる。同梱版は出力順序を保つ。
-        useConptyDll: true,
+        ...(process.platform === "win32" ? { useConptyDll: true } : {}),
       },
     );
     this.events.onDiagnostic(
@@ -198,6 +194,20 @@ export class PtyManager {
       detector,
       process: terminalProcess,
     };
+    // The observational hook currently uses PowerShell. Shared Codex runs in
+    // an existing daemon whose hook configuration belongs to that daemon.
+    if (process.platform === "win32" && this.activityDirectory &&
+      (request.command === "claude" ||
+        (request.command === "codex" && !isCodexRemoteControlEnabled()))) {
+      try {
+        managed.activity = new CliActivityBridge(
+          this.activityDirectory, request.id,
+          (event) => detector.handleActivityEvent(event),
+        );
+      } catch {
+        // Keep terminal-output detection when hooks are unavailable.
+      }
+    }
     this.processes.set(request.id, managed);
 
     terminalProcess.onData((data) => {
@@ -242,6 +252,7 @@ export class PtyManager {
     });
 
     terminalProcess.onExit(({ exitCode }) => {
+      managed.activity?.dispose();
       detector.dispose();
       this.clearBootstrapTimers(managed);
       this.processes.delete(request.id);
@@ -323,6 +334,8 @@ export class PtyManager {
     target.process.write(createBootstrapCommand(
       pending.command,
       pending.command === "codex" && isCodexRemoteControlEnabled(),
+      process.platform,
+      target.activity?.argumentsFor(pending.command),
     ));
   }
 
@@ -425,7 +438,10 @@ export class PtyManager {
       return;
     }
 
-    target.detector.handleInput();
+    // Consume hooks already saved before the interrupt, so a later poll cannot
+    // restore the tool observations that this input is about to release.
+    if (data === "\u0003" || data === "\u001b") target.activity?.poll();
+    target.detector.handleInput(data);
     target.process.write(data);
   }
 
@@ -532,6 +548,7 @@ export class PtyManager {
       return;
     }
 
+    target.activity?.dispose();
     target.detector.dispose();
     this.clearBootstrapTimers(target);
     target.process.kill();

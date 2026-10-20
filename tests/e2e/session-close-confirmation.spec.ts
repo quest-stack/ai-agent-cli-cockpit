@@ -53,7 +53,7 @@ const test = base.extend<{
         return received;
       });
       await page.getByRole("combobox", { name: "プロジェクト" }).fill(resolve(process.cwd()));
-      await page.getByLabel("CLI").selectOption("powershell");
+      await page.getByTestId(`cli-option-${"powershell"}`).check();
       await page.getByLabel("セッション名").fill(sessionTitle);
       await page.getByRole("button", { name: /Start Session/u }).click();
       const row = page.getByTestId(/^session-row-/u);

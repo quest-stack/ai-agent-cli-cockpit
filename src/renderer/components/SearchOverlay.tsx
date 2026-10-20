@@ -2,6 +2,7 @@ import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { terminalRegistry } from "../terminal-registry";
+import { shortcutLabel } from "../platform";
 
 import { t } from "../../shared/i18n";
 
@@ -82,7 +83,7 @@ export function SearchOverlay({
         value={query}
       />
       <span className="search-count">
-        {query ? `${matchingSessions.length} panes` : "Ctrl+Shift+F"}
+        {query ? `${matchingSessions.length} panes` : shortcutLabel("Ctrl+Shift+F")}
       </span>
       <button
         aria-label={t("前の一致")}

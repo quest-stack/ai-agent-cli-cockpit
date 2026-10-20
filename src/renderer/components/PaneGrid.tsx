@@ -14,6 +14,8 @@ import { StatusDot } from "./StatusDot";
 import { TerminalView } from "./TerminalView";
 
 import { t } from "../../shared/i18n";
+import { shortcutLabel } from "../platform";
+import { terminalRegistry } from "../terminal-registry";
 
 import type { LaunchInput } from "./Launcher";
 import type {
@@ -34,6 +36,7 @@ interface PaneGridProps {
   onClosePane: (paneId: string) => void;
   onResizeSplit: (splitId: string, ratio: number) => void;
   onRescan: () => Promise<void>;
+  onSelectCommand: (command: AppSettings["defaultCommand"]) => void;
   onSplitPane: (paneId: string, axis: SplitAxis) => void;
   onStart: (paneId: string, input: LaunchInput) => Promise<void>;
   onTogglePin: (path: string) => void;
@@ -57,6 +60,7 @@ export function PaneGrid(props: PaneGridProps) {
     onClosePane,
     onResizeSplit,
     onRescan,
+    onSelectCommand,
     onSplitPane,
     onStart,
     onTogglePin,
@@ -149,7 +153,7 @@ export function PaneGrid(props: PaneGridProps) {
         event.stopPropagation();
         onToggleZoom(node.id);
       }}
-      title={`${zoomLabel} (Ctrl+Shift+Enter)`}
+      title={`${zoomLabel} (${shortcutLabel("Ctrl+Shift+Enter")})`}
       type="button"
     >
       {maximized
@@ -186,6 +190,20 @@ export function PaneGrid(props: PaneGridProps) {
               <span className="pane-status-label">{session.status}</span>
             </div>
             <div className="pane-actions">
+              <button
+                className="cancel-input-button"
+                data-testid="cancel-input"
+                disabled={closing || session.status === "exited" || session.status === "error"}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  terminalRegistry.ensure(session.id).cancelInput();
+                }}
+                title={t("入力取消 ({value0}) — Ctrl+CをCLIに送ります。処理中は中断します。", { value0: shortcutLabel("Ctrl+Shift+X") })}
+                type="button"
+              >
+                {t("入力取消")}
+              </button>
               {zoomButton}
               <button
                 aria-label={t("右に分割")}
@@ -279,6 +297,7 @@ export function PaneGrid(props: PaneGridProps) {
           <Launcher
             error={active ? launcherError : undefined}
             onRescan={onRescan}
+            onSelectCommand={onSelectCommand}
             onStart={(input) => onStart(node.id, input)}
             onTogglePin={onTogglePin}
             projects={projects}

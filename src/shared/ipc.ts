@@ -1,4 +1,6 @@
 export const IPC_CHANNELS = {
+  previewRequest: "cockpit:preview-request",
+  previewChanged: "cockpit:preview-changed",
   appVersion: "cockpit:app-version",
   bootstrap: "cockpit:bootstrap",
   clipboardRead: "cockpit:clipboard-read",

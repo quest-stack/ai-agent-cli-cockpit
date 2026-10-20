@@ -149,7 +149,7 @@ test("Japanese IME preedit wraps inside wide and narrow terminal panes", async (
       await expect(tour).toBeHidden();
     }
     await page.getByRole("combobox", { name: "プロジェクト" }).fill(projectRoot);
-    await page.getByLabel("CLI").selectOption("powershell");
+    await page.getByTestId(`cli-option-${"powershell"}`).check();
     await page.getByLabel("セッション名").fill("IME wrapping");
     await page.getByRole("button", { name: /Start Session/u }).click();
     const helper = page.locator(".xterm-helper-textarea");

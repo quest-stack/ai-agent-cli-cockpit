@@ -210,6 +210,21 @@ test("copy mode leaves other modifiers and keyup to the terminal", () => {
   }
 });
 
+test("explicit cancel works with either copy setting and the platform modifier", () => {
+  for (const copyMode of [false, true]) {
+    for (const platform of ["win32", "darwin"]) {
+      const event = keyEvent({ key: "X", shiftKey: true,
+        ctrlKey: platform === "win32", metaKey: platform === "darwin" });
+      assert.equal(resolveTerminalKeyAction(event, false, copyMode, platform), "cancel-input");
+      assert.equal(resolveTerminalKeyAction({ ...event, repeat: true }, false, copyMode, platform), "ignore");
+      for (const overrides of [{ shiftKey: false }, { altKey: true }, { isComposing: true },
+        { keyCode: 229 }, { type: "keyup" }]) {
+        assert.equal(resolveTerminalKeyAction({ ...event, ...overrides }, false, copyMode, platform), "passthrough");
+      }
+    }
+  }
+});
+
 test("terminal reveal waits for two visible frames before fitting", () => {
   const frames: PendingFrame[] = [];
   const cancelledFrames = new Set<number>();

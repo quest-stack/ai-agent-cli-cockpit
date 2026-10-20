@@ -98,15 +98,34 @@ test("PowerShell session, six-pane layout, search and restore work together", as
     }
 
     await page.getByRole("combobox", { name: "プロジェクト" }).fill(projectRoot);
-    await page.getByLabel("CLI").selectOption("powershell");
+    await page.getByTestId(`cli-option-${"powershell"}`).check();
     await page.getByLabel("セッション名").fill("P0 PowerShell");
     await page.getByRole("button", { name: /Start Session/u }).click();
     await expect(
       page.getByTestId(/^session-row-/u).filter({ hasText: "P0 PowerShell" }),
     ).toBeVisible();
     console.info("[PowerShell E2E] PowerShell session created");
-    await verifyPowerShellResponse(page, userDataPath);
+    const sessionId = await verifyPowerShellResponse(page, userDataPath);
     console.info("[PowerShell E2E] PowerShell command produced its response");
+
+    await page.getByRole("button", { name: "設定", exact: true }).click();
+    await page.getByTestId("ctrl-c-toggle").check();
+    await page.getByRole("button", { name: "設定", exact: true }).click();
+    await page.locator(".xterm-helper-textarea").focus();
+    // If cancel does not clear the real PSReadLine input, this comment consumes
+    // the following command and the response cannot appear.
+    await page.keyboard.type("# KEEP_THIS_UNSENT ");
+    await page.keyboard.press("Control+Shift+x");
+    await page.evaluate((id) => new Promise<void>((done) => {
+      const api = window.cockpit!;
+      let output = "";
+      const unsubscribe = api.onPtyData((event) => {
+        if (event.sessionId !== id) return;
+        output += event.data;
+        if (output.includes("COCKPIT_CANCEL_READY")) { unsubscribe(); done(); }
+      });
+      api.writeSession({ sessionId: id, data: "[Console]::WriteLine(('COCKPIT_CANCEL_' + 'READY'))\r" });
+    }), sessionId);
 
     // 1 回ごとにペインが増えたことを確かめてから次を押す。まとめて押すと
     // React の再描画が追いつかず、同じペインに対する分割が重なって取り

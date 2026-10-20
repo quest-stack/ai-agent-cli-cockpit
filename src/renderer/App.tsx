@@ -41,16 +41,19 @@ import {
 } from "../shared/types";
 
 import { cockpitApi } from "./bridge";
+import { primaryShortcut } from "./platform";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { HelpPanel } from "./components/HelpPanel";
 import { LogoMark } from "./components/LogoMark";
 import { PaneGrid } from "./components/PaneGrid";
+import { PreviewWorkspace } from "./components/PreviewWorkspace";
 import { SearchOverlay } from "./components/SearchOverlay";
 import { Sidebar } from "./components/Sidebar";
 import { StatusDot } from "./components/StatusDot";
 import { TabBar } from "./components/TabBar";
 import { TourOverlay } from "./components/TourOverlay";
 import { terminalRegistry } from "./terminal-registry";
+import { previewPrototypeEnabled } from "./preview/prototype-state";
 
 import { t } from "../shared/i18n";
 
@@ -141,6 +144,16 @@ export function App() {
   >(undefined);
   const sessionsRef = useRef<SessionState[]>([]);
   const workspaceRef = useRef<PersistedWorkspace | undefined>(undefined);
+
+  useEffect(() => {
+    if (!previewPrototypeEnabled && !cockpitApi.preview) return;
+    const collapseAtNarrowWidth = (): void => {
+      if (window.innerWidth < 900 && (previewPrototypeEnabled
+        || document.querySelector('[data-active-tab-panel] [data-testid="preview-toggle"][aria-expanded="true"]'))) setSidebarCollapsed(true);
+    };
+    window.addEventListener("resize", collapseAtNarrowWidth);
+    return () => window.removeEventListener("resize", collapseAtNarrowWidth);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -503,6 +516,7 @@ export function App() {
             removeSession(sessionId);
           }
           removeTab(tabId);
+          void cockpitApi.preview?.request({ action: "clear", tabId }).catch(() => undefined);
         },
         sessions: sessionsRef.current,
         tab,
@@ -1208,7 +1222,7 @@ export function App() {
         return;
       }
 
-      if (event.ctrlKey && event.shiftKey && event.key === "Enter") {
+      if (primaryShortcut(event) && event.shiftKey && event.key === "Enter") {
         if (event.isComposing || helpOpen || searchOpen || settingsOpen) {
           return;
         }
@@ -1219,17 +1233,17 @@ export function App() {
         }
         return;
       }
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "t") {
+      if (primaryShortcut(event) && event.shiftKey && event.key.toLowerCase() === "t") {
         event.preventDefault();
         newTab();
         return;
       }
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "w") {
+      if (primaryShortcut(event) && event.shiftKey && event.key.toLowerCase() === "w") {
         event.preventDefault();
         requestCloseTab(workspace.activeTabId);
         return;
       }
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "d") {
+      if (primaryShortcut(event) && event.shiftKey && event.key.toLowerCase() === "d") {
         event.preventDefault();
         setZoomedTabId((current) => current === activeTab.id ? null : current);
         const result = splitPane(
@@ -1245,7 +1259,7 @@ export function App() {
         }));
         return;
       }
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "e") {
+      if (primaryShortcut(event) && event.shiftKey && event.key.toLowerCase() === "e") {
         event.preventDefault();
         setZoomedTabId((current) => current === activeTab.id ? null : current);
         const result = splitPane(
@@ -1261,7 +1275,7 @@ export function App() {
         }));
         return;
       }
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "f") {
+      if (primaryShortcut(event) && event.shiftKey && event.key.toLowerCase() === "f") {
         event.preventDefault();
         setSearchOpen(true);
         return;
@@ -1269,7 +1283,7 @@ export function App() {
       // 表示が壊れた（文字が出ない・欠ける）時の手動回復。グリフの
       // テクスチャアトラスを作り直して全ペインを描き直す。CLI へ入力は
       // 送らないので、実行中の作業を邪魔しない。
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "r") {
+      if (primaryShortcut(event) && event.shiftKey && event.key.toLowerCase() === "r") {
         event.preventDefault();
         terminalRegistry.redrawAll();
         return;
@@ -1591,7 +1605,11 @@ export function App() {
                 key={tab.id}
                 role="tabpanel"
               >
-                <PaneGrid
+                <PreviewWorkspace active={active} tabId={tab.id}
+                  onOpen={() => { if (window.innerWidth < 900) setSidebarCollapsed(true); }}
+                  sessionIds={collectPanes(tab.root).flatMap((pane) => pane.sessionId ? [pane.sessionId] : [])}
+                  suspended={helpOpen || settingsOpen || searchOpen || tourOpen || Boolean(confirmingSession) || Boolean(confirmingTab)}>
+                {(cliVisible) => <PaneGrid
                   activePaneId={tab.activePaneId}
                   closingSessionIds={closingSessionIds}
                   launcherError={active ? launcherError : undefined}
@@ -1648,6 +1666,10 @@ export function App() {
                   onStart={async (paneId, input) => {
                     await startSession(tab.id, paneId, input);
                   }}
+                  onSelectCommand={(command) => setWorkspace((current) => current ? {
+                    ...current,
+                    settings: { ...current.settings, defaultCommand: command },
+                  } : current)}
                   onTogglePin={togglePin}
                   onToggleZoom={(paneId) => togglePaneZoom(tab.id, paneId)}
                   paneCount={collectPanes(tab.root).length}
@@ -1655,12 +1677,13 @@ export function App() {
                   recent={workspace.recent}
                   sessions={sessions}
                   settings={workspace.settings}
-                  tabActive={active}
+                  tabActive={active && cliVisible}
                   zoomedPaneId={
                     zoomedTabId === tab.id && collectPanes(tab.root).length > 1
                       ? tab.activePaneId : null
                   }
-                />
+                />}
+                </PreviewWorkspace>
               </div>
             ))}
           </div>

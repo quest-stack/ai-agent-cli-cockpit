@@ -54,6 +54,9 @@ const test = base.extend<{ cockpit: ClipboardFixture }>({
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       await expect(page.getByTestId("launcher")).toBeVisible();
+      // Text/selection assertions below target xterm's DOM renderer. Keep that
+      // fixture deterministic on both GPU-capable CI and DOM-fallback devices.
+      await page.evaluate(() => window.localStorage.setItem("cockpit.disableWebgl", "1"));
       const state = await app.evaluateHandle(({ ipcMain }) => {
         const state = {
           value: { kind: "empty" } as ClipboardPasteResult,
@@ -88,7 +91,7 @@ const test = base.extend<{ cockpit: ClipboardFixture }>({
         start: async (command = "codex") => {
           const launcher = page.getByTestId("launcher").filter({ visible: true });
           await launcher.getByRole("combobox", { name: ui("プロジェクト") }).fill(resolve(process.cwd()));
-          await launcher.getByLabel("CLI").selectOption(command);
+          await launcher.getByTestId(`cli-option-${command}`).check();
           await launcher.getByLabel(ui("セッション名")).fill("Clipboard test");
           await launcher.getByRole("button", { name: /Start Session/u }).click();
           const terminal = page.getByTestId(/^terminal-/u).filter({ visible: true });
@@ -217,6 +220,66 @@ test("copy mode persists across reload", async ({ cockpit }) => {
   await expect(await ctrlCSetting(cockpit.page)).toBeChecked();
 });
 
+for (const command of ["claude", "codex", "powershell"]) {
+  test(`explicit cancel sends one Ctrl+C to ${command} while copy mode stays on`, async ({ cockpit }) => {
+    const id = await cockpit.start(command);
+    await (await ctrlCSetting(cockpit.page)).check();
+    const input = cockpit.page.locator(".xterm-helper-textarea");
+    await input.focus();
+    await cockpit.page.keyboard.press("Control+c");
+    await cockpit.page.keyboard.down("Control");
+    await cockpit.page.keyboard.down("Shift");
+    await cockpit.page.keyboard.down("x");
+    await cockpit.page.keyboard.down("x");
+    await cockpit.page.keyboard.up("x");
+    await cockpit.page.keyboard.up("Shift");
+    await cockpit.page.keyboard.up("Control");
+    await expect.poll(cockpit.calls).toEqual({ copied: [], reads: 0, written: [{ sessionId: id, data: "\x03" }] });
+    await cockpit.page.getByTestId("cancel-input").click();
+    await expect(input).toBeFocused();
+    await expect.poll(cockpit.calls).toEqual({ copied: [], reads: 0,
+      written: [{ sessionId: id, data: "\x03" }, { sessionId: id, data: "\x03" }] });
+    await cockpit.page.keyboard.press("Control+c");
+    await expect.poll(async () => (await cockpit.saved()).settings.ctrlCCopies).toBe(true);
+    expect((await cockpit.calls()).written).toHaveLength(2);
+  });
+}
+
+test("CLI buttons remember every selection across reload, new tabs and splits", async ({ cockpit }, testInfo) => {
+  const { page } = cockpit;
+  for (const command of ["powershell", "claude", "codex"]) {
+    await page.getByTestId(`cli-option-${command}`).check();
+    await expect.poll(async () => (await cockpit.saved()).settings.defaultCommand).toBe(command);
+    await page.reload();
+    await expect(page.getByTestId(`cli-option-${command}`)).toBeChecked();
+  }
+  await page.keyboard.press("Control+Shift+t");
+  await expect(page.getByTestId("launcher").filter({ visible: true }).getByTestId("cli-option-codex")).toBeChecked();
+  await page.keyboard.press("Control+Shift+d");
+  const launchers = page.getByTestId("launcher").filter({ visible: true });
+  await expect(launchers).toHaveCount(2);
+  await expect(launchers.last().getByTestId("cli-option-codex")).toBeChecked();
+  await launchers.last().getByTestId("cli-option-claude").focus();
+  await page.keyboard.press("Space");
+  await page.keyboard.press("ArrowRight");
+  await expect(launchers.last().getByTestId("cli-option-codex")).toBeChecked();
+  await page.setViewportSize({ width: 1024, height: 900 });
+  for (const launcher of await launchers.all()) {
+    expect(await launcher.evaluate((element) => {
+      const pane = element.closest(".empty-pane")!;
+      return pane.scrollWidth <= pane.clientWidth;
+    })).toBe(true);
+  }
+  await page.screenshot({ path: testInfo.outputPath("split-cli-buttons-1024.png") });
+});
+
+test("reopening a recent CLI makes it the next launch preference", async ({ cockpit }) => {
+  await cockpit.page.locator(".recent-item").first().click();
+  await expect.poll(async () => (await cockpit.saved()).settings.defaultCommand).toBe("codex");
+  await cockpit.page.keyboard.press("Control+Shift+t");
+  await expect(cockpit.page.getByTestId("launcher").filter({ visible: true }).getByTestId("cli-option-codex")).toBeChecked();
+});
+
 test("recent cards prioritize session names at desktop and narrow widths", async ({ cockpit }, testInfo) => {
   const { page } = cockpit;
   const cards = page.locator(".recent-item");
@@ -231,6 +294,9 @@ test("recent cards prioritize session names at desktop and narrow widths", async
     await expect(await ctrlCSetting(page)).toBeVisible();
     await page.getByRole("button", { name: ui("設定"), exact: true }).click();
     await expect(cards.nth(1).locator("span")).toHaveText("入力操作の改善");
+    await page.getByTestId("cli-option-codex").check();
+    await expect(page.getByTestId("cli-option-codex")).toBeChecked();
+    expect(await page.locator(".empty-pane").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`launcher-${width}.png`), fullPage: true });
   }
 });

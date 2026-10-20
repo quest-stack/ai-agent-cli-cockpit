@@ -1,5 +1,22 @@
+/* 空白を伴う丸数字は2セルにまとめ、OS同梱の丸い字形で描く。 */
+@font-face {
+  font-family: "Cockpit Circled Numbers";
+  src: local("Segoe UI Symbol"), local("Segoe UI");
+  font-weight: 400;
+  size-adjust: 120%;
+  /* xtermはDingbatsを絵文字扱いし縮小しないため、❶などは従来のSarasaを使う。 */
+  unicode-range: U+2460-2473, U+24EA-24FF;
+}
+
+@font-face {
+  font-family: "Cockpit Mac Circled Numbers";
+  src: local("HiraginoSans-W3"), local("Hiragino Kaku Gothic ProN W3"), local("Apple Symbols");
+  font-weight: 400;
+  unicode-range: U+2460-2473, U+24EA-24FF;
+}
+
 /*
- * ①②③・◔◑◕・→ など「曖昧幅」の記号だけを、1マス用の字形を持つ Sarasa Term J で描く。
+ * 空白のない①②③・◔◑◕・→ など「曖昧幅」の記号は、1マス用の Sarasa Term J が代替する。
  * CLI はこれらを1マス幅として扱うが、Windows 標準フォントには全角の字形しかなく、
  * 1マスに押し込まれて潰れていた（2026-10-07）。範囲と出どころは
  * third_party/fonts/sarasa-gothic/README.md。unicode-range は切り出した範囲と同じ値にする。
@@ -62,6 +79,12 @@ body {
     radial-gradient(circle at 64% 36%, #20242d44 0, transparent 36rem),
     var(--bg-0);
   color: var(--fg);
+}
+
+/* Leave room for native macOS traffic lights without moving Windows controls. */
+:root[data-platform="darwin"] .title-bar {
+  padding-left: 88px;
+  padding-right: 12px;
 }
 
 button,
@@ -1206,6 +1229,22 @@ select:focus-visible,
   scrollbar-width: thin;
 }
 
+/* DOMの結合spanは丸数字＋空白で2セル、連続丸数字は元のセル数へ固定する。 */
+.terminal-host .xterm-rows > div > span.cockpit-spaced-circled,
+.terminal-host .xterm-rows > div > span.cockpit-compact-circled {
+  /* 結合できない丸数字は従来の半角字形。隣のセルや選択位置を侵食しない。 */
+  display: inline-block;
+  inline-size: var(--cockpit-circled-width);
+  letter-spacing: normal !important;
+  overflow: hidden;
+  vertical-align: top;
+}
+
+.terminal-host .xterm-rows > div > span.cockpit-compact-circled {
+  font-family: "Cockpit Symbols", Consolas, monospace;
+  text-align: center;
+}
+
 .terminal-closing {
   align-items: center;
   color: var(--fg-dim);
@@ -1261,7 +1300,7 @@ select:focus-visible,
   align-items: center;
   display: flex;
   justify-content: center;
-  min-width: 466px;
+  min-width: 0;
   min-height: 100%;
   padding: 28px;
   width: 100%;
@@ -1276,7 +1315,7 @@ select:focus-visible,
     0 24px 60px #00000033,
     inset 0 1px 0 #ffffff05;
   max-width: 690px;
-  min-width: 410px;
+  min-width: 0;
   overflow-wrap: normal;
   padding: 22px;
   position: relative;
@@ -1320,7 +1359,7 @@ select:focus-visible,
   font-weight: 650;
   letter-spacing: -0.025em;
   margin: 0;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .launcher-heading p {
@@ -1352,8 +1391,7 @@ select:focus-visible,
 }
 
 .project-combobox > input,
-.launcher-fields-row input,
-.launcher-fields-row select {
+.launcher-fields-row input {
   background: #0d1014;
   border: 1px solid #2b313a;
   border-radius: 8px;
@@ -1371,15 +1409,13 @@ select:focus-visible,
   padding: 0 40px 0 36px;
 }
 
-.launcher-fields-row input,
-.launcher-fields-row select {
+.launcher-fields-row input {
   font-size: 11px;
   padding: 0 10px;
 }
 
 .project-combobox > input:focus,
-.launcher-fields-row input:focus,
-.launcher-fields-row select:focus {
+.launcher-fields-row input:focus {
   border-color: #f5a62388;
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
@@ -1531,7 +1567,79 @@ select:focus-visible,
 .launcher-fields-row {
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(180px, 1.2fr);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.cli-picker {
+  border: 0;
+  margin: 0 0 14px;
+  min-width: 0;
+  padding: 0;
+}
+
+.cli-options {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+}
+
+.cli-option {
+  cursor: pointer;
+  min-width: 0;
+  position: relative;
+}
+
+.cli-option input {
+  cursor: pointer;
+  height: 100%;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.cli-option span {
+  align-items: center;
+  background: #0d1014;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg-dim);
+  display: flex;
+  font-size: 11px;
+  font-weight: 600;
+  justify-content: center;
+  min-height: 38px;
+  padding: 7px 4px;
+  white-space: nowrap;
+}
+
+.cli-option:hover span {
+  border-color: var(--accent);
+}
+
+.cli-option input:checked + span {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.cli-option input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.cli-picker-note {
+  color: var(--fg-dim);
+  font-size: 10px;
+  margin: 6px 0 0;
+}
+
+.pane-actions .cancel-input-button {
+  font-size: 10px;
+  padding-inline: 7px;
+  white-space: nowrap;
+  width: auto;
 }
 
 .launcher-fields-row label {
@@ -1910,10 +2018,12 @@ select:focus-visible,
 
   .launcher-shell {
     align-items: flex-start;
+    min-width: 0;
     padding: 44px 10px 14px;
   }
 
   .launcher-card {
+    min-width: 0;
     padding: 15px;
   }
 

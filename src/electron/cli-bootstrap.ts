@@ -24,7 +24,18 @@ export function isCodexRemoteControlEnabled(userHome = homedir()): boolean {
   }
 }
 
-export function createBootstrapCommand(command: string, sharedCodex = false): string {
+export function createBootstrapCommand(
+  command: string, sharedCodex = false, platform = process.platform, activityArguments = "",
+): string {
+  if (platform !== "win32") {
+    if (command === "shell" || command === "powershell") return "\r";
+    if (command === "codex" && sharedCodex) {
+      return 'if codex app-server daemon start >/dev/null; then '
+        + 'codex --remote unix:// --cd "$PWD" -c tui.whimsy=false; '
+        + "else printf '%s\\n' 'Codex shared server failed to start. Run: codex app-server daemon start' >&2; fi\r";
+    }
+    return `${command}${command === "codex" ? " -c tui.whimsy=false" : ""}\r`;
+  }
   const encodingSetup = [
     "[Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false)",
     "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)",
@@ -33,7 +44,7 @@ export function createBootstrapCommand(command: string, sharedCodex = false): st
     "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force",
   ].join("; ");
 
-  if (command === "powershell") return `${encodingSetup}\r`;
+  if (command === "powershell" || command === "shell") return `${encodingSetup}\r`;
 
   if (command === "codex" && sharedCodex) {
     const failure = t("Codexの共有サーバーを起動できませんでした。codex app-server daemon start でエラーを確認してください。")
@@ -47,5 +58,5 @@ export function createBootstrapCommand(command: string, sharedCodex = false): st
 
   // Disable only Codex's idle decoration; preserve its progress animations.
   const argumentsText = command === "codex" ? " -c tui.whimsy=false" : "";
-  return `${encodingSetup}; ${command}${argumentsText}\r`;
+  return `${encodingSetup}; ${command}${argumentsText}${activityArguments}\r`;
 }

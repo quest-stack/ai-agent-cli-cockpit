@@ -27,7 +27,7 @@ async function startSession(
   await launcher
     .getByRole("combobox", { name: "プロジェクト" })
     .fill(projectRoot);
-  await launcher.getByLabel("CLI").selectOption("powershell");
+  await launcher.getByTestId(`cli-option-${"powershell"}`).check();
   await launcher.getByLabel("セッション名").fill(name);
   await launcher.getByRole("button", { name: /Start Session/u }).click();
 }

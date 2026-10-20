@@ -35,7 +35,7 @@ for (const scenario of ["継続中", "描画途中に開始", "長文の変換"]
         await page.getByRole("button", { name: "スキップ" }).click();
       }
       await page.getByRole("combobox", { name: "プロジェクト" }).fill(resolve(process.cwd()));
-      await page.getByLabel("CLI").selectOption("codex");
+      await page.getByTestId(`cli-option-${"codex"}`).check();
       await page.getByRole("button", { name: /Start Session/u }).click();
       const helper = page.locator(".xterm-helper-textarea");
       await expect(helper).toBeAttached();

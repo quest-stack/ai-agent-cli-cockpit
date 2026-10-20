@@ -1,5 +1,7 @@
 import { DEFAULT_SIDEBAR_WIDTH } from "../shared/types";
 import { openExternalWebLink } from "../shared/external-link";
+import { persistedWorkspaceSchema } from "../shared/schema";
+import { previewPrototypeEnabled } from "./preview/prototype-state";
 
 import { t } from "../shared/i18n";
 
@@ -76,7 +78,7 @@ function createDemoWorkspace(): PersistedWorkspace {
     remoteLaunchEnabled: false,
     scanRoots: ["C:/work", "C:/work/clients"],
     sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
-    tourCompleted: false,
+    tourCompleted: previewPrototypeEnabled,
   };
 
   if (new URLSearchParams(window.location.search).has("empty")) {
@@ -202,6 +204,24 @@ function createDemoApi(): CockpitApi {
   const dataListeners = new Set<DataListener>();
   const statusListeners = new Set<StatusListener>();
   let workspace = createDemoWorkspace();
+  if (previewPrototypeEnabled) {
+    // Give both AI panes enough width beside the preview in the UI trial.
+    if (!new URLSearchParams(window.location.search).has("empty")) {
+      workspace.sessions = workspace.sessions.filter((session) => session.id !== "session-app");
+      workspace.tabs[0].root = {
+        axis: "column", children: [
+          { id: "pane-web", sessionId: "session-web", type: "pane" },
+          { id: "pane-docs", sessionId: "session-docs", type: "pane" },
+        ], id: "split-preview-demo", ratio: 0.5, type: "split",
+      };
+    }
+    try {
+      const saved = persistedWorkspaceSchema.safeParse(JSON.parse(window.localStorage.getItem("cockpit.previewTrial.workspace") ?? "null"));
+      if (saved.success) workspace = saved.data;
+    } catch {
+      // Browser-only trial persistence; real app state is never read or written.
+    }
+  }
 
   const emitData = (event: PtyDataEvent): void => {
     for (const listener of dataListeners) {
@@ -232,6 +252,7 @@ function createDemoApi(): CockpitApi {
   };
 
   const api: CockpitApi = {
+    platform: window.navigator.platform.startsWith("Mac") ? "darwin" : "win32",
     diagnosticLog: () => undefined,
     getAppVersion: async () => "0.1.7",
     getBootstrap: async (): Promise<BootstrapPayload> => ({
@@ -287,6 +308,10 @@ function createDemoApi(): CockpitApi {
     resizeSession: () => undefined,
     saveWorkspace: async (nextWorkspace) => {
       workspace = nextWorkspace;
+      if (previewPrototypeEnabled) {
+        try { window.localStorage.setItem("cockpit.previewTrial.workspace", JSON.stringify(nextWorkspace)); }
+        catch { /* Continue using the in-memory demo if storage is unavailable. */ }
+      }
     },
     showWaitingNotification: async () => undefined,
     spawnSession: async (request) => {

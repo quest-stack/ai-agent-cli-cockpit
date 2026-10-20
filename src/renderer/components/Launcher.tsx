@@ -9,7 +9,7 @@ import {
   Search,
   TerminalSquare,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 import {
   getDefaultSessionTitle,
@@ -18,6 +18,7 @@ import {
 } from "../../shared/session-labels";
 
 import { cockpitApi } from "../bridge";
+import { normalizeShellCommand } from "../../shared/platform";
 
 import { t } from "../../shared/i18n";
 
@@ -38,6 +39,7 @@ export interface LaunchInput {
 interface LauncherProps {
   error?: string;
   onRescan: () => Promise<void>;
+  onSelectCommand: (command: CliCommand) => void;
   onStart: (input: LaunchInput) => Promise<void>;
   onTogglePin: (path: string) => void;
   projects: ProjectCandidate[];
@@ -48,13 +50,22 @@ interface LauncherProps {
 export function Launcher({
   error,
   onRescan,
+  onSelectCommand,
   onStart,
   onTogglePin,
   projects,
   recent,
   settings,
 }: LauncherProps) {
-  const [command, setCommand] = useState(settings.defaultCommand);
+  const command = normalizeShellCommand(settings.defaultCommand, cockpitApi.platform);
+  const commandGroupId = useId();
+  const commands: { value: CliCommand; label: string }[] = [
+    { value: "claude", label: "Claude Code" },
+    { value: "codex", label: "Codex" },
+    cockpitApi.platform === "darwin"
+      ? { value: "shell", label: "Shell" }
+      : { value: "powershell", label: "PowerShell" },
+  ];
   const [browseError, setBrowseError] = useState<string>();
   const [browsing, setBrowsing] = useState(false);
   const [cwd, setCwd] = useState(() =>
@@ -110,6 +121,8 @@ export function Launcher({
 
     setStarting(true);
     try {
+      const recentCommand = commands.find((item) => item.value === input?.command);
+      if (recentCommand) onSelectCommand(recentCommand.value);
       await onStart(
         input ?? {
           command,
@@ -266,21 +279,26 @@ export function Launcher({
           </button>
         </div>
 
+        <fieldset className="cli-picker">
+          <legend className="field-label">CLI</legend>
+          <div className="cli-options">
+            {commands.map((item) => (
+              <label className="cli-option" key={item.value}>
+                <input
+                  checked={command === item.value}
+                  data-testid={`cli-option-${item.value}`}
+                  name={commandGroupId}
+                  onChange={() => onSelectCommand(item.value)}
+                  type="radio"
+                  value={item.value}
+                />
+                <span>{item.label}</span>
+              </label>
+            ))}
+          </div>
+          <p className="cli-picker-note">{t("前回の選択を次回も使います")}</p>
+        </fieldset>
         <div className="launcher-fields-row">
-          <label>
-            <span className="field-label">CLI</span>
-            <select
-              aria-label="CLI"
-              onChange={(event) =>
-                setCommand(event.target.value as CliCommand)
-              }
-              value={command}
-            >
-              <option value="claude">claude</option>
-              <option value="codex">codex</option>
-              <option value="powershell">{t("PowerShell（空端末）")}</option>
-            </select>
-          </label>
           <label>
             <span className="field-label">{t("セッション名")}</span>
             <input

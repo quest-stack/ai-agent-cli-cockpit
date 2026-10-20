@@ -45,7 +45,7 @@ test("実際のCodexの2・3ターン目の応答中も入力位置と文字が�
       await page.getByRole("button", { name: "スキップ" }).click();
     }
     await page.getByRole("combobox", { name: "プロジェクト" }).fill(workspace);
-    await page.getByLabel("CLI").selectOption("codex");
+    await page.getByTestId(`cli-option-${"codex"}`).check();
     await page.getByLabel("セッション名").fill("Live input test");
     await page.getByRole("button", { name: /Start Session/u }).click();
     const helper = page.locator(".xterm-helper-textarea");

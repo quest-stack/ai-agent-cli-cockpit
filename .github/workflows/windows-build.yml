@@ -54,6 +54,12 @@ jobs:
       - name: Prepare Electron runtime before timed tests
         run: node node_modules/electron/install.js
 
+      # Actual hooks run after a PowerShell PTY is ready. Hosted x64 images can
+      # take over five seconds on their very first PowerShell launch; perform
+      # that cold initialization before the unit test's unchanged time limit.
+      - name: Prepare PowerShell before timed hook tests
+        run: powershell.exe -NoLogo -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.ToString()'
+
       - name: Check types
         run: npm run typecheck
 
@@ -69,10 +75,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build:editions
 
-      - name: Verify PowerShell, shared Codex startup and both editions
+      - name: Verify PowerShell, shared Codex, editions, symbols and subagents
         env:
           DEBUG: pw:browser
-        run: npx --no-install playwright test tests/e2e/app.spec.ts tests/e2e/editions.spec.ts tests/e2e/codex-shared-start.spec.ts
+        run: npx --no-install playwright test tests/e2e/app.spec.ts tests/e2e/editions.spec.ts tests/e2e/codex-shared-start.spec.ts tests/e2e/circled-numbers.spec.ts tests/e2e/subagent-status.spec.ts tests/e2e/terminal-clipboard.spec.ts tests/e2e/ime-composition-wrap.spec.ts tests/e2e/ime-input-lifecycle.spec.ts tests/e2e/ime-stuck-input.spec.ts tests/e2e/preview-native.spec.ts
 
       - name: Package unsigned installers
         run: npm run package:editions -- --arch=$env:COCKPIT_CI_ARCH
@@ -82,7 +88,7 @@ jobs:
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           $unpacked = if ($env:COCKPIT_CI_ARCH -eq 'x64') { 'win-unpacked' } else { 'win-arm64-unpacked' }
           $env:COCKPIT_PACKAGED_EXECUTABLE = Join-Path $PWD "release/$version/ja/$unpacked/CLI Cockpit.exe"
-          npx --no-install playwright test tests/e2e/codex-shared-start.spec.ts
+          npx --no-install playwright test tests/e2e/codex-shared-start.spec.ts tests/e2e/circled-numbers.spec.ts tests/e2e/subagent-status.spec.ts tests/e2e/preview-native.spec.ts
 
       - name: Collect installers, checksums and build metadata
         run: node scripts/collect-ci-artifacts.mjs --arch=$env:COCKPIT_CI_ARCH
@@ -96,6 +102,25 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+      - name: Preserve shared-start failure evidence
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: windows-test-${{ matrix.architecture }}-attempt-${{ github.run_attempt }}
+          path: |
+            test-results/codex-shared-start-*/error-context.md
+            test-results/codex-shared-start-*/trace.zip
+            test-results/codex-shared-start-*/fixture/calls.jsonl
+            test-results/codex-shared-start-*/fixture/user-data/diagnostic.log
+            test-results/preview-native-*/error-context.md
+            test-results/preview-native-*/trace.zip
+            test-results/preview-native-*/*.png
+            test-results/subagent-status-*/error-context.md
+            test-results/subagent-status-*/trace.zip
+            test-results/subagent-status-*/user-data/diagnostic.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       # After Foundation acceptance, submit this step's artifact-id to SignPath.
       # Production signing must require a maintainer's manual approval.

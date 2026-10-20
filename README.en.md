@@ -2,9 +2,53 @@
 
 [日本語](https://github.com/quest-stack/ai-agent-cli-cockpit/blob/main/README.md) · English
 
+An experimental Japanese-language Mac build has a separate [trial guide](docs/MACOS_TRIAL.md). The regular releases and update manifest remain Windows-only.
+
 A Windows terminal app that brings your Claude Code and Codex CLI sessions into one window, with tabs and split panes.
 
 Keep work on different projects separate, see which sessions need attention, and switch between them without hunting through terminal windows. Cockpit manages the workspace; you control the CLIs and their approvals.
+
+## When is Cockpit useful?
+
+**Paste a screenshot and ask for a screen fix. Arrange Claude Code and Codex in one window.** Cockpit is a Windows app that reduces the steps involved in working with AI CLIs.
+
+Choose a folder and a CLI, then press the start button to begin working there. Split the window horizontally or vertically to see responses and progress without switching windows.
+
+### Paste a screenshot and ask for a screen fix
+
+Suppose a heading overlaps an image on your website. Open an AI session in that site's folder, then show it the part you want to fix.
+
+1. Press Win + Shift + S to capture the affected area.
+2. Click the AI's pane in Cockpit and press Ctrl + V.
+3. Add a short request and send it.
+
+> The heading overlaps the image as shown in this screenshot. Please adjust the spacing so the heading is readable without the overlap.
+
+**You do not need to save the image first and then find a file to attach.** You can also show an error and ask the AI to investigate its cause. The screenshot shows both the location and the problem.
+
+### Ask Claude Code and Codex the same question
+
+For example, when drafting an announcement for an internal study session, open Claude Code on the left and Codex on the right. Send the same request to each:
+
+> Suggest three short announcements for next week's internal study session. Use language that first-time participants can understand.
+
+Read both responses side by side, then ask each AI follow-up questions: keep a promising opening, or request a shorter version.
+
+Launching Claude Code and Codex from the same window and arranging them in the same tab is especially useful when you use both.
+
+### Give the same AI two separate jobs
+
+Using only Claude Code or only Codex is fine. Open two sessions of the same AI: turn meeting notes into minutes on the left while drafting a client email on the right.
+
+While one session is working, check the other. Both remain visible, so you spend less time finding which window belongs to which job. Name the sessions “Minutes” and “Email draft” to make it easier to check where you are sending an instruction.
+
+If a session asks for permission to change a file, use the status indicator or notification as a cue to return and respond.
+
+### Use Cockpit alongside the official apps
+
+Keep using the official apps for your usual conversations, and open Cockpit when you want to work with the Claude Code and Codex CLIs together. A CLI is the text-based version of an AI tool. Cockpit gives those CLIs a shared place to launch and manage separate tasks.
+
+Start with one AI you already use, then split the window and add another task when needed. Install and sign in to Claude Code or Codex separately first.
 
 ## Download and install
 
@@ -14,8 +58,8 @@ Choose **English** on the [Releases page](https://github.com/quest-stack/ai-agen
 
 | Windows PC | English installer |
 | --- | --- |
-| Intel or AMD (x64) | `CLI-Cockpit-0.2.12-en-win-x64.exe` |
-| ARM64 | `CLI-Cockpit-0.2.12-en-win-arm64.exe` |
+| Intel or AMD (x64) | `CLI-Cockpit-<version>-en-win-x64.exe` |
+| ARM64 | `CLI-Cockpit-<version>-en-win-arm64.exe` |
 
 Check **Settings → System → About → System type** if you are unsure. The Japanese edition is a separate download. There is no language switch inside the app.
 
@@ -38,7 +82,7 @@ and the [Privacy policy](docs/PRIVACY.md) for data handling.
 
 1. Choose **New Session**.
 2. Select a project folder with **Browse**, enter its path, or choose a recent folder. Pin folders you use often.
-3. Choose `claude`, `codex`, or **PowerShell (shell only)**.
+3. Choose the **Claude Code**, **Codex**, or **PowerShell** button (Shell on Mac). Your selection is remembered for new tabs, panes and the next app launch.
 4. Optionally name the session after the task. The CLI name is used if you leave this blank.
 5. Choose **Start Session** or press Enter.
 
@@ -58,6 +102,7 @@ Search looks through the current scrollback of all open sessions. The workspace 
 - Dropping files onto a terminal inserts their paths.
 - By default, **Ctrl+C interrupts the CLI**. Enable **Ctrl+C copies selected text** under **Settings > KEYS** to change it. In Copy mode, Ctrl+C copies the selection; with nothing selected, it does nothing. This prevents accidental interruption, and your choice is saved.
 - **Ctrl+Shift+C** copies selected text in either mode.
+- **Ctrl+Shift+X** or the pane's **Cancel input** button sends Ctrl+C to the CLI while keeping Copy mode enabled. It cancels pending input or interrupts work in progress. On Mac, use **Command+Shift+X**.
 - Normally, **Enter sends** and **Shift+Enter inserts a newline** in Claude Code and Codex. Enable **Enter inserts a newline** in Settings to reverse those two keys. This changes Cockpit's input handling, not your CLI configuration files.
 
 Pasted text is passed through the terminal's bracketed-paste handling. How a multiline command is interpreted still depends on the receiving shell or CLI; review it before submitting.
@@ -71,7 +116,7 @@ Pasted text is passed through the terminal's bracketed-paste handling. How a mul
 | Red | Needs approval or attention |
 | Gray | Exited |
 
-These indicators are estimates based on terminal output. They do not approve requests or send responses. Use the bell icon to turn Windows attention notifications on or off.
+These indicators are estimates. On Windows, standard Claude Code and independent Codex launches also track subagent and tool-call lifecycle hooks to remain yellow during quiet work. Direct calls from Claude Code to Codex, or the reverse, stay busy while the caller's tool waits for the result. Detached background work after that tool returns is not covered. If Codex asks to trust hooks, review them with its `/hooks` command. Cockpit does not bypass that review or change approval settings. Shared Codex, the Mac trial and unavailable hooks rely on terminal output, so quiet work can appear idle. The indicators do not approve requests or send responses. Use the bell icon to turn Windows attention notifications on or off.
 
 ## Keyboard shortcuts
 

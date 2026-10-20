@@ -70,7 +70,7 @@ const test = base.extend<{ cockpit: CockpitFixture }>({
         start: async (title) => {
           const launcher = page.getByTestId("launcher").filter({ visible: true });
           await launcher.getByRole("combobox", { name: "プロジェクト" }).fill(resolve(process.cwd()));
-          await launcher.getByLabel("CLI").selectOption("powershell");
+          await launcher.getByTestId(`cli-option-${"powershell"}`).check();
           await launcher.getByLabel("セッション名").fill(title);
           await launcher.getByRole("button", { name: /Start Session/u }).click();
           const row = page.getByTestId(/^session-row-/u).filter({ hasText: title });
@@ -120,7 +120,7 @@ test("案件・作業名を一覧・タブ・見出しの先頭に表示し、�
 test("入れ子のペインを最大化しても端末・出力・保存した分割比率を保持する", async ({ cockpit }) => {
   const { page, calls, saved, send } = cockpit;
   const ids = await makeNestedPanes(cockpit);
-  const split = page.locator("[data-active-tab-panel] > .split-layout");
+  const split = page.locator("[data-active-tab-panel] .preview-cli > .split-layout");
   const bounds = (await split.boundingBox())!;
   const handle = split.locator(":scope > .split-handle");
   const divider = (await handle.boundingBox())!;

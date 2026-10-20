@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
   app,
@@ -11,6 +12,7 @@ import {
   Menu,
   net,
   Notification,
+  protocol,
   session,
   shell,
 } from "electron";
@@ -40,8 +42,12 @@ import { scanProjects } from "./project-scanner";
 import { PtyManager } from "./pty-manager";
 import { RemoteLaunchWatcher } from "./remote-launch-watcher";
 import { SessionStore } from "./session-store";
+import { PreviewManager } from "./preview-manager";
+import { PREVIEW_SCHEME } from "./preview-files";
+import { previewRequestSchema } from "../shared/preview";
+import { collectPanes } from "../shared/layout";
 
-import { configureAppLanguage, getAppLanguage, resolveAppLanguage, t } from "../shared/i18n";
+import { configureAppLanguage, configureAppPlatform, getAppLanguage, resolveAppLanguage, t } from "../shared/i18n";
 
 import type {
   IpcMainEvent,
@@ -61,6 +67,7 @@ configureAppLanguage(app.isPackaged
     readFileSync(join(app.getAppPath(), "package.json"), "utf8"),
   ) as unknown).cockpitLanguage
   : resolveAppLanguage(process.env.COCKPIT_LANGUAGE));
+configureAppPlatform(process.platform);
 
 const UPDATE_CHECK_DELAY_MS = 5_000;
 const UPDATE_CHECK_TIMEOUT_MS = 10_000;
@@ -73,7 +80,10 @@ let diagnosticLogger: DiagnosticLogger;
 let ptyManager: PtyManager;
 let remoteLaunchWatcher: RemoteLaunchWatcher;
 let sessionStore: SessionStore;
+let previewManager: PreviewManager;
 let updateCheckTimer: ReturnType<typeof setTimeout> | undefined;
+
+protocol.registerSchemesAsPrivileged([{ scheme: PREVIEW_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }]);
 
 if (process.env.COCKPIT_USER_DATA) {
   app.setPath("userData", process.env.COCKPIT_USER_DATA);
@@ -96,9 +106,11 @@ function assertTrustedSender(
 ): void {
   const senderUrl = event.senderFrame?.url;
   const trusted =
-    senderUrl !== undefined &&
-    (senderUrl.startsWith("file://") ||
-      senderUrl.startsWith("http://127.0.0.1:5173/"));
+    mainWindow !== null && !mainWindow.isDestroyed()
+    && event.sender === mainWindow.webContents
+    && event.senderFrame === mainWindow.webContents.mainFrame
+    && senderUrl === (process.env.VITE_DEV_SERVER_URL ? new URL(process.env.VITE_DEV_SERVER_URL).href
+      : pathToFileURL(join(__dirname, "../renderer/index.html")).href);
 
   if (!trusted) {
     throw new Error("Rejected IPC from an untrusted renderer.");
@@ -228,6 +240,9 @@ async function checkForUpdates(): Promise<void> {
 }
 
 function scheduleUpdateCheck(): void {
+  // The public manifest contains Windows installers. A Mac trial must never
+  // advertise or open those downloads, and does not change that manifest.
+  if (process.platform !== "win32") return;
   if (updateCheckTimer) {
     return;
   }
@@ -275,6 +290,11 @@ function registerProcessGoneHandlers(): void {
 }
 
 function registerIpcHandlers(): void {
+  ipcMain.handle(IPC_CHANNELS.previewRequest, (event, payload: unknown) => {
+    assertTrustedSender(event);
+    const parsed = previewRequestSchema.safeParse(payload);
+    return parsed.success ? previewManager.request(parsed.data) : { ok: false, error: "invalid" };
+  });
   ipcMain.on(IPC_CHANNELS.diagnosticLog, (event, payload: unknown) => {
     assertTrustedSender(event);
     const parsed = diagnosticLogMessageSchema.safeParse(payload);
@@ -329,7 +349,7 @@ function registerIpcHandlers(): void {
       await writeFile(imagePath, image.toPNG());
       return {
         kind: "image",
-        text: formatClipboardImagePath(imagePath),
+        text: formatClipboardImagePath(imagePath, process.platform),
       };
     },
   );
@@ -518,12 +538,12 @@ async function createWindow(): Promise<void> {
     minWidth: 760,
     show: false,
     title: "CLI Cockpit",
-    titleBarOverlay: {
+    ...(process.platform === "darwin" ? { trafficLightPosition: { x: 14, y: 12 } } : { titleBarOverlay: {
       color: "#0b0d10",
       height: 40,
       symbolColor: "#8b93a1",
-    },
-    titleBarStyle: "hidden",
+    } }),
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
     webPreferences: {
       contextIsolation: true,
       devTools: Boolean(process.env.VITE_DEV_SERVER_URL),
@@ -535,11 +555,14 @@ async function createWindow(): Promise<void> {
     width: 1440,
   });
 
-  // メニューは登録しない。コピー/ペーストは renderer の keydown ハンドラで
-  // preload 経由のクリップボード IPC を使って自前処理する（メニューの role:paste を
-  // 併用すると paste イベントが二重発火するため、経路を1本に絞る）。
-  Menu.setApplicationMenu(null);
+  // Windows keeps its existing keyboard-only clipboard route. Mac needs a
+  // native Edit menu for text fields; terminal clipboard events are captured
+  // before xterm and converge on the same image-aware IPC route.
+  Menu.setApplicationMenu(process.platform === "darwin" ? Menu.buildFromTemplate([
+    { role: "appMenu" }, { role: "editMenu" }, { role: "windowMenu" },
+  ]) : null);
   mainWindow.setMenuBarVisibility(false);
+  previewManager.attach(mainWindow);
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("will-navigate", (event) => {
     event.preventDefault();
@@ -564,6 +587,13 @@ app.whenReady().then(async () => {
 
   sessionStore = new SessionStore(userDataDirectory);
   await sessionStore.load();
+  previewManager = new PreviewManager(userDataDirectory, (snapshot) => sendToRenderer(IPC_CHANNELS.previewChanged, snapshot), (tabId, sessionId) => {
+    const workspace = sessionStore.snapshot;
+    const tab = workspace.tabs.find((item) => item.id === tabId);
+    if (!tab || !collectPanes(tab.root).some((pane) => pane.sessionId === sessionId)) return undefined;
+    return workspace.sessions.find((item) => item.id === sessionId)?.cwd;
+  });
+  await previewManager.initialize();
 
   ptyManager = new PtyManager({
     onData: (event) => {
@@ -575,7 +605,7 @@ app.whenReady().then(async () => {
     onStatus: (event) => {
       sendToRenderer(IPC_CHANNELS.ptyStatus, event);
     },
-  });
+  }, join(userDataDirectory, "cli-activity"));
 
   remoteLaunchWatcher = new RemoteLaunchWatcher({
     diagnosticCategory: DIAGNOSTIC_CATEGORIES.remoteLaunch,
@@ -618,6 +648,7 @@ app.on("before-quit", () => {
     updateCheckTimer = undefined;
   }
   ptyManager?.killAll();
+  previewManager?.dispose();
 });
 
 app.on("window-all-closed", () => {

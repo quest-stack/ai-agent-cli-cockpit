@@ -46,7 +46,7 @@ test("Codex ペインの Shift+Enter で入力欄が改行される", async ({},
     await page
       .getByRole("combobox", { name: "プロジェクト" })
       .fill(projectRoot);
-    await page.getByLabel("CLI").selectOption("codex");
+    await page.getByTestId(`cli-option-${"codex"}`).check();
     await page.getByLabel("セッション名").fill("改行検証");
     await page.getByRole("button", { name: /Start Session/u }).click();
 
