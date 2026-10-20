@@ -9,6 +9,9 @@ import { CliActivityBridge } from "../../src/electron/cli-activity-bridge";
 
 import type { CliActivityEvent } from "../../src/electron/cli-activity-bridge";
 
+// These integration assertions include cold PowerShell startup on hosted Windows.
+const HOOK_PROCESS_TIMEOUT_MS = 15_000;
+
 function fixture() {
   const base = mkdtempSync(join(tmpdir(), "cockpit-activity-test-"));
   const events: CliActivityEvent[] = [];
@@ -32,7 +35,7 @@ test("actual PowerShell hook saves only lifecycle metadata with no output", { sk
       hook_event_name: "SubagentStart", session_id: "parent", agent_id: "agent-1",
       cwd: "private-folder", transcript_path: "private-transcript",
       prompt: "private-prompt", last_assistant_message: "private-answer",
-    }), encoding: "utf8", timeout: 5_000, windowsHide: true,
+    }), encoding: "utf8", timeout: HOOK_PROCESS_TIMEOUT_MS, windowsHide: true,
       env: { ...process.env, ...bridge.environment } });
     assert.equal(result.error, undefined);
     assert.equal(result.status, 0);
@@ -89,7 +92,7 @@ test("actual tool hooks preserve only validated IDs, never commands or results",
         hook_event_name: event, session_id: "parent", tool_use_id: "call_123-abc",
         tool_name: "Bash", tool_input: { command: "private-command" },
         tool_response: "private-result", error: "private-error", prompt: "private-prompt",
-      }), encoding: "utf8", timeout: 5_000, windowsHide: true,
+      }), encoding: "utf8", timeout: HOOK_PROCESS_TIMEOUT_MS, windowsHide: true,
         env: { ...process.env, ...bridge.environment } });
       assert.equal(result.error, undefined);
       assert.equal(result.status, 0);
@@ -126,7 +129,7 @@ test("hook launch arguments stay bounded with long paths and quoting characters"
       "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", bridge.command.split(" ").at(-1) as string,
     ], { input: JSON.stringify({
       hook_event_name: "PreToolUse", session_id: "parent", tool_use_id: "direct",
-    }), encoding: "utf8", timeout: 5_000, windowsHide: true,
+    }), encoding: "utf8", timeout: HOOK_PROCESS_TIMEOUT_MS, windowsHide: true,
       env: { ...process.env, ...bridge.environment } });
     assert.equal(result.error, undefined);
     assert.equal(result.status, 0);

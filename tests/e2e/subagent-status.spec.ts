@@ -79,6 +79,10 @@ async function launchFixture(
         if (instruction === 'finish-b') children.get('b')?.send(0);
         if (instruction === 'fail-b') children.get('b')?.send(1);
         if (instruction === 'probe-b') console.log('Direct b alive: ' + (children.get('b')?.exitCode === null));
+        if (instruction === 'queue-tool') {
+          send('PreToolUse', undefined, 'queued-direct-call');
+          console.log('Queued tool hook saved.');
+        }
       } else {
         if (instruction === 'finish-a') send('SubagentStop', 'a');
         if (instruction === 'finish-b') send('SubagentStop', 'b');
@@ -162,6 +166,40 @@ for (const command of ["claude", "codex"] as const) {
       await expect(signal).toHaveAttribute("data-status", "busy");
       await page.getByRole("button", { name: "入力取消", exact: true }).click();
       await expect(signal).toHaveAttribute("data-status", "idle");
+    } finally { await app.close(); }
+  });
+
+  test(`${command}: queued tool hooks cannot rearm busy after Cancel input`, async ({}, testInfo) => {
+    const { app, page, signal, input, terminal } = await launchFixture(command, testInfo, true);
+    try {
+      // Hold the file poll, then resume it exactly when the interrupt is written.
+      // This reproduces a hook saved before cancellation but observed afterwards.
+      await app.evaluate(({ app: electronApp }) => {
+        const load = process.mainModule!.require.bind(process.mainModule);
+        const root = electronApp.isPackaged ? electronApp.getAppPath() : process.cwd();
+        const { CliActivityBridge } = load(`${root}/dist/electron/cli-activity-bridge.js`) as {
+          CliActivityBridge: { prototype: { poll(): void } };
+        };
+        const { PtyManager } = load(`${root}/dist/electron/pty-manager.js`) as {
+          PtyManager: { prototype: { write(sessionId: string, data: string): void } };
+        };
+        let paused = true;
+        const poll = CliActivityBridge.prototype.poll;
+        CliActivityBridge.prototype.poll = function () { if (!paused) poll.call(this); };
+        const write = PtyManager.prototype.write;
+        PtyManager.prototype.write = function (sessionId, data) {
+          if (data === "\u0003" || data === "\u001b") paused = false;
+          write.call(this, sessionId, data);
+        };
+      });
+      await input("queue-tool");
+      await expect(terminal.locator(".xterm-screen")).toContainText("Queued tool hook saved.");
+      await page.getByTestId("cancel-input").click();
+      const quietSince = Date.now();
+      await expect.poll(async () => ({
+        quietLongEnough: Date.now() - quietSince > 1_100,
+        status: await signal.getAttribute("data-status"),
+      })).toEqual({ quietLongEnough: true, status: "idle" });
     } finally { await app.close(); }
   });
 }

@@ -438,6 +438,9 @@ export class PtyManager {
       return;
     }
 
+    // Consume hooks already saved before the interrupt, so a later poll cannot
+    // restore the tool observations that this input is about to release.
+    if (data === "\u0003" || data === "\u001b") target.activity?.poll();
     target.detector.handleInput(data);
     target.process.write(data);
   }

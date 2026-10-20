@@ -116,6 +116,9 @@ jobs:
             test-results/preview-native-*/error-context.md
             test-results/preview-native-*/trace.zip
             test-results/preview-native-*/*.png
+            test-results/subagent-status-*/error-context.md
+            test-results/subagent-status-*/trace.zip
+            test-results/subagent-status-*/user-data/diagnostic.log
           if-no-files-found: ignore
           retention-days: 7
 

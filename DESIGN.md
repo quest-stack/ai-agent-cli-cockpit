@@ -338,6 +338,8 @@ the parent's tools. Stop, session end, a new turn and explicit Ctrl+C/Escape
 input recover missing tool endings. Ctrl+C/Escape only release the tool
 observation and return to output detection: the CLI decides what it interrupts,
 and existing Subagent observations remain. Exit and disposal reject late events.
+Queued hook files are read before an explicit Ctrl+C/Escape releases tool
+observations, preventing a delayed poll from restoring an already observed call.
 Detached background work whose launching tool has already returned is not
 covered unless its CLI reports the running call through completion (such as
 Codex unified-exec polling). No process existence or transcript scraping is
