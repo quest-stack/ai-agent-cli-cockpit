@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, symlink, unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -47,7 +47,7 @@ test("asset grants deny traversal, hidden files and symlinks outside the selecte
   await writeFile(join(root, ".secret.json"), "{}"); await writeFile(join(outside, "secret.json"), "{}");
   await symlink(outside, join(root, "linked"), process.platform === "win32" ? "junction" : "dir");
   const grant = await createGrant("asset-test", join(root, "index.html"));
-  assert.equal(await resolvePreviewAsset(grant, "/style.css"), join(root, "style.css"));
+  assert.equal(await resolvePreviewAsset(grant, "/style.css"), await realpath(join(root, "style.css")));
   for (const path of ["/%2e%2e/outside/secret.json", "/.secret.json", "/linked/secret.json", "/..%5coutside/secret.json"]) assert.equal(await resolvePreviewAsset(grant, path), null);
 });
 
@@ -81,7 +81,7 @@ test("relative artifacts resolve only from the source CLI directory and require 
   await writeFile(join(other, "private.pdf"), "%PDF-1.4\nprivate");
   await symlink(other, join(project, "linked"), process.platform === "win32" ? "junction" : "dir");
   const resolved = await resolvePreviewCandidates(project, ["output/report.pdf", "source.ts"]);
-  assert.equal(resolved.files.length, 1); assert.equal(resolved.files[0].source, join(project, "output", "report.pdf"));
+  assert.equal(resolved.files.length, 1); assert.equal(resolved.files[0].source, await realpath(join(project, "output", "report.pdf")));
   assert.equal(resolved.unresolved, false);
   const unknown = await resolvePreviewCandidates(undefined, ["output/report.pdf"]);
   assert.deepEqual(unknown, { files: [], unresolved: true });
