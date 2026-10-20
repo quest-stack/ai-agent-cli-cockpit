@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
   app,
@@ -11,6 +12,7 @@ import {
   Menu,
   net,
   Notification,
+  protocol,
   session,
   shell,
 } from "electron";
@@ -40,6 +42,10 @@ import { scanProjects } from "./project-scanner";
 import { PtyManager } from "./pty-manager";
 import { RemoteLaunchWatcher } from "./remote-launch-watcher";
 import { SessionStore } from "./session-store";
+import { PreviewManager } from "./preview-manager";
+import { PREVIEW_SCHEME } from "./preview-files";
+import { previewRequestSchema } from "../shared/preview";
+import { collectPanes } from "../shared/layout";
 
 import { configureAppLanguage, configureAppPlatform, getAppLanguage, resolveAppLanguage, t } from "../shared/i18n";
 
@@ -74,7 +80,10 @@ let diagnosticLogger: DiagnosticLogger;
 let ptyManager: PtyManager;
 let remoteLaunchWatcher: RemoteLaunchWatcher;
 let sessionStore: SessionStore;
+let previewManager: PreviewManager;
 let updateCheckTimer: ReturnType<typeof setTimeout> | undefined;
+
+protocol.registerSchemesAsPrivileged([{ scheme: PREVIEW_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }]);
 
 if (process.env.COCKPIT_USER_DATA) {
   app.setPath("userData", process.env.COCKPIT_USER_DATA);
@@ -97,9 +106,11 @@ function assertTrustedSender(
 ): void {
   const senderUrl = event.senderFrame?.url;
   const trusted =
-    senderUrl !== undefined &&
-    (senderUrl.startsWith("file://") ||
-      senderUrl.startsWith("http://127.0.0.1:5173/"));
+    mainWindow !== null && !mainWindow.isDestroyed()
+    && event.sender === mainWindow.webContents
+    && event.senderFrame === mainWindow.webContents.mainFrame
+    && senderUrl === (process.env.VITE_DEV_SERVER_URL ? new URL(process.env.VITE_DEV_SERVER_URL).href
+      : pathToFileURL(join(__dirname, "../renderer/index.html")).href);
 
   if (!trusted) {
     throw new Error("Rejected IPC from an untrusted renderer.");
@@ -279,6 +290,11 @@ function registerProcessGoneHandlers(): void {
 }
 
 function registerIpcHandlers(): void {
+  ipcMain.handle(IPC_CHANNELS.previewRequest, (event, payload: unknown) => {
+    assertTrustedSender(event);
+    const parsed = previewRequestSchema.safeParse(payload);
+    return parsed.success ? previewManager.request(parsed.data) : { ok: false, error: "invalid" };
+  });
   ipcMain.on(IPC_CHANNELS.diagnosticLog, (event, payload: unknown) => {
     assertTrustedSender(event);
     const parsed = diagnosticLogMessageSchema.safeParse(payload);
@@ -546,6 +562,7 @@ async function createWindow(): Promise<void> {
     { role: "appMenu" }, { role: "editMenu" }, { role: "windowMenu" },
   ]) : null);
   mainWindow.setMenuBarVisibility(false);
+  previewManager.attach(mainWindow);
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("will-navigate", (event) => {
     event.preventDefault();
@@ -570,6 +587,13 @@ app.whenReady().then(async () => {
 
   sessionStore = new SessionStore(userDataDirectory);
   await sessionStore.load();
+  previewManager = new PreviewManager(userDataDirectory, (snapshot) => sendToRenderer(IPC_CHANNELS.previewChanged, snapshot), (tabId, sessionId) => {
+    const workspace = sessionStore.snapshot;
+    const tab = workspace.tabs.find((item) => item.id === tabId);
+    if (!tab || !collectPanes(tab.root).some((pane) => pane.sessionId === sessionId)) return undefined;
+    return workspace.sessions.find((item) => item.id === sessionId)?.cwd;
+  });
+  await previewManager.initialize();
 
   ptyManager = new PtyManager({
     onData: (event) => {
@@ -624,6 +648,7 @@ app.on("before-quit", () => {
     updateCheckTimer = undefined;
   }
   ptyManager?.killAll();
+  previewManager?.dispose();
 });
 
 app.on("window-all-closed", () => {

@@ -46,12 +46,14 @@ import { ConfirmDialog } from "./components/ConfirmDialog";
 import { HelpPanel } from "./components/HelpPanel";
 import { LogoMark } from "./components/LogoMark";
 import { PaneGrid } from "./components/PaneGrid";
+import { PreviewWorkspace } from "./components/PreviewWorkspace";
 import { SearchOverlay } from "./components/SearchOverlay";
 import { Sidebar } from "./components/Sidebar";
 import { StatusDot } from "./components/StatusDot";
 import { TabBar } from "./components/TabBar";
 import { TourOverlay } from "./components/TourOverlay";
 import { terminalRegistry } from "./terminal-registry";
+import { previewPrototypeEnabled } from "./preview/prototype-state";
 
 import { t } from "../shared/i18n";
 
@@ -142,6 +144,16 @@ export function App() {
   >(undefined);
   const sessionsRef = useRef<SessionState[]>([]);
   const workspaceRef = useRef<PersistedWorkspace | undefined>(undefined);
+
+  useEffect(() => {
+    if (!previewPrototypeEnabled && !cockpitApi.preview) return;
+    const collapseAtNarrowWidth = (): void => {
+      if (window.innerWidth < 900 && (previewPrototypeEnabled
+        || document.querySelector('[data-active-tab-panel] [data-testid="preview-toggle"][aria-expanded="true"]'))) setSidebarCollapsed(true);
+    };
+    window.addEventListener("resize", collapseAtNarrowWidth);
+    return () => window.removeEventListener("resize", collapseAtNarrowWidth);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -504,6 +516,7 @@ export function App() {
             removeSession(sessionId);
           }
           removeTab(tabId);
+          void cockpitApi.preview?.request({ action: "clear", tabId }).catch(() => undefined);
         },
         sessions: sessionsRef.current,
         tab,
@@ -1592,7 +1605,11 @@ export function App() {
                 key={tab.id}
                 role="tabpanel"
               >
-                <PaneGrid
+                <PreviewWorkspace active={active} tabId={tab.id}
+                  onOpen={() => { if (window.innerWidth < 900) setSidebarCollapsed(true); }}
+                  sessionIds={collectPanes(tab.root).flatMap((pane) => pane.sessionId ? [pane.sessionId] : [])}
+                  suspended={helpOpen || settingsOpen || searchOpen || tourOpen || Boolean(confirmingSession) || Boolean(confirmingTab)}>
+                {(cliVisible) => <PaneGrid
                   activePaneId={tab.activePaneId}
                   closingSessionIds={closingSessionIds}
                   launcherError={active ? launcherError : undefined}
@@ -1660,12 +1677,13 @@ export function App() {
                   recent={workspace.recent}
                   sessions={sessions}
                   settings={workspace.settings}
-                  tabActive={active}
+                  tabActive={active && cliVisible}
                   zoomedPaneId={
                     zoomedTabId === tab.id && collectPanes(tab.root).length > 1
                       ? tab.activePaneId : null
                   }
-                />
+                />}
+                </PreviewWorkspace>
               </div>
             ))}
           </div>

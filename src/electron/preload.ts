@@ -21,6 +21,8 @@ import type {
 } from "../shared/types";
 
 const CHANNELS = {
+  previewRequest: "cockpit:preview-request",
+  previewChanged: "cockpit:preview-changed",
   appVersion: "cockpit:app-version",
   bootstrap: "cockpit:bootstrap",
   clipboardRead: "cockpit:clipboard-read",
@@ -45,6 +47,14 @@ const CHANNELS = {
 } as const satisfies IpcChannels;
 
 const api: CockpitApi = {
+  preview: {
+    request: (request) => ipcRenderer.invoke(CHANNELS.previewRequest, request) as Promise<import("../shared/preview").PreviewResult>,
+    onChanged: (listener) => {
+      const receive = (_event: Electron.IpcRendererEvent, payload: import("../shared/preview").PreviewSnapshot): void => listener(payload);
+      ipcRenderer.on(CHANNELS.previewChanged, receive);
+      return () => ipcRenderer.removeListener(CHANNELS.previewChanged, receive);
+    },
+  },
   platform: process.platform,
   diagnosticLog: (message) => {
     ipcRenderer.send(CHANNELS.diagnosticLog, message);

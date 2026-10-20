@@ -219,6 +219,7 @@ export interface PtyWriteRequest {
 }
 
 export interface CockpitApi {
+  readonly preview?: import("./preview").PreviewApi;
   readonly platform: string;
   diagnosticLog: (message: string) => void;
   getAppVersion: () => Promise<string>;

@@ -1,6 +1,190 @@
 # Cockpit build and signing boundaries
 
+## Native file and localhost previews
+
+The renderer now exposes previews through the existing right-hand layout when
+the restricted native preview API is available. New work tabs start closed;
+visibility, explicit dismissal, width and selection are remembered separately
+from terminal state. The first detected localhost URL or verified artifact in
+the active work tab opens an empty preview automatically. An explicit close is
+remembered and prevents automatic reopening, including after reload. Existing
+preview selections are never replaced by newly detected artifacts.
+URL extraction waits for a complete token and a short quiet interval; ANSI
+rendering and streamed ports cannot select a half-written URL. Automatic adds
+are serialized so repeated CLI output cannot race to select multiple targets.
+`preview.json` stores selected file/URL targets by work-tab ID. Closing a work
+tab clears its preview targets without changing CLI preferences. No new package
+dependency, workspace-schema migration, port scanner or CLI hook is required.
+
+`PreviewManager` owns sandboxed `WebContentsView` instances with no preload or
+Node integration. All terminal IPC checks the exact main-window WebContents,
+top frame and expected document URL. General preview pages have a separate
+in-memory session; only the built-in PDF viewer uses a dedicated persistent
+partition because Electron 42 blocks its extension modules in in-memory
+partitions. PDF uses an immutable temporary file with an exact URL grant, not
+unrestricted file access. Neither partition shares the terminal renderer's API.
+
+Local HTML and its relative assets are limited to the selected file's real
+parent folder, with extension, traversal, hidden-file and symlink checks.
+Markdown escapes raw HTML; SVG is displayed as an image. Remote assets are
+blocked. HTTP(S) and WebSocket requests for a localhost preview stay on that
+target's exact loopback origin; redirects, popups and arbitrary file navigation
+are denied. Permissions remain denied except fullscreen for the active preview.
+
+Selected files and actually requested assets are polled without scanning the
+project tree. Two matching change observations precede updates. HTML/Markdown/
+images update while visible; closed views retain an update flag until reopened.
+PDF/MP4 require explicit application. Files are copied to immutable temporary
+versions so the original can be regenerated; two recent versions are retained
+and older unlocked cache files are removed. Videos pause and mute when hidden,
+retain position on explicit replacement, and never automatically resume.
+
+Initial limits are 20 targets per work tab, 10 MiB for HTML/Markdown, 100 MiB for
+images and 512 MiB for PDF/MP4. Markdown supports headings, lists, tables, code,
+emphasis and safe relative image/link syntax; it is not a full Markdown dialect.
+PDF tab switching preserves the existing viewer; applying a new PDF does not yet
+restore the viewer's page/zoom. Native Mac and packaged-app checks remain release
+gates, separate from the Windows source-app verification.
+
+`node scripts/run-preview-trial.mjs` launches the built native app with a new
+temporary profile, no scan roots and no CLI sessions. It does not reuse or
+modify the installed application's settings. See [scope](docs/PREVIEW_SCOPE.md).
+
+### Responsive website checks
+
+HTML and localhost targets offer Auto, Desktop (1440 x 900), Tablet
+(768 x 1024), Phone (390 x 844), custom dimensions and orientation swapping.
+Auto uses the pane's actual viewport. Fixed sizes keep the requested CSS
+viewport and scale the presentation down to fit both dimensions without
+enlarging it. Chromium's [device emulation API](https://www.electronjs.org/docs/latest/api/web-contents#contentsenabledeviceemulationparameters)
+sets the view size and presentation scale; changing sizes does not reload the
+document, and normal mouse input is mapped through the scaled view. Fullscreen
+temporarily disables emulation and restores it on exit.
+
+Sizes are bounded to integer 240..3840 CSS pixels in both dimensions and checked
+at the IPC boundary. Target-specific sizes use a separately validated localStorage
+record per work tab; existing preview targets and workspace settings need no
+migration. Only web targets can enable emulation, so PDF, image and video controls
+retain their original behavior. This checks Chromium viewport layouts, not
+Safari rendering, touch behavior, mobile user agents or physical device metrics.
+
+### Artifact discovery and visual comparison
+
+HTML, localhost and Markdown comparisons now default to two saved, scrollable
+complete pages. Electron's [MHTML save API](https://www.electronjs.org/docs/latest/api/web-contents#contentssavepagefullpath-savetype)
+keeps loaded document resources with the old version. These are saved documents,
+not two running application instances: archive scripts are not executed and
+navigation, popups, downloads, permissions and network access are blocked.
+The terminal API is never exposed to either archive view.
+
+The first successful presentation of HTML, localhost or Markdown automatically
+saves a comparison baseline after the native load/presentation finishes. The UI
+identifies the automatic save. Later file reloads, in-place development-server
+updates, resizing and reopening the preview keep that baseline. The comparison
+button is then available without a manual baseline step; it does not open a
+dialog automatically or infer a code-edit boundary from live DOM changes.
+The user can replace the baseline with Save baseline. Baselines last for this
+renderer session; app reload/restart establishes a new initial baseline.
+Transient initial capture failures receive two bounded retries while the same
+target is active. Automatic saves use the same ownership and isolation checks.
+
+The pages use two isolated WebContentsViews at matching widths. They can be
+scrolled independently. Text, selected computed styles including SVG stroke/fill,
+and geometry changes are outlined by stable element selectors. This is an
+element comparison, not a semantic document diff. Analysis is bounded to 5,000
+elements and 500 selectors
+per side. An unchanged image URL with replaced pixels may require Images mode.
+Archives are limited to 32 MiB each. Initial automatic capture, Save baseline
+and Compare changes record up to three distinct versions per target. Ordinary
+file saves and DOM updates do not create continuous background history. A
+100 MiB per-instance history budget includes MHTML and PNG data; oldest versions
+across targets are evicted when necessary. If the original baseline has been
+evicted, comparison uses the most recent retained earlier version. If no older
+complete page remains, the existing image fallback is used. Identical
+archives/element metadata reuse the existing version: generated MIME dates,
+boundaries and Blink resource IDs do not create duplicates. Changed embedded
+resources still participate in the fingerprint.
+
+Only the selected pair's PNGs are read into the comparison UI. Archive views are
+created for the chosen two versions and destroyed when hidden, closed or changed.
+Left/right selectors expose only version numbers and capture times. This is
+temporary visual review within the running app, with no code diff, restore,
+permanent version library, export, Git storage or external upload.
+
+Preview caches live under the dedicated OS-temporary `cli-cockpit-preview-v1`
+root. Each instance directory has a validated PID/nonce ownership marker.
+Startup removes only known generated files from marked, dead instances; live
+processes, unmarked legacy caches, unknown files and symlinks are preserved.
+Normal disposal also attempts exact-file cleanup, and a later startup retries
+crash/locked-file remnants. No recursive or broad temporary-folder deletion is
+used. The history budget covers comparison data, not the live PDF/video caches.
+
+Images mode retains the previous pixel comparison for all supported kinds.
+For web captures, comparison temporarily restores the baseline CSS viewport so
+changing the preview preset does not disable highlighting. Closing comparison
+restores the user's selected preview size. PDF and images retain their prior
+display-condition checks. If a full page cannot be saved, the UI explicitly
+identifies the image fallback.
+
+CLI text is parsed for a bounded list of supported artifact paths. Discovery
+IPC checks tab/session ownership against the saved workspace and resolves only
+from that session's recorded launch cwd. Existing files inside the real cwd are
+returned as candidates; unsupported source extensions, hidden files and symlink
+escapes are excluded. Unknown cwd, missing files and outside paths lead to the
+manual picker. No filesystem scan, output logging or cwd guess is added.
+The first verified artifact may fill an empty preview automatically; later
+candidates remain selectable. Runtime directory changes inside a CLI are not observed.
+
+Capture IPC accepts only the active target in its owning work tab, excludes
+video, bounds scroll requests, and waits for paint with a timeout. It captures
+the isolated guest view itself, not the terminal or desktop. PNGs are limited
+to 1600 pixels on either side and 12 MiB, returned only to the trusted main
+renderer. The current baseline and comparison are held in renderer memory;
+historical PNGs stay in the bounded temporary store until selected or evicted.
+The native comparison dialog hides the live guest and makes the rest of the
+renderer inert. Pixel captures remain in memory. The complete-page mode uses
+the temporary archives described above. No AI, external upload, user-facing
+disk export or dependency is involved.
+
+RGBA differences above a small raster-noise threshold are grouped into nearby
+16-pixel regions. Highlighting is available only when CSS viewport and root
+scroll positions match; differently sized images can still be reviewed side
+by side. The built-in PDF viewer's page/zoom are checked when available, and its
+toolbar is excluded from highlighting. This uses the [Chromium viewer toolbar](https://chromium.googlesource.com/chromium/src.git/+/HEAD/chrome/browser/resources/pdf/pdf_viewer.html)
+in the restricted extension frame. Missing or mismatched PDF page/zoom disables
+highlighting and retains side-by-side review; navigation remains user-controlled.
+Images mode compares the visible area, not the full document or semantic text.
+Word text comparison is a separate requested follow-up.
+
+## Retained browser-only UI trial
+
+The next preview scope covers local HTML / development pages, Markdown, images,
+PDF and MP4 video. The proposed UI adds a right-hand preview within each work
+tab, with its own target tabs and a narrow-window AI / Preview switch. These
+previews start closed for new work tabs and remember explicit visibility choices.
+The native implementation opens on the first discovered artifact, but never
+reopens after the user explicitly closes it. The browser-only sample retains
+manual opening. Preview is shared by
+Claude Code and Codex (including shared-server connections); PowerShell / Shell
+also retains a manual entry point. The earlier fixed-sample browser UI trial
+is still available through `node scripts/preview-prototype.mjs`
+at `http://127.0.0.1:4174/?preview=prototype`. It is explicitly disabled whenever
+the Electron preload API exists; native applications use the real file/URL
+panel described above. The trial uses fixed, fictional sample targets and a separate browser
+storage namespace; it never launches a real AI or reads generated user files.
+The dev script generates its two-page PDF and H.264/AAC MP4 in an OS temporary
+directory, serves only those two fixed sample endpoints, and supports video
+range requests. MP4 fixture generation uses an optional existing local ffmpeg;
+it installs no dependencies. HTML/Markdown/image samples are trusted React/SVG
+content, not untrusted document renderers. See
+[preview scope and interaction design](docs/PREVIEW_SCOPE.md), including update
+rules, video playback, isolated rendering and open implementation questions.
+
 ## Launcher preference and explicit input cancellation
+
+Preview button resets and hover styles are scoped to the preview toolbar and
+region. The shared workspace also contains CLI controls; styling its descendant
+buttons would override the launcher's primary action and other CLI buttons.
 
 The launcher's three native radio controls are styled as buttons. Selection is
 controlled by the existing persisted `settings.defaultCommand`; every launcher,
@@ -49,6 +233,15 @@ license/privacy documents, checksums and source metadata into CI artifacts.
 There is no automatic GitHub release, signing-secret addition or public update.
 The trial must still be checked with real Japanese IME and the actual AI CLIs on
 the recipient's Mac; stub tests do not claim to cover those providers' behavior.
+
+The native-preview suite also runs on both Mac architectures, before packaging
+and against the packaged Japanese app through `COCKPIT_PACKAGED_EXECUTABLE`.
+It checks the actual preview guest, sandbox boundaries, automatic baseline,
+saved-page scrolling, element/SVG highlighting, bounded history and cleanup.
+FFmpeg must be available so the unsupported-codec fixture is not silently skipped.
+Windows CI includes the same source and packaged-app preview suite. These jobs
+use the existing standard hosted runners; they do not publish a Release or
+change billing settings. A configured job is not evidence that it has passed.
 
 ## Windows build
 
