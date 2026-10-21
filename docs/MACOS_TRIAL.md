@@ -3,6 +3,16 @@
 Claude CodeやCodex CLIを、タブと分割画面でまとめて使うMac向け試用版です。
 日本語版のみ。macOS 13以降を対象とし、Apple Silicon用（arm64）とIntel用（x64）を分けています。
 
+配布ファイルは[GitHubの最新Release](https://github.com/quest-stack/ai-agent-cli-cockpit/releases/latest)からダウンロードできます。
+
+| Mac | DMG | ZIP |
+|---|---|---|
+| Apple Silicon | `CLI-Cockpit-<version>-mac-trial-arm64.dmg` | `CLI-Cockpit-<version>-mac-trial-arm64.zip` |
+| Intel | `CLI-Cockpit-<version>-mac-trial-x64.dmg` | `CLI-Cockpit-<version>-mac-trial-x64.zip` |
+
+Apple Silicon・IntelでCLIの起動やプレビューなどの自動テストを実施しています。
+ただし、実際の日本語IMEとAIサービスを使った人による確認は未完了です。
+
 ## インストール
 
 1. Appleメニュー →「このMacについて」で、チップまたはプロセッサを確認してください。Mシリーズはarm64、Intelはx64です。
@@ -12,7 +22,7 @@ Claude CodeやCodex CLIを、タブと分割画面でまとめて使うMac向け
 
 試用版はアドホック署名で、AppleのDeveloper ID署名・公証は行っていません。初回はMacの警告が出る場合があります。配布元と同梱のSHA-256を確認できた場合に限り、macOSの「システム設定 → プライバシーとセキュリティ」で当該アプリを開く操作を行ってください。Mac全体の保護設定を無効にする必要はありません。確認できなければ開かず、配布元へ相談してください。
 
-ハッシュはターミナルで`shasum -a 256`のあとに配布ファイルをドラッグして確認できます。同梱の`checksums-sha256.txt`と一致することを確かめます。
+ハッシュはターミナルで`shasum -a 256`のあとに配布ファイルをドラッグして確認できます。GitHub Releaseでは添付の`SHA256SUMS.txt`と一致することを確かめます。CI成果物を直接受け取った場合は、その同梱の`checksums-sha256.txt`を使います。
 
 ## 最初に試す操作
 
@@ -26,6 +36,14 @@ Claude CodeやCodex CLIを、タブと分割画面でまとめて使うMac向け
 - 使い方を見る：右上の「?」かF1。Macの設定によってはfn + F1です。
 
 終了時にはCLIも終了します。再起動時はタブとペインの配置を復元しますが、前の会話の続きは各CLIの再開機能で開いてください。セッション状態はMacの`~/Library/Application Support/claude-cli-cockpit/`に保存します。CLIの設定ファイルや認証情報をCockpitが書き換えることはありません。
+
+## プレビュー
+
+作業タブ右上の「プレビュー」からHTML・localhostのページ・Markdown・画像・PDF・MP4を開けます。
+初めてCLI出力から見つかった成果物は自動表示しますが、自分で閉じた後は自動で開きません。
+HTML・localhost・Markdownは初回表示を比較の基準として保存し、修正後に「変更を比較」で見比べられます。
+ページ全体の比較は閲覧・スクロール用です。ボタンやリンクの操作は通常のプレビューで確認してください。
+対応形式、更新方法、比較の制限は[READMEのプレビュー説明](../README.md#成果物のプレビューと変更比較)を参照してください。
 
 ## 試用時に確認すること
 

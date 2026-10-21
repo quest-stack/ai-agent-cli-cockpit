@@ -2,15 +2,31 @@
 
 [日本語](https://github.com/quest-stack/ai-agent-cli-cockpit/blob/main/README.md) · English
 
-An experimental Japanese-language Mac build has a separate [trial guide](docs/MACOS_TRIAL.md). The regular releases and update manifest remain Windows-only.
+A desktop app that brings your Claude Code and Codex CLI sessions into one window, with tabs, split panes, and a preview beside your conversation.
 
-A Windows terminal app that brings your Claude Code and Codex CLI sessions into one window, with tabs and split panes.
+**Free Windows editions (Japanese and English) and a Japanese-language Mac trial are available.**
+[Download the latest release](https://github.com/quest-stack/ai-agent-cli-cockpit/releases/latest) ·
+[Windows installation](#windows-editions) · [Mac installation](#mac-trial-japanese-only) · [Changelog](CHANGELOG.en.md)
 
 Keep work on different projects separate, see which sessions need attention, and switch between them without hunting through terminal windows. Cockpit manages the workspace; you control the CLIs and their approvals.
 
+## What you can do
+
+| Task | How Cockpit helps |
+| --- | --- |
+| Work on several projects | Launch each CLI in its own folder and process |
+| Keep tasks visible | Arrange sessions in tabs and split panes; use status dots and notifications to return to tasks needing attention |
+| Show a screen to an AI | Paste a screenshot without saving and locating an attachment first |
+| Review generated files | Open HTML, Markdown, images, PDF, MP4, or a localhost page beside the CLI |
+| Review visual changes | Compare a saved baseline with the current result, with side-by-side pages and change highlighting |
+| Check page sizes | Switch the web preview between desktop, tablet, and phone viewport sizes |
+| Return to a workspace | Restore the tab layout, folders, and launch commands as new processes |
+
+[Install](#download-and-install) · [Start a session](#start-a-session) · [Preview and comparison](#preview-and-visual-comparison) · [Shortcuts](#keyboard-shortcuts) · [Limitations](#known-limitations)
+
 ## When is Cockpit useful?
 
-**Paste a screenshot and ask for a screen fix. Arrange Claude Code and Codex in one window.** Cockpit is a Windows app that reduces the steps involved in working with AI CLIs.
+**Paste a screenshot and ask for a screen fix. Arrange Claude Code and Codex in one window.** Cockpit reduces the steps involved in working with several AI CLIs and reviewing their results.
 
 Choose a folder and a CLI, then press the start button to begin working there. Split the window horizontally or vertically to see responses and progress without switching windows.
 
@@ -22,9 +38,11 @@ Suppose a heading overlaps an image on your website. Open an AI session in that 
 2. Click the AI's pane in Cockpit and press Ctrl + V.
 3. Add a short request and send it.
 
+On Mac, capture an area with **Control+Shift+Command+4**, then paste with **Command+V**.
+
 > The heading overlaps the image as shown in this screenshot. Please adjust the spacing so the heading is readable without the overlap.
 
-**You do not need to save the image first and then find a file to attach.** You can also show an error and ask the AI to investigate its cause. The screenshot shows both the location and the problem.
+**You do not need to save the image first and then find a file to attach.** You can also show an error and ask the AI to investigate its cause. The screenshot shows both the location and the problem. After a change, use the [preview and comparison](#preview-and-visual-comparison) to review the result beside the conversation.
 
 ### Ask Claude Code and Codex the same question
 
@@ -54,7 +72,17 @@ Start with one AI you already use, then split the window and add another task wh
 
 For Codex shared-server startup in 0.2.13 and later, see [mobile access setup](docs/CODEX_REMOTE.md#english).
 
-Choose **English** on the [Releases page](https://github.com/quest-stack/ai-agent-cli-cockpit/releases), then select the installer for your PC:
+### Requirements
+
+- Windows 11, ARM64 or x64; or the Mac trial on macOS 13 or later, Apple Silicon or Intel.
+- The CLI you want to use, installed and working in PowerShell on Windows or Terminal on Mac. Check with `claude --version` or `codex --version`.
+
+Cockpit does not bundle the AI CLIs or their subscriptions. Install and sign in to the CLI you want to use before starting it here; you do not need both. Packaged Cockpit includes its own Node.js runtime. Follow your chosen CLI's requirements if its installation needs a separate Node.js runtime. Building Cockpit from source requires Node.js 22.12.0 or later.
+
+
+### Windows editions
+
+Choose the English edition on the [Releases page](https://github.com/quest-stack/ai-agent-cli-cockpit/releases), then select the installer for your PC:
 
 | Windows PC | English installer |
 | --- | --- |
@@ -63,20 +91,30 @@ Choose **English** on the [Releases page](https://github.com/quest-stack/ai-agen
 
 Check **Settings → System → About → System type** if you are unsure. The Japanese edition is a separate download. There is no language switch inside the app.
 
-### Requirements
-
-- Windows 11, ARM64 or x64.
-- Node.js 22.12.0 or later.
-- The CLI you want to use, installed and working in PowerShell. Check with `claude --version` or `codex --version`.
-
-Cockpit does not bundle the AI CLIs or their subscriptions. Install and sign in to each CLI separately before starting it here.
 
 Run the installer and follow the prompts. These installers are unsigned, so Windows SmartScreen may warn you. Only proceed if you trust the download's source. Compare its SHA-256 hash with the release checksums when available.
 
-Updates are manual. Close Cockpit, then run the newer installer for the **same language and CPU architecture**. Your saved workspace and settings are retained. The Japanese and English editions share the same application identity and settings; they are alternatives, not separate apps to run together.
+Windows checks for available updates after startup, but installation is manual. Close Cockpit, then run the newer installer for the **same language and CPU architecture**. Your saved workspace and settings are retained. The Japanese and English editions share the same application identity and settings; they are alternatives, not separate apps to run together.
 
 See the [Code signing policy](docs/CODE_SIGNING_POLICY.md) for signing status
 and the [Privacy policy](docs/PRIVACY.md) for data handling.
+
+### Mac trial (Japanese only)
+
+The trial targets **macOS 13 or later**, with separate Apple Silicon and Intel packages. There is no English Mac edition yet. Choose a file from the [latest release](https://github.com/quest-stack/ai-agent-cli-cockpit/releases/latest):
+
+| Mac | DMG (usual installation) | ZIP (alternative) |
+| --- | --- | --- |
+| Apple Silicon (M-series) | `CLI-Cockpit-<version>-mac-trial-arm64.dmg` | `CLI-Cockpit-<version>-mac-trial-arm64.zip` |
+| Intel | `CLI-Cockpit-<version>-mac-trial-x64.dmg` | `CLI-Cockpit-<version>-mac-trial-x64.zip` |
+
+1. Check **Apple menu > About This Mac** for the chip or processor.
+2. Open the DMG and drag CLI Cockpit to **Applications**. For a ZIP, extract it and move the app to Applications.
+3. Make sure your chosen CLI runs in Terminal, then open Cockpit.
+
+The trial is ad-hoc signed, **without Developer ID signing or Apple notarization**. Verify the source and the release's `SHA256SUMS.txt`. Only then use **System Settings > Privacy & Security** to allow this specific app if macOS blocks it. Do not disable system-wide protection.
+
+Mac updates are manual replacements with a newer trial. The Mac app does not fetch or show the Windows update manifest. Automated tests run on Apple Silicon and Intel, but **human acceptance testing with real Japanese IME input and the actual AI services is still outstanding**. The [detailed trial guide](docs/MACOS_TRIAL.md) is in Japanese; installation and the essential Mac shortcuts are also covered here.
 
 ## Start a session
 
@@ -96,12 +134,42 @@ Split a tab to keep multiple sessions visible. Use the pane's zoom button to tem
 
 Search looks through the current scrollback of all open sessions. The workspace layout, session names, folders, and launch commands are saved locally. **Restoring a workspace starts new processes; it does not restore the old terminal output or conversation.** Use your CLI's own resume feature when you need to continue a conversation.
 
+## Preview and visual comparison
+
+Review generated files beside the conversation in the same work tab. Preview is shared by Claude Code, Codex, and PowerShell / Shell panes.
+
+1. The first localhost URL or existing output file found in CLI output opens automatically. Once you explicitly close Preview, it stays closed until you open it again.
+2. To open it yourself, choose **Preview** at the top right of the work tab.
+3. Use **Choose a file** or **Enter a URL**. Once a target is open, use **+** to add more and switch between their tabs. You can also drop a file onto Preview.
+
+| Target | Display and updates |
+| --- | --- |
+| HTML / localhost page | Display the page. Saved local HTML updates automatically; a development-server page follows that server's reload behavior |
+| Markdown | Render the document and refresh when saved |
+| PNG, JPEG, GIF, WebP, SVG | Display the image and refresh when saved |
+| PDF | Use the page and zoom controls; choose **Show new version** after a file update |
+| MP4 | Play, pause, and seek; choose **Show new version** after an update. Codec support determines playback |
+
+For web targets, choose **Desktop**, **Tablet**, or **Phone**, or enter a width and height. These are viewport sizes, not device emulation; check device-specific behavior on a real device. At narrow window widths, use the **AI / Preview** switch. Hidden CLIs keep running.
+
+### Compare changes
+
+HTML, localhost, and Markdown targets automatically save their first displayed state as a baseline. After editing, choose **Compare changes** to review the saved baseline and the current result side by side, with changed elements highlighted. Choose **Save baseline** to replace the baseline.
+
+- **Full page** shows saved pages that can each be scrolled to review changes farther down. These are read-only snapshots. Test buttons, forms, and navigation in the normal preview, rather than the comparison.
+- **Images** compares pixels in the visible area. Images and PDF use this mode too: choose **Save baseline** before editing. For PDF, compare the same page at the same zoom. Video comparison is not supported.
+- HTML, localhost, and Markdown history keeps up to three versions per target, with a 100 MiB total comparison-data limit. It is temporary and removed on exit; it is not restored after restarting.
+
+The Mac trial has Japanese controls: **プレビュー** (Preview), **ファイルを選ぶ** (Choose a file), **URLを指定** (Enter a URL), **基準を保存** (Save baseline), and **変更を比較** (Compare changes).
+
+URL targets are limited to `localhost`, `127.0.0.1`, and `[::1]`. Only resources from the same local origin are allowed, so check pages using external APIs or CDNs in a normal browser too. Word / Excel preview and semantic document comparison are not supported.
+
 ## Copy, paste, and multiline input
 
-- **Ctrl+V** or **Ctrl+Shift+V** pastes text or a screenshot. Images are saved as temporary PNG files and their paths are inserted into the CLI. The selected CLI must support image input.
+- **Ctrl+V** or **Ctrl+Shift+V** on Windows, or **Command+V** on Mac, pastes text or a screenshot. Images are saved as temporary PNG files and their paths are inserted into the CLI. The selected CLI must support image input.
 - Dropping files onto a terminal inserts their paths.
 - By default, **Ctrl+C interrupts the CLI**. Enable **Ctrl+C copies selected text** under **Settings > KEYS** to change it. In Copy mode, Ctrl+C copies the selection; with nothing selected, it does nothing. This prevents accidental interruption, and your choice is saved.
-- **Ctrl+Shift+C** copies selected text in either mode.
+- **Ctrl+Shift+C** copies selected text in either mode. On Mac, **Command+C** or **Command+Shift+C** copies; Control+C remains CLI input unless changed in Settings.
 - **Ctrl+Shift+X** or the pane's **Cancel input** button sends Ctrl+C to the CLI while keeping Copy mode enabled. It cancels pending input or interrupts work in progress. On Mac, use **Command+Shift+X**.
 - Normally, **Enter sends** and **Shift+Enter inserts a newline** in Claude Code and Codex. Enable **Enter inserts a newline** in Settings to reverse those two keys. This changes Cockpit's input handling, not your CLI configuration files.
 
@@ -116,11 +184,11 @@ Pasted text is passed through the terminal's bracketed-paste handling. How a mul
 | Red | Needs approval or attention |
 | Gray | Exited |
 
-These indicators are estimates. On Windows, standard Claude Code and independent Codex launches also track subagent and tool-call lifecycle hooks to remain yellow during quiet work. Direct calls from Claude Code to Codex, or the reverse, stay busy while the caller's tool waits for the result. Detached background work after that tool returns is not covered. If Codex asks to trust hooks, review them with its `/hooks` command. Cockpit does not bypass that review or change approval settings. Shared Codex, the Mac trial and unavailable hooks rely on terminal output, so quiet work can appear idle. The indicators do not approve requests or send responses. Use the bell icon to turn Windows attention notifications on or off.
+These indicators are estimates. On Windows, standard Claude Code and independent Codex launches also track subagent and tool-call lifecycle hooks to remain yellow during quiet work. Direct calls from Claude Code to Codex, or the reverse, stay busy while the caller's tool waits for the result. Detached background work after that tool returns is not covered. If Codex asks to trust hooks, review them with its `/hooks` command. Cockpit does not bypass that review or change approval settings. Shared Codex, the Mac trial and unavailable hooks rely on terminal output, so quiet work can appear idle. The indicators do not approve requests or send responses. Use the bell icon to turn attention notifications on or off.
 
 ## Keyboard shortcuts
 
-| Shortcut | Action |
+| Shortcut (Windows) | Action |
 | --- | --- |
 | Ctrl+Shift+T | New tab |
 | Ctrl+Shift+W | Close the current tab |
@@ -133,19 +201,24 @@ These indicators are estimates. On Windows, standard Claude Code and independent
 | Ctrl+V / Ctrl+Shift+V | Paste text or an image |
 | Ctrl+C | Interrupt or copy, as selected in Settings > KEYS |
 | Ctrl+Shift+C | Copy selected text |
+| Ctrl+Shift+X | Cancel pending input or interrupt work, retaining Copy mode |
 | Shift+Enter | Insert a newline, unless swapped in Settings |
 | Ctrl+Shift+R | Refresh the terminal display |
 | F1 | Help and shortcuts |
 
+**On Mac, use Command instead of Ctrl for app shortcuts.** For example, Command+Shift+D / E splits panes, Command+Shift+F searches, Command+Shift+Enter zooms a pane, and Command+Shift+R redraws. Paste with Command+V and copy with Command+C.
+
+Tab switching remains **Control+Tab / Control+Shift+Tab**, and Option+arrow keys move between panes. Control+C interrupts the CLI unless changed to Copy mode; Shift+Enter inserts a newline. Help is F1, or fn+F1 depending on Mac settings.
+
 ## If the display glitches
 
-Cockpit automatically refreshes the display to recover from blank areas, missing glyphs, or misaligned borders. Press **Ctrl+Shift+R** to refresh immediately. This only redraws the screen and sends no input to the CLI.
+Cockpit periodically redraws the display to attempt recovery from blank areas, missing glyphs, or misaligned borders; some rendering issues can persist. Press **Ctrl+Shift+R** on Windows or **Command+Shift+R** on Mac to redraw immediately. This sends no input to the CLI and does not restart its process.
 
 GPU rendering falls back when needed. If an input or display problem persists, report the Cockpit version, CLI and version, the keys you pressed, and what you expected versus what happened. Do not include credentials or private project data in reports.
 
 ## Start sessions from incoming requests
 
-This optional feature is **off by default**. In Settings, enable **Start sessions from incoming requests** and copy the inbox folder path. A JSON file placed there can start a Claude session:
+This optional feature is **off by default**. In Settings, enable **Start sessions from incoming requests** and copy the inbox folder path. A JSON file placed there can start a Claude session. The inbox is `%APPDATA%\claude-cli-cockpit\inbox` on Windows and `~/Library/Application Support/claude-cli-cockpit/inbox/` on Mac:
 
 ```json
 {
@@ -162,19 +235,25 @@ Anyone who can write to the inbox can cause work to start on this PC. Cockpit do
 ## Privacy and local storage
 
 - Cockpit does not collect telemetry or upload session content. Settings and the workspace stay on this PC.
-- It checks a release manifest on GitHub for available updates. Downloads and links open in your browser when you choose them.
+- Windows checks a release manifest on GitHub for available updates; the Mac trial skips this check. Downloads and links open in your browser when you choose them.
 - Claude Code, Codex, and other commands you run retain their own network behavior, accounts, permissions, and data policies.
-- Settings are stored in `%APPDATA%\claude-cli-cockpit`. This folder name is retained for compatibility.
-- Pasted images are written to your Windows temporary folder. Treat them like the screenshots they contain.
+- Settings are stored in `%APPDATA%\claude-cli-cockpit` on Windows and `~/Library/Application Support/claude-cli-cockpit/` on Mac. These folder names are retained for compatibility. `session.json` holds the workspace; `preview.json` holds preview targets.
+- Pasted images are written to the OS temporary folder. Treat them like the screenshots they contain.
 
-The automatic update check sends ordinary HTTPS connection information to
+Preview pages and comparison images are handled locally. Temporary comparison history is bounded and removed on exit. Localhost pages connect to the selected local server; third-party CLIs retain their own networking behavior.
+
+The Windows update check sends ordinary HTTPS connection information to
 GitHub. Local diagnostic logs may contain paths and limited character / output
 details. See the full [Privacy policy](docs/PRIVACY.md), including third-party
 service policies and local file retention.
 
 ## Known limitations
 
-- Windows only. Use the installer that matches your CPU architecture.
+- Windows has Japanese and English editions; Mac has a Japanese-language trial. There is no Linux distribution. Use the package for your CPU architecture.
+- The Mac trial lacks Developer ID signing and notarization. Human testing with real Japanese IME and actual AI services is still outstanding.
+- Some circled numbers, such as ①②, can still look compressed depending on styling and surrounding spaces in 0.2.14.
+- Display corruption can occur. Automatic redraw attempts recovery; it is not a guarantee. Use Ctrl+Shift+R on Windows or Command+Shift+R on Mac.
+- Preview comparison uses read-only snapshots. It does not compare Word / Excel documents, document meaning, or video changes.
 - The app's minimum supported window width is 760 px; it is not a mobile interface.
 - Session status detection is approximate.
 - IME and terminal rendering behavior may vary across CLI and Windows versions. Version 0.2.10 fixes input stopping after cancellation and duplicate full-width spaces. Native IME comparisons and user trials on Windows ARM64 confirmed recovery from the input-stopping case. Long sessions, heavy output, and other Windows IME setups still need validation.
@@ -183,7 +262,9 @@ service policies and local file retention.
 
 ## Development
 
-```powershell
+Use Node.js 22.12.0 or later. The source is shared by Windows and the Mac trial.
+
+```sh
 npm ci
 npm run typecheck
 npm run lint
@@ -206,10 +287,19 @@ npm run package:editions
 
 For just one target, use `npm run package:editions -- --language=en --arch=x64`. Build outputs are isolated under `dist/editions/<language>`; installers are under `release/<version>/<language>`. Packaging requires the appropriate Electron/node-pty native binaries. No language-setting preference is stored in the workspace.
 
+Build the Japanese Mac trial on a Mac matching the target architecture:
+
+```sh
+node scripts/build-macos-trial.mjs arm64
+# Use x64 on an Intel Mac.
+```
+
+DMG / ZIP outputs are under `release/mac-trial/<arm64|x64>/`. The [Mac CI workflow](.github/workflows/macos-trial.yml) tests and packages both architectures.
+
 ## Code signing policy
 
-SignPath Foundation integration is being prepared. Current installers are
-unsigned. After acceptance, signing will use GitHub Actions artifacts and a
+SignPath Foundation integration is being prepared for Windows. Current Windows installers are
+unsigned. The Mac trial is ad-hoc signed, without Developer ID signing or notarization. After acceptance, signing will use GitHub Actions artifacts and a
 human approver. See the [Code signing policy](docs/CODE_SIGNING_POLICY.md) for
 roles, release rules, and privacy information.
 
