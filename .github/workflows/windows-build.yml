@@ -112,10 +112,13 @@ jobs:
             test-results/codex-shared-start-*/error-context.md
             test-results/codex-shared-start-*/trace.zip
             test-results/codex-shared-start-*/fixture/calls.jsonl
+            test-results/codex-shared-start-*/fixture/client-process.json
+            test-results/codex-shared-start-*/fixture/premature-input.txt
             test-results/codex-shared-start-*/fixture/user-data/diagnostic.log
             test-results/preview-native-*/error-context.md
             test-results/preview-native-*/trace.zip
             test-results/preview-native-*/*.png
+            test-results/preview-native-*/*oracle.json
             test-results/subagent-status-*/error-context.md
             test-results/subagent-status-*/trace.zip
             test-results/subagent-status-*/user-data/diagnostic.log

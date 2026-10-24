@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.15 — 2026-10-24
+
+- **Fixed automatic Preview opening for generated PDFs and images.** Completed generation/save messages and delivered artifact links are recognized. Reading existing material or startup documents such as AGENTS.md and README no longer opens them automatically.
+- **Automatic previews follow newly generated artifacts.** Manual selections, explicitly closed previews and active comparisons are retained. Links with spaces, Japanese completion messages and terminal file hyperlinks are supported.
+- **Fixed unchanged paragraphs being highlighted as changes.** Insertions, deletions and reflow no longer mark every displaced element. Comparison checks text, specified CSS, reordered elements, SVG shapes/colors, long text and meaningful whitespace.
+- **Fixed capturing a comparison baseline before the preview finished loading.** Refreshing during navigation waits for the newer revision. PDF highlighting requires matching displayed pages and zoom levels.
+- **Markdown headings retain their formatting with one to three leading ASCII spaces.** That indentation alone no longer changes the rendered heading or produces a comparison difference.
+- **Image viewer controls are omitted from comparison captures.** Hover and focus colors on the Fit button no longer appear as artifact differences.
+- **Updated existing runtime dependencies for published security fixes.** Electron is now 42.11.18 and Zod is 4.6.7.
+
+Automatic discovery relies on CLI wording; use the file picker when an output is not recognized. Comparison uses the saved baseline and the current view, rather than all PDF pages or document semantics.
+
 ## 0.2.14 — 2026-10-19
 
 - **CLI selection uses buttons and remembers your choice.** Pick Claude Code, Codex or PowerShell (Shell on Mac) with one click. New tabs, panes and app restarts retain the selection.

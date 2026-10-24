@@ -8,8 +8,10 @@ import { fileURLToPath } from "node:url";
 import { _electron as electron, expect, test as base } from "@playwright/test";
 
 import { createDefaultWorkspace } from "../../src/electron/defaults";
+import { pdfFixture, pixelBounds, pngFixture } from "./preview-comparison-oracles";
 
 import type { ElectronApplication, Page } from "@playwright/test";
+import type { ServerResponse } from "node:http";
 import type { PreviewSnapshot } from "../../src/shared/preview";
 import type { SpawnSessionRequest } from "../../src/shared/types";
 
@@ -32,11 +34,12 @@ const test = base.extend<{ cockpit: NativeFixture }>({ cockpit: async ({}, provi
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   const address = server.address(); if (!address || typeof address === "string") throw new Error("No fixture port");
   const url = `http://127.0.0.1:${address.port}/`;
-  const entry = join(directory, "hidden-entry.cjs");
-  await writeFile(entry, `const {app}=require('electron');app.on('web-contents-created',(_e,c)=>c.setBackgroundThrottling(false));if(process.platform!=='darwin')app.on('browser-window-created',(_e,w)=>{w.show=()=>{};w.showInactive=()=>{}});require(${JSON.stringify(resolve("dist/electron/main.js"))});`, "utf8");
   const packagedExecutable = process.env.COCKPIT_PACKAGED_EXECUTABLE;
+  const entry = join(directory, "hidden-entry.cjs");
+  const loadSource = packagedExecutable ? "" : `require(${JSON.stringify(resolve("dist/electron/main.js"))});`;
+  await writeFile(entry, `const {app}=require('electron');app.on('web-contents-created',(_e,c)=>c.setBackgroundThrottling(false));if(process.platform!=='darwin')app.on('browser-window-created',(_e,w)=>{w.show=()=>{};w.showInactive=()=>{}});${loadSource}`, "utf8");
   const app = await electron.launch({
-    args: packagedExecutable ? [] : [entry],
+    args: packagedExecutable ? ["-r", entry] : [entry],
     ...(packagedExecutable ? { executablePath: packagedExecutable } : {}),
     env: { ...process.env, COCKPIT_USER_DATA: directory },
   });
@@ -46,6 +49,10 @@ const test = base.extend<{ cockpit: NativeFixture }>({ cockpit: async ({}, provi
       electronApp.on("web-contents-created", (_event, contents) => contents.setBackgroundThrottling(false));
     });
     const page = await app.firstWindow();
+    if (packagedExecutable) {
+      expect(await app.evaluate(({ app: electronApp }) => electronApp.isPackaged && electronApp.getAppPath().endsWith("app.asar"))).toBe(true);
+    }
+    if (process.platform !== "darwin") expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((window) => window.isVisible()))).toBe(false);
     await expect(page.getByTestId("launcher")).toBeVisible();
     await expect(page.getByTestId("preview-toggle")).toHaveAttribute("aria-expanded", "false");
     const tabId = await page.locator("[data-active-tab-panel]").getAttribute("data-tab-panel-id");
@@ -328,6 +335,200 @@ test("version history deduplicates, keeps three generations, compares selected v
   expect(files.filter((name) => name.startsWith("page-") && name.endsWith(".png"))).toHaveLength(3);
 });
 
+test("page highlights exclude unchanged content displaced by a new paragraph", async ({ cockpit }, testInfo) => {
+  const file = join(cockpit.directory, "flow-review.html");
+  const html = (added: string): string => `<style>body{font:18px sans-serif}p{background:#eee;padding:12px}</style><h1>Unchanged heading</h1>${added}<p>First unchanged paragraph</p><p>Second unchanged paragraph</p><p>Third unchanged paragraph</p>`;
+  await writeFile(file, html(""));
+  const id = await cockpit.add(file);
+  await expect(cockpit.page.getByText("基準を自動保存しました", { exact: true })).toBeVisible();
+  await writeFile(file, html("<p>Only this paragraph was added. It takes space and shifts the rest of the page.</p>"));
+  await expect.poll(() => guestText(cockpit, id)).toContain("Only this paragraph");
+  const result = await cockpit.page.evaluate(({ tabId, targetId }) => window.cockpit!.preview!.request({ action: "capture", tabId, targetId, baseline: false }), { tabId: (await cockpit.snapshot()).tabId, targetId: id });
+  expect(result.ok && result.capture?.page?.changedElements).toBe(1);
+  await cockpit.page.getByRole("button", { name: "変更を比較", exact: true }).click();
+  await expect(cockpit.page.getByTestId("comparison-pages")).toHaveAttribute("data-ready", "true");
+  let captures: string[] = [];
+  await expect.poll(async () => {
+    try {
+      captures = await cockpit.app.evaluate(async ({ BrowserWindow }) => {
+        const views = BrowserWindow.getAllWindows()[0].contentView.children.filter((view) => "webContents" in view && (view as Electron.WebContentsView).webContents.getURL().endsWith(".mhtml")).sort((left, right) => left.getBounds().x - right.getBounds().x);
+        return Promise.all(views.map(async (view) => (await (view as Electron.WebContentsView).webContents.capturePage()).toPNG().toString("base64")));
+      });
+      return captures.length === 2 && captures.every((png) => png.length > 100);
+    } catch { return false; }
+  }).toBe(true);
+  for (const [index, png] of captures.entries()) await writeFile(testInfo.outputPath(`paragraph-diff-${index}.png`), Buffer.from(png, "base64"));
+});
+
+test("an image link with a spaced path opens automatically after startup documents", async ({ cockpit }) => {
+  await cockpit.app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler("cockpit:pty-spawn");
+    ipcMain.handle("cockpit:pty-spawn", (_event, request: SpawnSessionRequest) => ({ session: { ...request, status: "idle", startedAt: Date.now(), shouldRestore: true } }));
+  });
+  await mkdir(join(cockpit.directory, "output"));
+  await writeFile(join(cockpit.directory, "README.md"), "# Instructions");
+  await writeFile(join(cockpit.directory, "output", "earlier.svg"), '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"/>');
+  await writeFile(join(cockpit.directory, "output", "cover image.svg"), '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240"><rect width="320" height="240" fill="green"/></svg>');
+  const launcher = cockpit.page.getByTestId("launcher");
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).fill(cockpit.directory);
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).press("Escape");
+  await launcher.getByRole("button", { name: /Start Session/u }).click();
+  const terminal = cockpit.page.getByTestId(/^terminal-/u); await expect(terminal).toBeVisible();
+  const sessionId = (await terminal.getAttribute("data-testid"))!.slice("terminal-".length);
+  await expect.poll(() => cockpit.page.evaluate(async (id) => (await window.cockpit!.getBootstrap()).workspace.sessions.some((session) => session.id === id), sessionId)).toBe(true);
+  await cockpit.app.evaluate(({ BrowserWindow }, payload) => BrowserWindow.getAllWindows()[0].webContents.send("cockpit:pty-data", payload), { sessionId, data: "Reading README.md\r\nCreated: output/earlier.svg\r\n![Generated cover](output/cover%20image.svg)\r\n" });
+  await expect(cockpit.page.getByRole("tab", { name: "cover image.svg", exact: true })).toHaveAttribute("aria-selected", "true");
+  const image = (await cockpit.snapshot()).targets[0];
+  await expect.poll(async () => { try { return await cockpit.guest(image.id, "document.querySelector('img')?.naturalWidth"); } catch { return 0; } }).toBe(320);
+  expect((await cockpit.snapshot()).targets.map((target) => target.name)).toEqual(["cover image.svg"]);
+});
+
+test("generated PDF and image output follow automatically while manual selection stays selected", async ({ cockpit }) => {
+  test.setTimeout(45_000);
+  await cockpit.app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler("cockpit:pty-spawn");
+    ipcMain.handle("cockpit:pty-spawn", (_event, request: SpawnSessionRequest) => ({ session: { ...request, status: "idle", startedAt: Date.now(), shouldRestore: true } }));
+  });
+  await writeFile(join(cockpit.directory, "result.md"), "# First result");
+  const content = "BT /F1 24 Tf 45 740 Td (Generated PDF artifact) Tj ET";
+  const objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Count 1 /Kids [3 0 R] >>", "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>", `<< /Length ${content.length} >>\nstream\n${content}\nendstream`, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
+  let pdf = "%PDF-1.4\n"; const offsets: number[] = [];
+  for (const [index, object] of objects.entries()) { offsets.push(pdf.length); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; }
+  const xref = pdf.length;
+  pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  await writeFile(join(cockpit.directory, "generated.pdf"), pdf);
+  for (const name of ["first.svg", "second.svg"]) await writeFile(join(cockpit.directory, name), '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240"><rect width="320" height="240" fill="green"/></svg>');
+  const launcher = cockpit.page.getByTestId("launcher");
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).fill(cockpit.directory);
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).press("Escape");
+  await launcher.getByRole("button", { name: /Start Session/u }).click();
+  const terminal = cockpit.page.getByTestId(/^terminal-/u); await expect(terminal).toBeVisible();
+  const sessionId = (await terminal.getAttribute("data-testid"))!.slice("terminal-".length);
+  await expect.poll(() => cockpit.page.evaluate(async (id) => (await window.cockpit!.getBootstrap()).workspace.sessions.some((session) => session.id === id), sessionId)).toBe(true);
+  const send = async (data: string): Promise<void> => cockpit.app.evaluate(({ BrowserWindow }, payload) => BrowserWindow.getAllWindows()[0].webContents.send("cockpit:pty-data", payload), { sessionId, data });
+  await send("Reading first.svg\r\nRead generated.pdf\r\n");
+  await cockpit.page.getByTestId("preview-toggle").click();
+  await expect(cockpit.page.getByRole("button", { name: "first.svg", exact: true })).toBeVisible();
+  expect((await cockpit.snapshot()).targets).toEqual([]);
+  await send("Created result.md\r\n");
+  await expect(cockpit.page.getByRole("tab", { name: "result.md", exact: true })).toHaveAttribute("aria-selected", "true");
+  await send("Created first.svg\r\n");
+  await expect(cockpit.page.getByRole("tab", { name: "first.svg", exact: true })).toHaveAttribute("aria-selected", "true");
+  await send("Saved generated.pdf\r\n");
+  await expect(cockpit.page.getByRole("tab", { name: "generated.pdf", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect.poll(async () => cockpit.app.evaluate(async ({ webContents }) => {
+    const document = webContents.getAllWebContents().find((wc) => wc.getURL().includes(".pdf"));
+    const frame = document?.mainFrame.framesInSubtree.find((frame) => frame.url.startsWith("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/"));
+    return frame ? frame.executeJavaScript("Boolean(document.querySelector('pdf-viewer')?.shadowRoot?.querySelector('embed'))") : false;
+  })).toBe(true);
+  await cockpit.page.getByRole("tab", { name: "result.md", exact: true }).click();
+  await send("Created second.svg\r\n");
+  await cockpit.page.getByRole("button", { name: "プレビュー対象を追加", exact: true }).click();
+  await expect(cockpit.page.getByRole("button", { name: /second\.svg/u })).toBeVisible();
+  await expect(cockpit.page.getByRole("tab", { name: "result.md", exact: true })).toHaveAttribute("aria-selected", "true");
+});
+
+test("legacy context selections yield to images and explicit context choices survive reload", async ({ cockpit }) => {
+  await cockpit.app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler("cockpit:pty-spawn");
+    ipcMain.handle("cockpit:pty-spawn", (_event, request: SpawnSessionRequest) => ({ session: { ...request, status: "idle", startedAt: Date.now(), shouldRestore: true } }));
+  });
+  await writeFile(join(cockpit.directory, "README.md"), "# Instructions");
+  for (const name of ["generated.svg", "later.svg"]) await writeFile(join(cockpit.directory, name), '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240"/>');
+  const launcher = cockpit.page.getByTestId("launcher");
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).fill(cockpit.directory);
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).press("Escape");
+  await launcher.getByRole("button", { name: /Start Session/u }).click();
+  const terminal = cockpit.page.getByTestId(/^terminal-/u); await expect(terminal).toBeVisible();
+  const sessionId = (await terminal.getAttribute("data-testid"))!.slice("terminal-".length);
+  await cockpit.add(join(cockpit.directory, "README.md"));
+  const tabId = (await cockpit.snapshot()).tabId;
+  await expect.poll(async () => {
+    const workspace = JSON.parse(await readFile(join(cockpit.directory, "session.json"), "utf8")) as { sessions: Array<{ id: string }> };
+    return workspace.sessions.some((session) => session.id === sessionId);
+  }).toBe(true);
+  // Before this change, automatic and manual legacy selections had no separate flag.
+  await cockpit.page.evaluate((tabId) => window.localStorage.removeItem(`cockpit.previewManualSelection.${tabId}`), tabId);
+  await cockpit.page.reload();
+  await expect(cockpit.page.getByRole("tab", { name: "README.md", exact: true })).toHaveAttribute("aria-selected", "true");
+  const send = async (data: string): Promise<void> => cockpit.app.evaluate(({ BrowserWindow }, payload) => BrowserWindow.getAllWindows()[0].webContents.send("cockpit:pty-data", payload), { sessionId, data });
+  await send("Generated generated.svg\r\n");
+  await expect(cockpit.page.getByRole("tab", { name: "generated.svg", exact: true })).toHaveAttribute("aria-selected", "true");
+  expect((await cockpit.snapshot()).targets).toHaveLength(2);
+  await cockpit.page.getByRole("tab", { name: "README.md", exact: true }).click();
+  await expect.poll(() => cockpit.page.evaluate((tabId) => window.localStorage.getItem(`cockpit.previewManualSelection.${tabId}`), tabId)).toBe("true");
+  await cockpit.page.reload();
+  await expect(cockpit.page.getByRole("tab", { name: "README.md", exact: true })).toHaveAttribute("aria-selected", "true");
+  await send("Generated later.svg\r\n");
+  await cockpit.page.getByRole("button", { name: "プレビュー対象を追加", exact: true }).click();
+  await expect(cockpit.page.getByRole("button", { name: "later.svg", exact: true })).toBeVisible();
+  await expect(cockpit.page.getByRole("tab", { name: "README.md", exact: true })).toHaveAttribute("aria-selected", "true");
+});
+
+const correctnessCases = [
+  { name: "unchanged page", before: '<p id="keep">UNCHANGED</p>', after: '<p id="keep">UNCHANGED</p>', left: [], right: [] },
+  { name: "text replacement with reflow", before: '<p id="edit">OLD_TEXT</p><p id="keep">UNCHANGED</p>', after: '<p id="edit">NEW_TEXT with a longer sentence that wraps across the available space and shifts the unchanged paragraph below it.</p><p id="keep">UNCHANGED</p>', left: ["edit"], right: ["edit"] },
+  { name: "preformatted whitespace", before: '<pre id="edit">A  B\nC</pre>', after: '<pre id="edit">A    B\nC</pre>', left: ["edit"], right: ["edit"] },
+  { name: "Japanese full width space", before: '<p id="edit">甲　乙</p>', after: '<p id="edit">甲 乙</p>', left: ["edit"], right: ["edit"] },
+  { name: "change beyond the start of a long paragraph", before: `<p id="edit">${"word ".repeat(400)}OLD_END</p>`, after: `<p id="edit">${"word ".repeat(400)}NEW_END</p>`, left: ["edit"], right: ["edit"] },
+  { name: "SVG geometry only", before: '<svg width="120" height="100"><circle id="shape" cx="60" cy="50" r="20" fill="green"/></svg>', after: '<svg width="120" height="100"><circle id="shape" cx="60" cy="50" r="30" fill="green"/></svg>', left: ["shape"], right: ["shape"] },
+  { name: "paragraph insertion", before: '<p id="keep">UNCHANGED</p>', after: '<p id="added">ADDED_TEXT</p><p id="keep">UNCHANGED</p>', left: [], right: ["added"] },
+  { name: "insertion that creates a scrollbar", before: '<p id="keep">UNCHANGED</p>', after: '<section id="added" style="height:1500px;background:#ddd">ADDED_TEXT</section><p id="keep">UNCHANGED</p>', left: [], right: ["added"] },
+  { name: "paragraph deletion", before: '<p id="removed">REMOVED_TEXT</p><p id="keep">UNCHANGED</p>', after: '<p id="keep">UNCHANGED</p>', left: ["removed"], right: [] },
+  { name: "CSS width only", before: '<div id="box" style="width:120px;height:40px;background:#ddd">BOX</div><p id="keep">UNCHANGED</p>', after: '<div id="box" style="width:200px;height:40px;background:#ddd">BOX</div><p id="keep">UNCHANGED</p>', left: ["box"], right: ["box"] },
+  { name: "CSS height only", before: '<div id="box" style="width:120px;height:40px;background:#ddd">BOX</div><p id="keep">UNCHANGED</p>', after: '<div id="box" style="width:120px;height:80px;background:#ddd">BOX</div><p id="keep">UNCHANGED</p>', left: ["box"], right: ["box"] },
+  { name: "CSS position only", before: '<div id="box" style="position:relative;left:0px;width:120px;height:40px;background:#ddd">BOX</div><p id="keep">UNCHANGED</p>', after: '<div id="box" style="position:relative;left:30px;width:120px;height:40px;background:#ddd">BOX</div><p id="keep">UNCHANGED</p>', left: ["box"], right: ["box"] },
+  { name: "table cell replacement", before: '<table><tr><td id="edit">OLD_CELL</td><td id="keep">UNCHANGED</td></tr></table>', after: '<table><tr><td id="edit">NEW_CELL</td><td id="keep">UNCHANGED</td></tr></table>', left: ["edit"], right: ["edit"] },
+  { name: "paragraph reorder", before: '<p id="a">FIRST</p><p id="b">SECOND</p><p id="c">THIRD</p>', after: '<p id="c">THIRD</p><p id="a">FIRST</p><p id="b">SECOND</p>', left: ["c"], right: ["c"] },
+];
+
+for (const scenario of correctnessCases) test(`comparison correctness: ${scenario.name}`, async ({ cockpit }, testInfo) => {
+  const file = join(cockpit.directory, "known-changes.html");
+  const html = (body: string): string => `<style>body{font:18px sans-serif;background:white;color:black}p{margin:12px 0}table{border-collapse:collapse}td{padding:8px}</style>${body}`;
+  await writeFile(file, html(scenario.before));
+  const id = await cockpit.add(file);
+  await expect(cockpit.page.getByText("基準を自動保存しました", { exact: true })).toBeVisible();
+  const normalized = await cockpit.guest(id, `({before:new DOMParser().parseFromString(${JSON.stringify(html(scenario.before))},'text/html').body.innerHTML,after:new DOMParser().parseFromString(${JSON.stringify(html(scenario.after))},'text/html').body.innerHTML})`) as { before: string; after: string };
+  if (scenario.before !== scenario.after) {
+    const revision = (await cockpit.snapshot()).targets[0].revision;
+    await writeFile(file, html(scenario.after));
+    await expect.poll(async () => (await cockpit.snapshot()).targets[0].revision).toBeGreaterThan(revision);
+    await expect.poll(() => cockpit.guest(id, "document.body.innerHTML")).toBe(normalized.after);
+  }
+  await cockpit.page.getByRole("button", { name: "変更を比較", exact: true }).click();
+  await expect(cockpit.page.getByTestId("comparison-pages")).toHaveAttribute("data-ready", "true");
+  const sides = await cockpit.app.evaluate(async ({ BrowserWindow }) => {
+    const views = BrowserWindow.getAllWindows()[0].contentView.children.filter((view) => "webContents" in view && (view as Electron.WebContentsView).webContents.getURL().endsWith(".mhtml")).sort((left, right) => left.getBounds().x - right.getBounds().x);
+    return Promise.all(views.map(async (view) => {
+      const inspector = (view as Electron.WebContentsView).webContents.debugger;
+      inspector.attach("1.3");
+      try {
+        // Inspect the rendered archive without enabling its disabled JavaScript.
+        interface Node { nodeId: number; nodeName: string; nodeType: number; attributes?: string[]; children?: Node[] }
+        await inspector.sendCommand("DOM.enable"); await inspector.sendCommand("CSS.enable");
+        const document = await inspector.sendCommand("DOM.getDocument", { depth: -1 }) as { root: Node };
+        const flatten = (node: Node): Node[] => [node, ...(node.children ?? []).flatMap(flatten)];
+        const body = flatten(document.root).find((node) => node.nodeName === "BODY")!;
+        const html = await inspector.sendCommand("DOM.getOuterHTML", { nodeId: body.nodeId }) as { outerHTML: string };
+        const outlined: string[] = [];
+        for (const node of flatten(body).filter((node) => node.nodeType === 1)) {
+          const css = await inspector.sendCommand("CSS.getComputedStyleForNode", { nodeId: node.nodeId }) as { computedStyle: Array<{ name: string; value: string }> };
+          if (css.computedStyle.some((style) => style.name === "outline-color" && style.value === "rgb(245, 166, 35)") && css.computedStyle.some((style) => style.name === "outline-width" && style.value === "2px")) {
+            const index = node.attributes?.indexOf("id") ?? -1; outlined.push(index >= 0 ? node.attributes![index + 1] : "");
+          }
+        }
+        return { html: html.outerHTML, outlined };
+      } finally { inspector.detach(); }
+    }));
+  });
+  expect(sides).toHaveLength(2);
+  expect(sides[0].html).toContain(normalized.before);
+  expect(sides[1].html).toContain(normalized.after);
+  expect(sides[0].outlined).toEqual(scenario.left);
+  expect(sides[1].outlined).toEqual(scenario.right);
+  await writeFile(testInfo.outputPath("expected-and-observed.json"), JSON.stringify({ expected: scenario, observed: sides }, null, 2), "utf8");
+});
+
 test("relative artifacts automatically open from each CLI directory and never replace the selected preview", async ({ cockpit }) => {
   await cockpit.app.evaluate(({ ipcMain }) => {
     ipcMain.removeHandler("cockpit:pty-spawn");
@@ -364,6 +565,86 @@ test("relative artifacts automatically open from each CLI directory and never re
     expect(wrongTab.ok && wrongTab.discovery?.files).toEqual([]);
     await active.getByRole("button", { name: "閉じる", exact: true }).click();
   }
+});
+
+test("project context output is skipped so the first generated artifact opens instead", async ({ cockpit }) => {
+  await cockpit.app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler("cockpit:pty-spawn");
+    ipcMain.handle("cockpit:pty-spawn", (_event, request: SpawnSessionRequest) => ({ session: { ...request, status: "idle", startedAt: Date.now(), shouldRestore: true } }));
+  });
+  const root = join(cockpit.directory, "project");
+  await mkdir(join(root, "output"), { recursive: true });
+  for (const name of ["AGENTS.md", "Claude.md", "DESIGN.md", "README.md", "SKILL.md"]) await writeFile(join(root, name), "# Project instructions");
+  await writeFile(join(root, "output", "result.html"), "<h1>Generated result</h1>");
+  const launcher = cockpit.page.getByTestId("launcher");
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).fill(root);
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).press("Escape");
+  await launcher.getByRole("button", { name: /Start Session/u }).click();
+  const terminal = cockpit.page.getByTestId(/^terminal-/u).filter({ visible: true }); await expect(terminal).toBeVisible();
+  const sessionId = (await terminal.getAttribute("data-testid"))!.slice("terminal-".length);
+  await expect.poll(() => cockpit.page.evaluate(async (id) => (await window.cockpit!.getBootstrap()).workspace.sessions.some((session) => session.id === id), sessionId)).toBe(true);
+  await cockpit.app.evaluate(({ BrowserWindow }, payload) => BrowserWindow.getAllWindows()[0].webContents.send("cockpit:pty-data", payload), {
+    sessionId, data: "Reading: AGENTS.md\r\nClaude.md\r\nDESIGN.md\r\nREADME.md\r\nSKILL.md\r\nCreated: output/result.html\r\n",
+  });
+  const active = cockpit.page.locator("[data-active-tab-panel]");
+  await expect(active.getByRole("tab", { name: "result.html", exact: true })).toBeVisible();
+  const snapshot = await cockpit.snapshot();
+  expect(snapshot.targets.map((target) => target.source)).toEqual([join(root, "output", "result.html")]);
+});
+
+test("project context documents remain available through manual preview", async ({ cockpit }) => {
+  const source = join(cockpit.directory, "AGENTS.md");
+  await writeFile(source, "# Project instructions\nOpen this document only when chosen.");
+  const id = await cockpit.add(source);
+  await expect.poll(() => guestText(cockpit, id)).toContain("Project instructions");
+});
+
+test("submitted context requests select the document and can reopen a dismissed preview", async ({ cockpit }) => {
+  await cockpit.app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler("cockpit:pty-spawn");
+    ipcMain.handle("cockpit:pty-spawn", (_event, request: SpawnSessionRequest) => ({ session: { ...request, status: "idle", startedAt: Date.now(), shouldRestore: true } }));
+  });
+  const root = join(cockpit.directory, "project"); await mkdir(root, { recursive: true });
+  await writeFile(join(root, "AGENTS.md"), "# Requested agent instructions");
+  await writeFile(join(root, "DESIGN.md"), "# Requested design review");
+  await writeFile(join(root, "result.html"), "<h1>Generated result</h1>");
+  const launcher = cockpit.page.getByTestId("launcher");
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).fill(root);
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).press("Escape");
+  await launcher.getByRole("button", { name: /Start Session/u }).click();
+  const terminal = cockpit.page.getByTestId(/^terminal-/u).filter({ visible: true }); await expect(terminal).toBeVisible();
+  const sessionId = (await terminal.getAttribute("data-testid"))!.slice("terminal-".length);
+  await expect.poll(() => cockpit.page.evaluate(async (id) => (await window.cockpit!.getBootstrap()).workspace.sessions.some((session) => session.id === id), sessionId)).toBe(true);
+  const active = cockpit.page.locator("[data-active-tab-panel]");
+  const output = (data: string) => cockpit.app.evaluate(({ BrowserWindow }, payload) => BrowserWindow.getAllWindows()[0].webContents.send("cockpit:pty-data", payload), { sessionId, data });
+  const input = (data: string) => cockpit.page.evaluate(async (payload) => {
+    window.cockpit!.writeSession(payload);
+    await window.cockpit!.getBootstrap();
+  }, { sessionId, data });
+  // Even an imperative sentence in CLI output is not a submitted user request.
+  await output("Startup instructions: Please review AGENTS.md\r\nCreated: result.html\r\n");
+  await expect(active.getByRole("tab", { name: "result.html", exact: true })).toHaveAttribute("aria-selected", "true");
+  const prompt = "AGENTS.mdを確認して";
+  await input(prompt);
+  await expect(active.getByRole("tab", { name: "result.html", exact: true })).toHaveAttribute("aria-selected", "true");
+  await input("\r");
+  await expect(active.getByRole("tab", { name: "AGENTS.md", exact: true })).toHaveAttribute("aria-selected", "true");
+  const target = (await cockpit.snapshot()).targets.find((item) => item.name === "AGENTS.md")!;
+  await expect.poll(() => guestText(cockpit, target.id)).toContain("Requested agent instructions");
+  await writeFile(join(root, "AGENTS.md"), "# Updated agent instructions");
+  await expect.poll(() => guestText(cockpit, target.id)).toContain("Updated agent instructions");
+  await active.getByRole("button", { name: "プレビューを閉じる", exact: true }).click();
+  await input("AGENTS.mdは開かないで\r");
+  await expect(active.getByTestId("preview-toggle")).toHaveAttribute("aria-expanded", "false");
+  await input("AGENTS.mdを治して\r");
+  await expect(active.getByRole("tab", { name: "AGENTS.md", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(active.getByTestId("preview-toggle")).toHaveAttribute("aria-expanded", "true");
+  await active.getByRole("button", { name: "プレビューを閉じる", exact: true }).click();
+  await input("Please edit DESIGN.md\r");
+  await expect(active.getByTestId("preview-toggle")).toHaveAttribute("aria-expanded", "true");
+  await expect(active.getByRole("tab", { name: "DESIGN.md", exact: true })).toHaveAttribute("aria-selected", "true");
+  expect(await readFile(join(cockpit.directory, "diagnostic.log"), "utf8")).not.toContain(prompt);
+  expect(await readFile(join(cockpit.directory, "session.json"), "utf8")).not.toContain(prompt);
 });
 
 test("responsive HTML uses real CSS viewport sizes, preserves input and maps clicks through the scaled view", async ({ cockpit }, testInfo) => {
@@ -552,6 +833,21 @@ test("Markdown escapes HTML, updates on save and recovers after an atomic file r
   expect((await cockpit.snapshot()).targets[0].revision).toBeGreaterThan(1);
 });
 
+test("Markdown comparison ignores one leading space before a heading without marking later paragraphs", async ({ cockpit }) => {
+  const file = join(cockpit.directory, "leading-space.md");
+  const body = "# Document title\n\nFirst unchanged paragraph.\n\nSecond unchanged paragraph.\n";
+  await writeFile(file, body, "utf8");
+  const id = await cockpit.add(file);
+  await expect(cockpit.page.getByText("基準を自動保存しました", { exact: true })).toBeVisible();
+  const revision = (await cockpit.snapshot()).targets[0].revision;
+  await writeFile(file, " " + body, "utf8");
+  await expect.poll(async () => (await cockpit.snapshot()).targets[0].revision).toBeGreaterThan(revision);
+  await expect.poll(() => cockpit.guest(id, "document.querySelector('h1')?.textContent")).toBe("Document title");
+  await cockpit.page.getByRole("button", { name: "変更を比較", exact: true }).click();
+  await expect(cockpit.page.getByTestId("comparison-pages")).toHaveAttribute("data-ready", "true");
+  await expect(cockpit.page.getByText("変更した要素はありません。左右のページをスクロールできます。", { exact: true })).toBeVisible();
+});
+
 test("SVG loads as an image, blocks scripts and preserves the selected target on another file update", async ({ cockpit }) => {
   const markdown = join(cockpit.directory, "article.md"); const image = join(cockpit.directory, "cover.svg");
   await writeFile(markdown, "# Article");
@@ -706,6 +1002,41 @@ test("real shell output opens a native preview without preview actions on deskto
   await writeFile(testInfo.outputPath("automatic-preview-phone.png"), Buffer.from(png, "base64"));
 });
 
+test("a real shell generates PDF and PNG files and opens them from Japanese completion output", async ({ cockpit }) => {
+  test.setTimeout(45_000);
+  const png = await cockpit.app.evaluate(({ nativeImage }) => nativeImage.createFromBitmap(Buffer.alloc(8 * 8 * 4, 255), { width: 8, height: 8 }).toPNG().toString("base64"));
+  const pdfContent = "BT /F1 24 Tf 45 740 Td (Shell generated PDF) Tj ET";
+  const objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Count 1 /Kids [3 0 R] >>", "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>", `<< /Length ${pdfContent.length} >>\nstream\n${pdfContent}\nendstream`, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
+  let pdf = "%PDF-1.4\n"; const offsets: number[] = [];
+  for (const [index, object] of objects.entries()) { offsets.push(pdf.length); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; }
+  const xref = pdf.length;
+  pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  const script = join(cockpit.directory, "generate-fixture.cjs");
+  await writeFile(script, `const fs=require('node:fs'),path=require('node:path');const image=process.argv[2]==='image';const name=image?'generated cover.png':'generated report.pdf';const file=path.join(__dirname,name);fs.writeFileSync(file,Buffer.from(image?${JSON.stringify(png)}:${JSON.stringify(Buffer.from(pdf).toString("base64"))},'base64'));console.log((image?'画像を保存しました: ':'PDFを書き出しました: ')+JSON.stringify(file));`, "utf8");
+  const command = process.platform === "darwin" ? "shell" : "powershell";
+  const launcher = cockpit.page.getByTestId("launcher");
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).fill(cockpit.directory);
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).press("Escape");
+  await launcher.getByTestId(`cli-option-${command}`).focus(); await cockpit.page.keyboard.press("Space");
+  await launcher.getByRole("button", { name: /Start Session/u }).click();
+  const terminal = cockpit.page.getByTestId(/^terminal-/u); await expect(terminal).toBeVisible();
+  const sessionId = (await terminal.getAttribute("data-testid"))!.slice("terminal-".length);
+  await expect.poll(async () => (await readFile(join(cockpit.directory, "diagnostic.log"), "utf8")).includes('"bootstrapWritten":true')).toBe(true);
+  const quoted = process.platform === "win32" ? `'${script.replaceAll("'", "''")}'` : `'${script.replaceAll("'", "'\\''")}'`;
+  const generate = async (kind: string): Promise<void> => cockpit.page.evaluate(({ sessionId, data }) => window.cockpit!.writeSession({ sessionId, data }), { sessionId, data: `node ${quoted} ${kind}\r` });
+  await generate("pdf");
+  await expect(cockpit.page.getByRole("tab", { name: "generated report.pdf", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect.poll(async () => cockpit.app.evaluate(async ({ webContents }) => {
+    const document = webContents.getAllWebContents().find((wc) => wc.getURL().includes(".pdf"));
+    const frame = document?.mainFrame.framesInSubtree.find((frame) => frame.url.startsWith("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/"));
+    return frame ? frame.executeJavaScript("Boolean(document.querySelector('pdf-viewer')?.shadowRoot?.querySelector('embed'))") : false;
+  })).toBe(true);
+  await generate("image");
+  await expect(cockpit.page.getByRole("tab", { name: "generated cover.png", exact: true })).toHaveAttribute("aria-selected", "true");
+  const image = (await cockpit.snapshot()).targets.find((target) => target.name === "generated cover.png")!;
+  await expect.poll(async () => { try { return await cockpit.guest(image.id, "document.querySelector('img')?.naturalWidth"); } catch { return 0; } }).toBe(8);
+});
+
 test("MP4 plays in Electron, pauses when closed, keeps position and applies updates paused", async ({ cockpit }) => {
   const file = join(cockpit.directory, "movie.mp4");
   try {
@@ -765,4 +1096,275 @@ test("file picker, close-state persistence and narrow AI switching work without 
   await expect(cockpit.page.getByTestId("preview-toggle")).toHaveAttribute("aria-expanded", "false");
   await cockpit.page.getByTestId("preview-toggle").click();
   await expect(cockpit.page.getByRole("tab", { name: "picked.md", exact: true })).toBeVisible();
+});
+
+test("comparison correctness: identical PNG has no pixel differences", async ({ cockpit }) => {
+  const file = join(cockpit.directory, "unchanged.png"); await writeFile(file, await pngFixture(cockpit.app));
+  const id = await cockpit.add(file);
+  await expect.poll(async () => { try { return await cockpit.guest(id, "document.querySelector('img')?.naturalWidth"); } catch { return 0; } }).toBe(320);
+  await cockpit.page.getByRole("button", { name: "基準を保存", exact: true }).click();
+  await expect(cockpit.page.getByText("基準を保存しました", { exact: true })).toBeVisible();
+  await cockpit.page.getByRole("button", { name: "変更を比較", exact: true }).click();
+  const dialog = cockpit.page.getByTestId("visual-comparison");
+  await expect(dialog.getByText("強調する差分はありません。", { exact: true })).toBeVisible();
+  const images = await dialog.locator("img").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("src")!));
+  expect((await pixelBounds(cockpit.app, images[0], images[1])).pixels).toBe(0);
+  await expect(dialog.getByTestId("visual-diff-region")).toHaveCount(0);
+});
+
+test("image comparison ignores changes to viewer controls and restores them after capture", async ({ cockpit }) => {
+  const file = join(cockpit.directory, "viewer-controls.png"); await writeFile(file, await pngFixture(cockpit.app));
+  const id = await cockpit.add(file);
+  await cockpit.page.getByRole("button", { name: "基準を保存", exact: true }).click();
+  await expect(cockpit.page.getByText("基準を保存しました", { exact: true })).toBeVisible();
+  await cockpit.guest(id, "document.getElementById('fit').style.backgroundColor='rgb(255,0,0)'");
+  await cockpit.page.getByRole("button", { name: "変更を比較", exact: true }).click();
+  const dialog = cockpit.page.getByTestId("visual-comparison");
+  await expect(dialog.getByText("強調する差分はありません。", { exact: true })).toBeVisible();
+  const images = await dialog.locator("img").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("src")!));
+  expect((await pixelBounds(cockpit.app, images[0], images[1])).pixels).toBe(0);
+  expect(await cockpit.guest(id, "getComputedStyle(document.getElementById('fit')).visibility")).toBe("visible");
+});
+
+test("comparison correctness: PNG highlights only a known 32px patch and keeps before on the left", async ({ cockpit }, testInfo) => {
+  const file = join(cockpit.directory, "patch.png"); await writeFile(file, await pngFixture(cockpit.app));
+  const id = await cockpit.add(file), tabId = (await cockpit.snapshot()).tabId;
+  await expect.poll(async () => { try { return await cockpit.guest(id, "document.querySelector('img')?.naturalWidth"); } catch { return 0; } }).toBe(320);
+  await expect(cockpit.page.getByRole("button", { name: "基準を保存", exact: true })).toBeEnabled();
+  const box = await cockpit.guest(id, "(()=>{const r=document.querySelector('img').getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height,viewport:innerWidth}})()") as { x: number; y: number; width: number; height: number; viewport: number };
+  const reference = await cockpit.page.evaluate(({ tabId, targetId }) => window.cockpit!.preview!.request({ action: "capture", tabId, targetId }), { tabId, targetId: id });
+  if (!reference.ok || !reference.capture) throw new Error("Missing original PNG capture");
+  await cockpit.page.getByRole("button", { name: "基準を保存", exact: true }).click();
+  await expect(cockpit.page.getByText("基準を保存しました", { exact: true })).toBeVisible();
+  await writeFile(file, await pngFixture(cockpit.app, true));
+  await expect.poll(async () => (await cockpit.snapshot()).targets[0].revision).toBe(2);
+  await expect.poll(() => cockpit.guest(id, "location.search.includes('v=2')&&document.querySelector('img').complete")).toBe(true);
+  await cockpit.page.getByRole("button", { name: "変更を比較", exact: true }).click();
+  const dialog = cockpit.page.getByTestId("visual-comparison"); await expect(dialog).toBeVisible();
+  const images = await dialog.locator("img").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("src")!));
+  expect((await pixelBounds(cockpit.app, reference.capture.image, images[0])).pixels).toBe(0);
+  const observed = await pixelBounds(cockpit.app, images[0], images[1]); expect(observed.box).not.toBeNull();
+  const scale = observed.size.width / box.viewport;
+  const expected = { x: (box.x + box.width * 64 / 320) * scale, y: (box.y + box.height * 48 / 200) * scale, width: box.width * 32 / 320 * scale, height: box.height * 32 / 200 * scale };
+  await writeFile(testInfo.outputPath("patch-oracle.json"), JSON.stringify({ expected, observed, box, before: reference.capture.viewport }, null, 2), "utf8");
+  for (const [index, image] of images.entries()) await writeFile(testInfo.outputPath(`patch-${index === 0 ? "before" : "after"}.png`), Buffer.from(image.split(",")[1], "base64"));
+  for (const key of ["x", "y", "width", "height"] as const) expect(Math.abs(observed.box![key] - expected[key])).toBeLessThanOrEqual(2);
+  const regions = await dialog.locator(".visual-comparison-side").first().getByTestId("visual-diff-region").evaluateAll((nodes) => nodes.map((node) => {
+    const style = (node as HTMLElement).style; return { x: parseFloat(style.left), y: parseFloat(style.top), width: parseFloat(style.width), height: parseFloat(style.height) };
+  }));
+  expect(regions).toHaveLength(1);
+  const region = { x: regions[0].x / 100 * observed.size.width, y: regions[0].y / 100 * observed.size.height, width: regions[0].width / 100 * observed.size.width, height: regions[0].height / 100 * observed.size.height };
+  expect(region.x).toBeLessThanOrEqual(observed.box!.x); expect(region.y).toBeLessThanOrEqual(observed.box!.y);
+  expect(region.x + region.width).toBeGreaterThanOrEqual(observed.box!.x + observed.box!.width);
+  expect(region.y + region.height).toBeGreaterThanOrEqual(observed.box!.y + observed.box!.height);
+  expect(region.width).toBeLessThanOrEqual(observed.box!.width + 32); expect(region.height).toBeLessThanOrEqual(observed.box!.height + 32);
+  await writeFile(testInfo.outputPath("patch-oracle.json"), JSON.stringify({ expected, observed, region }, null, 2), "utf8");
+  await dialog.screenshot({ path: testInfo.outputPath("known-patch-comparison.png") });
+});
+
+test("comparison readiness: an undecodable image cannot become a baseline", async ({ cockpit }) => {
+  const file = join(cockpit.directory, "broken.png"); await writeFile(file, "not a decodable PNG image", "utf8");
+  const id = await cockpit.add(file), tabId = (await cockpit.snapshot()).tabId;
+  await expect.poll(async () => { try { return await cockpit.guest(id, "document.querySelector('img')?.complete"); } catch { return false; } }).toBe(true);
+  expect(await cockpit.guest(id, "document.querySelector('img').naturalWidth")).toBe(0);
+  await expect.poll(async () => (await cockpit.snapshot()).targets.find((target) => target.id === id)?.error).toBe("unsupported");
+  const errors = await cockpit.page.evaluateHandle(({ tabId, targetId }) => {
+    const state = { cleared: 0 };
+    window.cockpit!.preview!.onChanged((snapshot) => {
+      if (snapshot.tabId === tabId && snapshot.targets.some((target) => target.id === targetId && !target.error)) state.cleared++;
+    });
+    return state;
+  }, { tabId, targetId: id });
+  // An independent file change is an observable barrier for the file watcher.
+  // Merely finding the corrupt image on disk must not clear its decode failure.
+  const clock = join(cockpit.directory, "watch-clock.md"); await writeFile(clock, "before", "utf8");
+  const added = await cockpit.page.evaluate(({ tabId, source }) => window.cockpit!.preview!.request({ action: "add", tabId, source }), { tabId, source: clock });
+  if (!added.ok) throw new Error("Missing file watcher barrier");
+  const clockId = added.value.targets.find((target) => target.source === clock)?.id;
+  await writeFile(clock, "after", "utf8");
+  await expect.poll(async () => (await cockpit.snapshot()).targets.find((target) => target.id === clockId)?.updated).toBe(true);
+  expect((await cockpit.snapshot()).targets.find((target) => target.id === id)?.error).toBe("unsupported");
+  const bounds = await cockpit.page.getByTestId("preview-surface").evaluate((node) => {
+    const box = node.getBoundingClientRect(); return { x: Math.round(box.x), y: Math.round(box.y), width: Math.floor(box.width), height: Math.floor(box.height) };
+  });
+  await cockpit.page.evaluate(({ tabId, targetId, bounds }) => window.cockpit!.preview!.request({ action: "present", tabId, targetId, bounds }), { tabId, targetId: id, bounds });
+  expect(await errors.evaluate((state) => state.cleared)).toBe(0);
+  const result = await cockpit.page.evaluate(({ tabId, targetId }) => window.cockpit!.preview!.request({ action: "capture", tabId, targetId, baseline: true }), { tabId, targetId: id });
+  expect(result.ok).toBe(false);
+  const revision = (await cockpit.snapshot()).targets.find((target) => target.id === id)!.revision;
+  await writeFile(file, await pngFixture(cockpit.app));
+  await expect.poll(async () => (await cockpit.snapshot()).targets.find((target) => target.id === id)?.revision).toBeGreaterThan(revision);
+  await expect(cockpit.page.getByRole("button", { name: "基準を保存", exact: true })).toBeEnabled();
+  const recovered = await cockpit.page.evaluate(({ tabId, targetId }) => window.cockpit!.preview!.request({ action: "capture", tabId, targetId, baseline: true }), { tabId, targetId: id });
+  expect(recovered.ok).toBe(true);
+  // Teardown must also quit cleanly with a failed image still selected.
+  await writeFile(file, "not a decodable PNG image again", "utf8");
+  await expect.poll(async () => (await cockpit.snapshot()).targets.find((target) => target.id === id)?.error).toBe("unsupported");
+});
+
+test("comparison correctness: identical PDF has no document differences", async ({ cockpit }) => {
+  const file = join(cockpit.directory, "same.pdf"); await writeFile(file, pdfFixture("SAME_DOCUMENT"));
+  await cockpit.add(file);
+  await cockpit.page.getByRole("button", { name: "基準を保存", exact: true }).click();
+  await expect(cockpit.page.getByText("基準を保存しました", { exact: true })).toBeVisible();
+  await cockpit.page.getByRole("button", { name: "変更を比較", exact: true }).click();
+  const dialog = cockpit.page.getByTestId("visual-comparison");
+  await expect(dialog.getByText("強調する差分はありません。", { exact: true })).toBeVisible();
+  await expect(dialog.getByTestId("visual-diff-region")).toHaveCount(0);
+});
+
+test("comparison correctness: regenerated PDF keeps original bytes and displays new bytes on the right", async ({ cockpit }, testInfo) => {
+  const file = join(cockpit.directory, "changed.pdf"); await writeFile(file, pdfFixture("OLD_DOCUMENT"));
+  const id = await cockpit.add(file), tabId = (await cockpit.snapshot()).tabId;
+  await cockpit.page.getByRole("button", { name: "基準を保存", exact: true }).click();
+  await expect(cockpit.page.getByText("基準を保存しました", { exact: true })).toBeVisible();
+  const reference = await cockpit.page.evaluate(({ tabId, targetId }) => window.cockpit!.preview!.request({ action: "capture", tabId, targetId }), { tabId, targetId: id });
+  if (!reference.ok || !reference.capture) throw new Error("Missing original PDF capture");
+  const oldUrl = await cockpit.app.evaluate(({ webContents }) => webContents.getAllWebContents().find((wc) => wc.getURL().includes(".pdf"))!.getURL());
+  const oldPath = fileURLToPath(new URL(oldUrl));
+  await writeFile(file, pdfFixture("NEW_DOCUMENT"));
+  await expect.poll(async () => (await cockpit.snapshot()).targets[0].updated).toBe(true);
+  expect(await readFile(oldPath, "utf8")).toContain("OLD_DOCUMENT");
+  await cockpit.page.getByRole("button", { name: "新しい版を表示", exact: true }).click();
+  await expect.poll(async () => (await cockpit.snapshot()).targets[0].revision).toBe(2);
+  await expect.poll(() => cockpit.app.evaluate(({ webContents }) => webContents.getAllWebContents().find((wc) => wc.getURL().includes(".pdf"))!.getURL())).not.toBe(oldUrl);
+  const newUrl = await cockpit.app.evaluate(({ webContents }) => webContents.getAllWebContents().find((wc) => wc.getURL().includes(".pdf"))!.getURL());
+  expect(await readFile(fileURLToPath(new URL(newUrl)), "utf8")).toContain("NEW_DOCUMENT");
+  expect(await readFile(oldPath, "utf8")).not.toContain("NEW_DOCUMENT");
+  await cockpit.page.getByRole("button", { name: "変更を比較", exact: true }).click();
+  const dialog = cockpit.page.getByTestId("visual-comparison");
+  await expect(dialog.getByText("変化した範囲を色で囲んでいます。", { exact: true })).toBeVisible();
+  const images = await dialog.locator("img").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("src")!));
+  const ignored = (reference.capture.pdf?.ignoredTop ?? 0) / reference.capture.height;
+  expect((await pixelBounds(cockpit.app, reference.capture.image, images[0], ignored)).pixels).toBe(0);
+  const observed = await pixelBounds(cockpit.app, images[0], images[1], ignored);
+  expect(observed.pixels).toBeGreaterThan(0); expect(observed.box).not.toBeNull();
+  expect(observed.box!.width * observed.box!.height).toBeLessThan(observed.size.width * observed.size.height / 4);
+  await writeFile(testInfo.outputPath("pdf-oracle.json"), JSON.stringify(observed, null, 2), "utf8");
+  await dialog.screenshot({ path: testInfo.outputPath("pdf-version-comparison.png") });
+});
+
+test("comparison correctness: separate artifacts retain their own before and after versions", async ({ cockpit }) => {
+  test.setTimeout(60_000);
+  const a = join(cockpit.directory, "a.html"), b = join(cockpit.directory, "b.html");
+  await writeFile(a, "<p>A_OLD</p>"); await writeFile(b, "<p>B_OLD</p>");
+  const aId = await cockpit.add(a);
+  await expect(cockpit.page.getByText("基準を自動保存しました", { exact: true })).toBeVisible();
+  await cockpit.add(b);
+  await expect(cockpit.page.getByText("基準を自動保存しました", { exact: true })).toBeVisible();
+  await writeFile(a, "<p>A_NEW</p>");
+  await expect.poll(async () => (await cockpit.snapshot()).targets.find((target) => target.id === aId)?.updated).toBe(true);
+  await cockpit.page.getByRole("tab", { name: /^a\.html/u }).click();
+  await expect.poll(() => guestText(cockpit, aId)).toContain("A_NEW");
+  const archives = async (): Promise<string[]> => {
+    const paths = await cockpit.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.filter((view) => "webContents" in view && (view as Electron.WebContentsView).webContents.getURL().endsWith(".mhtml")).sort((left, right) => left.getBounds().x - right.getBounds().x).map((view) => (view as Electron.WebContentsView).webContents.getURL()));
+    return Promise.all(paths.map(async (path) => (await readFile(fileURLToPath(path), "utf8")).replace(/=\r?\n/gu, "")));
+  };
+  await cockpit.page.getByRole("button", { name: "変更を比較", exact: true }).click();
+  await expect(cockpit.page.getByTestId("comparison-pages")).toHaveAttribute("data-ready", "true");
+  const aPages = await archives(); expect(aPages[0]).toContain("A_OLD"); expect(aPages[1]).toContain("A_NEW");
+  expect(aPages.join("")).not.toContain("B_OLD");
+  await cockpit.page.getByRole("button", { name: "比較を閉じる", exact: true }).click();
+  await cockpit.page.getByRole("tab", { name: "b.html", exact: true }).click();
+  await cockpit.page.getByRole("button", { name: "変更を比較", exact: true }).click();
+  await expect(cockpit.page.getByTestId("comparison-pages")).toHaveAttribute("data-ready", "true");
+  await expect(cockpit.page.getByText("変更した要素はありません。左右のページをスクロールできます。", { exact: true })).toBeVisible();
+  const bPages = await archives(); expect(bPages).toHaveLength(2);
+  for (const page of bPages) { expect(page).toContain("B_OLD"); expect(page).not.toContain("A_OLD"); expect(page).not.toContain("A_NEW"); }
+});
+
+test("comparison correctness: different PDF pages disable misleading highlights", async ({ cockpit }, testInfo) => {
+  const file = join(cockpit.directory, "two-pages.pdf"); await writeFile(file, pdfFixture("PAGE_ONE", "PAGE_TWO"));
+  await cockpit.add(file);
+  await cockpit.page.getByRole("button", { name: "基準を保存", exact: true }).click();
+  await expect(cockpit.page.getByText("基準を保存しました", { exact: true })).toBeVisible();
+  const pageNumber = () => cockpit.app.evaluate(async ({ webContents }) => {
+    const document = webContents.getAllWebContents().find((wc) => wc.getURL().includes(".pdf"));
+    const frame = document?.mainFrame.framesInSubtree.find((frame) => frame.url.startsWith("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/"));
+    return frame?.executeJavaScript("document.querySelector('pdf-viewer')?.shadowRoot?.querySelector('viewer-toolbar')?.pageNo");
+  });
+  await expect.poll(pageNumber).toBe(1);
+  await cockpit.app.evaluate(async ({ webContents }) => {
+    const document = webContents.getAllWebContents().find((wc) => wc.getURL().includes(".pdf"))!;
+    const frame = document.mainFrame.framesInSubtree.find((frame) => frame.url.startsWith("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/"))!;
+    await frame.executeJavaScript("(()=>{const selector=document.querySelector('pdf-viewer').shadowRoot.querySelector('viewer-toolbar').shadowRoot.querySelector('viewer-page-selector');const input=selector.shadowRoot.querySelector('input');input.value='2';input.dispatchEvent(new Event('change',{bubbles:true,composed:true}))})()");
+  });
+  await expect.poll(pageNumber).toBe(2);
+  await cockpit.page.getByRole("button", { name: "変更を比較", exact: true }).click();
+  const dialog = cockpit.page.getByTestId("visual-comparison");
+  await expect(dialog.getByText("同じ表示条件で比較できないため、強調表示はオフです。", { exact: true })).toBeVisible();
+  await expect(dialog.getByLabel("変更箇所を強調", { exact: true })).toBeDisabled();
+  await expect(dialog.getByTestId("visual-diff-region")).toHaveCount(0);
+  await dialog.screenshot({ path: testInfo.outputPath("different-pages-no-highlights.png") });
+});
+
+test("comparison readiness: concurrent presentations wait for the same unfinished load", async ({ cockpit }) => {
+  const pending = new Set<ServerResponse>(); let released = false;
+  let received!: () => void; const requested = new Promise<void>((resolve) => { received = resolve; });
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html");
+    if (released) { response.end("<h1>Released document</h1>"); return; }
+    pending.add(response); response.on("close", () => pending.delete(response)); received();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === "string") throw new Error("Missing controlled server port");
+    const id = await cockpit.add(`http://127.0.0.1:${address.port}/`), tabId = (await cockpit.snapshot()).tabId;
+    await requested;
+    const bounds = await cockpit.page.getByTestId("preview-surface").evaluate((node) => {
+      const box = node.getBoundingClientRect(); return { x: Math.round(box.x), y: Math.round(box.y), width: Math.floor(box.width), height: Math.floor(box.height) };
+    });
+    const state = await cockpit.page.evaluateHandle(({ tabId, targetId, bounds }) => {
+      const state = { completed: 0, failed: false };
+      for (let index = 0; index < 2; index++) void window.cockpit!.preview!.request({ action: "present", tabId, targetId, bounds }).then((result) => { state.completed++; state.failed ||= !result.ok; });
+      return state;
+    }, { tabId, targetId: id, bounds });
+    // An unrelated IPC round trip proves queued immediate replies were delivered.
+    await cockpit.page.evaluate((tabId) => window.cockpit!.preview!.request({ action: "list", tabId }), tabId);
+    expect(await state.evaluate((state) => state.completed)).toBe(0);
+    released = true; for (const response of pending) response.end("<h1>Released document</h1>");
+    await expect.poll(() => state.evaluate((state) => state.completed)).toBe(2);
+    expect(await state.evaluate((state) => state.failed)).toBe(false);
+    await expect.poll(() => cockpit.app.evaluate(async ({ webContents }, url) => {
+      const view = webContents.getAllWebContents().find((contents) => contents.getURL() === url);
+      return view ? view.executeJavaScript("document.body.innerText") : "";
+    }, `http://127.0.0.1:${address.port}/`)).toContain("Released document");
+  } finally {
+    released = true; for (const response of pending) response.end("<h1>Released document</h1>");
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+for (const superseded of ["completed", "failed"] as const) test(`comparison readiness: refresh during loading (${superseded}) presents the new response before becoming ready`, async ({ cockpit }) => {
+  let first: ServerResponse | undefined, requests = 0;
+  let received!: () => void; const requested = new Promise<void>((resolve) => { received = resolve; });
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html"); response.setHeader("Cache-Control", "no-store");
+    if (++requests === 1) { first = response; received(); }
+    else response.end("<h1>NEW_RESPONSE_AFTER_REFRESH</h1>");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === "string") throw new Error("Missing refresh fixture port");
+    const url = `http://127.0.0.1:${address.port}/`;
+    const id = await cockpit.add(url), tabId = (await cockpit.snapshot()).tabId;
+    await requested;
+    const refresh = await cockpit.page.evaluateHandle(({ tabId, targetId }) => {
+      const state = { completed: false, ok: false };
+      void window.cockpit!.preview!.request({ action: "refresh", tabId, targetId }).then((result) => { state.completed = true; state.ok = result.ok; });
+      return state;
+    }, { tabId, targetId: id });
+    await expect.poll(async () => (await cockpit.snapshot()).targets.find((target) => target.id === id)?.revision).toBe(1);
+    if (superseded === "failed") first!.destroy();
+    else first!.end("<h1>OLD_RESPONSE_BEFORE_REFRESH</h1>");
+    await expect.poll(() => refresh.jsonValue()).toEqual({ completed: true, ok: true });
+    await expect.poll(async () => cockpit.app.evaluate(async ({ webContents }, url) => {
+      const view = webContents.getAllWebContents().find((contents) => contents.getURL() === url);
+      return view ? view.executeJavaScript("document.body.innerText") : "";
+    }, url)).toBe("NEW_RESPONSE_AFTER_REFRESH");
+    expect(requests).toBeGreaterThanOrEqual(2);
+  } finally {
+    if (first && !first.writableEnded && !first.destroyed) first.end("<h1>Release pending fixture</h1>");
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });

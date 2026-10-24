@@ -384,7 +384,7 @@ SOFTWARE.
 
 ---
 
-## zod v4.4.3
+## zod v4.6.7
 
 License: MIT
 

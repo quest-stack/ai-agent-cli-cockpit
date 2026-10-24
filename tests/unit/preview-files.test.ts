@@ -39,6 +39,14 @@ test("Markdown escapes raw HTML and unsafe links while rendering common document
   assert.match(html, /&lt;script&gt;/u); assert.match(html, /src="cover.png"/u);
 });
 
+test("up to three leading ASCII spaces preserve Markdown headings and following paragraphs", () => {
+  for (let level = 1; level <= 6; level++) {
+    const source = `${"#".repeat(level)} Heading\n\nUnchanged paragraph.\n\nSecond paragraph.`;
+    for (let spaces = 1; spaces <= 3; spaces++) assert.equal(renderMarkdown(" ".repeat(spaces) + source), renderMarkdown(source));
+  }
+  assert.doesNotMatch(renderMarkdown("    # Heading"), /<h1>/u);
+});
+
 test("asset grants deny traversal, hidden files and symlinks outside the selected folder", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cockpit-preview-assets-"));
   const root = join(directory, "site"); const outside = join(directory, "outside");
@@ -87,4 +95,34 @@ test("relative artifacts resolve only from the source CLI directory and require 
   assert.deepEqual(unknown, { files: [], unresolved: true });
   const rejected = await resolvePreviewCandidates(project, ["missing.pdf", "../other/private.pdf", "linked/private.pdf"]);
   assert.deepEqual(rejected, { files: [], unresolved: true });
+});
+
+test("project context documents are ignored by discovery without reporting missing artifacts", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cockpit-preview-context-"));
+  for (const name of ["AGENTS.md", "Claude.md", "DESIGN.md", "README.md", "SKILL.md"]) await writeFile(join(directory, name), "# Project instructions");
+  const names = ["AGENTS.md", "Claude.md", "DESIGN.md", "README.md", "SKILL.md", "CURRENT_STATUS.md", "HANDOFF_20261021.md"];
+  assert.deepEqual(await resolvePreviewCandidates(directory, names), { files: [], unresolved: false });
+  assert.deepEqual(await resolvePreviewCandidates(undefined, names), { files: [], unresolved: false });
+});
+
+test("project context documents can still be opened explicitly", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cockpit-preview-manual-context-"));
+  const source = join(directory, "AGENTS.md"); await writeFile(source, "# Project instructions");
+  const grant = await createGrant("manual-context", source);
+  assert.equal(grant.kind, "markdown");
+  assert.equal(grant.source, await realpath(source));
+});
+
+test("a requested context preview keeps the session directory, hidden-file and symlink boundaries", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cockpit-preview-requested-context-"));
+  const project = join(directory, "project"); const other = join(directory, "other");
+  await mkdir(project); await mkdir(other); await mkdir(join(project, ".private"));
+  await writeFile(join(project, "AGENTS.md"), "# Requested instructions");
+  await writeFile(join(other, "CLAUDE.md"), "# Outside instructions");
+  await writeFile(join(project, ".private", "DESIGN.md"), "# Hidden instructions");
+  await symlink(other, join(project, "linked"), process.platform === "win32" ? "junction" : "dir");
+  const result = await resolvePreviewCandidates(project, ["AGENTS.md"], true);
+  assert.deepEqual(result.files.map((file) => file.source), [await realpath(join(project, "AGENTS.md"))]);
+  assert.deepEqual(await resolvePreviewCandidates(project, ["../other/CLAUDE.md", "linked/CLAUDE.md", ".private/DESIGN.md"], true), { files: [], unresolved: true });
+  assert.deepEqual(await resolvePreviewCandidates(undefined, ["AGENTS.md"], true), { files: [], unresolved: true });
 });

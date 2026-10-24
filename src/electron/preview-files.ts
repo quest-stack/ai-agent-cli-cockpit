@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 
 import { localPreviewUrl } from "../shared/preview";
+import { isPreviewContextFile } from "../shared/preview-paths";
 import { createManagedPreviewCache } from "./preview-cache";
 import type { PreviewFileCandidate, PreviewKind } from "../shared/preview";
 
@@ -28,18 +29,19 @@ export function previewKind(source: string): PreviewKind | null {
 export function localFilePath(source: string): boolean {
   return isAbsolute(source) && !/^(?:\\\\|\/\/)/u.test(source) && !source.includes("\0");
 }
-export async function resolvePreviewCandidates(directory: string | undefined, paths: string[]): Promise<{ files: PreviewFileCandidate[]; unresolved: boolean }> {
+export async function resolvePreviewCandidates(directory: string | undefined, paths: string[], requestedContext = false): Promise<{ files: PreviewFileCandidate[]; unresolved: boolean }> {
   const files: PreviewFileCandidate[] = []; let unresolved = false;
   let root: string | undefined;
   try { if (directory && localFilePath(directory)) root = await realpath(directory); } catch { /* No fallback to Cockpit's own working directory. */ }
   for (const label of paths.slice(0, 12)) {
     const kind = previewKind(label);
-    if (!kind || localPreviewUrl(label)) continue;
+    if (!kind || localPreviewUrl(label) || !requestedContext && isPreviewContextFile(label)) continue;
     if (!root) { unresolved = true; continue; }
     try {
       const candidate = isAbsolute(label) ? label : resolve(root, label);
       if (!localFilePath(candidate) || label.split(/[\\/]/u).some((part) => part.startsWith(".") && part !== "." && part !== "..")) { unresolved = true; continue; }
       const source = await realpath(candidate); const inside = relative(root, source);
+      if (!requestedContext && isPreviewContextFile(source)) continue;
       if (inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside) || previewKind(source) !== kind
         || inside.split(sep).some((part) => part.startsWith(".")) || !(await stat(source)).isFile()) { unresolved = true; continue; }
       if (!files.some((file) => file.source === source)) files.push({ source, label, kind });
@@ -72,7 +74,7 @@ export function renderMarkdown(input: string): string {
     const line = lines[index];
     if (/^\s*```/u.test(line)) { output.push(fenced ? "</code></pre>" : "<pre><code>"); fenced = !fenced; continue; }
     if (fenced) { output.push(`${escapeHtml(line)}\n`); continue; }
-    const heading = /^(#{1,6})\s+(.+)$/u.exec(line);
+    const heading = /^ {0,3}(#{1,6})\s+(.+)$/u.exec(line);
     if (heading) { output.push(`<h${heading[1].length}>${inlineMarkdown(heading[2])}</h${heading[1].length}>`); continue; }
     if (line.includes("|") && /^\s*\|?\s*:?-{3,}/u.test(lines[index + 1] ?? "")) {
       const cells = (row: string): string[] => row.trim().replace(/^\||\|$/gu, "").split("|");
