@@ -1112,6 +1112,20 @@ test("comparison correctness: identical PNG has no pixel differences", async ({ 
   await expect(dialog.getByTestId("visual-diff-region")).toHaveCount(0);
 });
 
+test("image comparison ignores changes to viewer controls and restores them after capture", async ({ cockpit }) => {
+  const file = join(cockpit.directory, "viewer-controls.png"); await writeFile(file, await pngFixture(cockpit.app));
+  const id = await cockpit.add(file);
+  await cockpit.page.getByRole("button", { name: "基準を保存", exact: true }).click();
+  await expect(cockpit.page.getByText("基準を保存しました", { exact: true })).toBeVisible();
+  await cockpit.guest(id, "document.getElementById('fit').style.backgroundColor='rgb(255,0,0)'");
+  await cockpit.page.getByRole("button", { name: "変更を比較", exact: true }).click();
+  const dialog = cockpit.page.getByTestId("visual-comparison");
+  await expect(dialog.getByText("強調する差分はありません。", { exact: true })).toBeVisible();
+  const images = await dialog.locator("img").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("src")!));
+  expect((await pixelBounds(cockpit.app, images[0], images[1])).pixels).toBe(0);
+  expect(await cockpit.guest(id, "getComputedStyle(document.getElementById('fit')).visibility")).toBe("visible");
+});
+
 test("comparison correctness: PNG highlights only a known 32px patch and keeps before on the left", async ({ cockpit }, testInfo) => {
   const file = join(cockpit.directory, "patch.png"); await writeFile(file, await pngFixture(cockpit.app));
   const id = await cockpit.add(file), tabId = (await cockpit.snapshot()).tabId;
@@ -1183,6 +1197,9 @@ test("comparison readiness: an undecodable image cannot become a baseline", asyn
   await expect(cockpit.page.getByRole("button", { name: "基準を保存", exact: true })).toBeEnabled();
   const recovered = await cockpit.page.evaluate(({ tabId, targetId }) => window.cockpit!.preview!.request({ action: "capture", tabId, targetId, baseline: true }), { tabId, targetId: id });
   expect(recovered.ok).toBe(true);
+  // Teardown must also quit cleanly with a failed image still selected.
+  await writeFile(file, "not a decodable PNG image again", "utf8");
+  await expect.poll(async () => (await cockpit.snapshot()).targets.find((target) => target.id === id)?.error).toBe("unsupported");
 });
 
 test("comparison correctness: identical PDF has no document differences", async ({ cockpit }) => {

@@ -219,7 +219,11 @@ export class PreviewManager {
           }
           const position = request.position;
           let timeout: ReturnType<typeof setTimeout> | undefined;
+          let captureStyle: string | undefined;
           try {
+            // Viewer controls are not part of the image being compared. Keep
+            // their layout space but omit hover/focus styling from both captures.
+            if (record.target.kind === "image") captureStyle = await wc.insertCSS("#fit{visibility:hidden!important}");
             const readMetrics = async (): Promise<{ root: unknown; pdf: unknown }> => {
               const root: unknown = await wc.executeJavaScript(`new Promise(resolve=>{${position ? `scrollTo(${position.x},${position.y});` : ""}requestAnimationFrame(()=>requestAnimationFrame(()=>resolve({viewport:{width:Math.round(innerWidth),height:Math.round(innerHeight)},position:{x:Math.max(0,Math.round(scrollX)),y:Math.max(0,Math.round(scrollY))}})))})`);
               let pdf: unknown;
@@ -266,7 +270,10 @@ export class PreviewManager {
               }
             }
             return { ok: true, value: this.snapshot(request.tabId), capture, comparison, versions: this.pageReview?.list(record.target.id) };
-          } finally { if (timeout) clearTimeout(timeout); }
+          } finally {
+            if (timeout) clearTimeout(timeout);
+            if (captureStyle && !wc.isDestroyed()) await wc.removeInsertedCSS(captureStyle).catch(() => undefined);
+          }
         } else if (request.action === "remove") {
           this.pageReview?.remove(record.target.id);
           if (this.active?.id === request.targetId) this.hide();
