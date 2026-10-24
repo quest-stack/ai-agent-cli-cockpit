@@ -4,14 +4,55 @@ import type { CliActivityEvent } from "./cli-activity-bridge";
 export const STATUS_SETTLE_DELAY_MS = 900;
 const WAITING_RELEASE_OUTPUT_LENGTH = 80;
 
-const OSC_PATTERN = new RegExp(
-  String.raw`\u001B\][^\u0007]*(?:\u0007|\u001B\\)`,
-  "gu",
-);
-const ANSI_PATTERN = new RegExp(
-  String.raw`\u001B(?:\[[0-?]*[ -/]*[@-~]|[@-_])`,
-  "gu",
-);
+// PTY chunks can split a control sequence anywhere. Retain its framing, never
+// its payload, so title/cursor updates do not become visible work between chunks.
+class TerminalOutputFilter {
+  private mode: "text" | "escape" | "intermediate" | "csi" |
+    "osc" | "oscEscape" | "string" | "stringEscape" = "text";
+
+  push(data: string): string {
+    let output = "";
+    for (const character of data) {
+      const code = character.charCodeAt(0);
+      if (code === 0x18 || code === 0x1a) {
+        this.mode = "text";
+        continue;
+      }
+      if (this.mode === "text") {
+        if (character === "\u001b") this.mode = "escape";
+        else if (code === 0x9b) this.mode = "csi";
+        else if (code === 0x9d) this.mode = "osc";
+        else if (code === 0x90 || code === 0x98 || code === 0x9e || code === 0x9f) this.mode = "string";
+        else if ((code >= 0x20 && (code < 0x7f || code > 0x9f)) || /[\r\n\t]/u.test(character)) output += character;
+        continue;
+      }
+      if (this.mode === "escape") {
+        if (character === "[") this.mode = "csi";
+        else if (character === "]") this.mode = "osc";
+        else if (/[PX^_]/u.test(character)) this.mode = "string";
+        else if (/[ -/]/u.test(character)) this.mode = "intermediate";
+        else if (character !== "\u001b") this.mode = "text";
+        continue;
+      }
+      if (this.mode === "intermediate") {
+        if (character === "\u001b") this.mode = "escape";
+        else if (!/[ -/]/u.test(character)) this.mode = "text";
+        continue;
+      }
+      if (this.mode === "csi") {
+        if (character === "\u001b") this.mode = "escape";
+        else if (code >= 0x40 && code <= 0x7e) this.mode = "text";
+        continue;
+      }
+      const osc = this.mode === "osc" || this.mode === "oscEscape";
+      const escaped = this.mode === "oscEscape" || this.mode === "stringEscape";
+      if (code === 0x9c || (osc && character === "\u0007") || (escaped && character === "\\")) this.mode = "text";
+      else if (character === "\u001b") this.mode = osc ? "oscEscape" : "stringEscape";
+      else this.mode = osc ? "osc" : "string";
+    }
+    return output;
+  }
+}
 
 const WAITING_PATTERNS = [
   /Yes,\s*don['’]t ask again/iu,
@@ -26,7 +67,7 @@ const WAITING_PATTERNS = [
 ];
 
 export function stripTerminalSequences(value: string): string {
-  return value.replace(OSC_PATTERN, "").replace(ANSI_PATTERN, "");
+  return new TerminalOutputFilter().push(value);
 }
 
 export function containsWaitingPrompt(value: string): boolean {
@@ -34,6 +75,7 @@ export function containsWaitingPrompt(value: string): boolean {
 }
 
 export class StatusDetector {
+  private readonly outputFilter = new TerminalOutputFilter();
   private buffer = "";
   private settleTimer: ReturnType<typeof setTimeout> | undefined;
   private status: SessionStatus = "idle";
@@ -52,7 +94,15 @@ export class StatusDetector {
 
   handleData(data: string): void {
     if (this.disposed) return;
-    const visibleData = stripTerminalSequences(data);
+    const visibleData = this.outputFilter.push(data);
+    if (!visibleData) return;
+    if (!visibleData.trim()) {
+      // Whitespace can separate words in a streamed approval prompt, but is not
+      // new work and must not keep renewing the settle timer by itself.
+      if (this.waitingLocked) this.waitingOutput = `${this.waitingOutput}${visibleData}`.slice(-8_000);
+      else this.buffer = `${this.buffer}${visibleData}`.slice(-8_000);
+      return;
+    }
 
     if (this.waitingLocked) {
       this.waitingOutput = `${this.waitingOutput}${visibleData}`.slice(-8_000);
@@ -155,7 +205,7 @@ export class StatusDetector {
     if (event.event === "SubagentStart" ||
       ((event.event === "UserPromptSubmit" || event.event === "PreToolUse") && agentId)) {
       if (agentId) this.handleSubagent(agentId, true);
-    } else if (event.event === "SubagentStop") {
+    } else if (event.event === "SubagentStop" || event.event === "Stop" || event.event === "StopFailure") {
       if (agentId) this.handleSubagent(agentId, false);
     } else if (event.event === "SessionEnd" || event.event === "Interrupt" ||
       (event.event === "SessionStart" && event.source !== "compact")) {

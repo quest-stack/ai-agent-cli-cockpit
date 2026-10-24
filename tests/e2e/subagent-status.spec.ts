@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { expect, test, _electron as electron } from "@playwright/test";
@@ -14,12 +14,14 @@ async function launchFixture(
 ) {
   const userData = testInfo.outputPath("user-data");
   const bin = join(userData, "bin");
-  await mkdir(bin, { recursive: true });
+  const roaming = join(userData, "AppData", "Roaming"), local = join(userData, "AppData", "Local");
+  for (const directory of [bin, roaming, local]) await mkdir(directory, { recursive: true });
   const workspace = createDefaultWorkspace();
   workspace.settings.tourCompleted = true;
   workspace.settings.notificationsEnabled = false;
   await writeFile(join(userData, "session.json"), JSON.stringify(workspace), "utf8");
   const helper = join(bin, "fake-cli.cjs");
+  const redrawFrames = join(userData, "redraw-frames.txt");
   const child = join(bin, "quiet-delegated-cli.cjs");
   await writeFile(child, `
     process.on('message', (code) => process.exit(code));
@@ -40,11 +42,11 @@ async function launchFixture(
       if (!match) throw new Error('Invalid TOML hook command');
       return match[1];
     }
-    function send(event, agent, tool) {
+    function send(event, agent, tool, session = 'parent') {
       const encoded = hookCommand(event).split(' ').at(-1);
       const result = spawnSync('powershell.exe', [
         '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded
-      ], { input: JSON.stringify({hook_event_name: event, session_id: 'parent', agent_id: agent, tool_use_id: tool}),
+      ], { input: JSON.stringify({hook_event_name: event, session_id: session, agent_id: agent, tool_use_id: tool}),
         encoding: 'utf8', timeout: 5000, windowsHide: true });
       if (result.status !== 0 || result.stdout || result.stderr) throw new Error('Hook failed');
     }
@@ -86,17 +88,32 @@ async function launchFixture(
       } else {
         if (instruction === 'finish-a') send('SubagentStop', 'a');
         if (instruction === 'finish-b') send('SubagentStop', 'b');
+        if (instruction === 'finish-turn-a') {
+          if (${JSON.stringify(command)} === 'claude') send('Stop', 'a');
+          else send('Stop', undefined, undefined, 'a');
+        }
       }
       if (instruction === 'approve') console.log('Do you want to proceed? [y/n]');
+      if (instruction === 'redraw') {
+        console.log('Task completed.');
+        const chunks = ['\\u001b', '[?25l\\u001b[?25h', '\\u001b]0;', 'CLI ready', '\\u0007', '\\r'];
+        let frame = 0;
+        setInterval(() => {
+          process.stdout.write(chunks[frame % chunks.length]);
+          fs.writeFileSync(${JSON.stringify(redrawFrames)}, String(++frame));
+        }, 100);
+      }
     });
   `, "utf8");
   await writeFile(join(bin, `${command}.cmd`), `@"${process.execPath}" "${helper}" %*\r\n`, "utf8");
   const entry = join(userData, "hidden-entry.cjs");
+  const packagedExecutable = process.env.COCKPIT_PACKAGED_EXECUTABLE;
+  const loadSource = packagedExecutable ? "" : `require(${JSON.stringify(resolve("dist/electron/main.js"))});`;
   await writeFile(entry, `
     const { app, net } = require('electron');
     app.on('browser-window-created', (_event, win) => { win.show = () => {}; win.showInactive = () => {}; });
     net.fetch = async () => new Response('{}');
-    require(${JSON.stringify(resolve("dist/electron/main.js"))});
+    ${loadSource}
   `, "utf8");
   const environment: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -105,13 +122,15 @@ async function launchFixture(
   environment.PATH = `${bin};${process.env.PATH ?? process.env.Path ?? ""}`;
   environment.COCKPIT_USER_DATA = userData;
   environment.USERPROFILE = userData;
+  environment.APPDATA = roaming;
+  environment.LOCALAPPDATA = local;
   const app = await electron.launch({
-    args: process.env.COCKPIT_PACKAGED_EXECUTABLE ? [] : [entry],
-    ...(process.env.COCKPIT_PACKAGED_EXECUTABLE
-      ? { executablePath: process.env.COCKPIT_PACKAGED_EXECUTABLE } : {}),
+    args: packagedExecutable ? ["-r", entry] : [entry],
+    ...(packagedExecutable ? { executablePath: packagedExecutable } : {}),
     env: environment,
   });
   const page = await app.firstWindow();
+  expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((window) => window.isVisible()))).toBe(false);
   await expect(page.getByTestId("launcher")).toBeVisible();
   // This fixture reads terminal text from the DOM. GPU-capable hosted runners
   // otherwise use canvas, whose output has no textContent to assert against.
@@ -132,7 +151,46 @@ async function launchFixture(
     await page.evaluate(({ id, value }) => window.cockpit?.writeSession({ sessionId: id, data: value }),
       { id: id as string, value: `${value}\r` });
   }
-  return { app, page, signal, input, terminal };
+  return { app, page, signal, input, terminal, redrawFrames };
+}
+
+for (const command of ["claude", "codex"] as const) {
+  test(`${command}: a completed child turn clears yellow without a separate SubagentStop`, async ({}, testInfo) => {
+    const { app, signal, input } = await launchFixture(command, testInfo);
+    try {
+      await input("finish-turn-a");
+      await input("finish-b");
+      await expect(signal).toHaveAttribute("data-status", "idle");
+    } finally { await app.close(); }
+  });
+
+  test(`${command}: completed sessions stay idle through cursor and title redraws`, async ({}, testInfo) => {
+    const { app, page, signal, input, redrawFrames } = await launchFixture(command, testInfo);
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    try {
+      await input("finish-a");
+      await input("finish-b");
+      await expect(signal).toHaveAttribute("data-status", "idle");
+      await input("redraw");
+      const frames = async () => { try { return Number(await readFile(redrawFrames, "utf8")); } catch { return 0; } };
+      await expect.poll(frames).toBeGreaterThanOrEqual(30);
+      await page.screenshot({ path: testInfo.outputPath("completed-desktop.png") });
+      await expect(signal).toHaveAttribute("data-status", "idle");
+      await app.evaluate(({ BrowserWindow }) => {
+        const testWindow = BrowserWindow.getAllWindows()[0];
+        testWindow.setMinimumSize(320, 320);
+        testWindow.setContentSize(390, 844);
+      });
+      await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(390);
+      await expect.poll(frames).toBeGreaterThanOrEqual(40);
+      const paneSignal = page.locator("[data-active-tab-panel] .status-dot").first();
+      await expect(paneSignal).toBeVisible();
+      await expect(paneSignal).toHaveAttribute("data-status", "idle");
+      await page.screenshot({ path: testInfo.outputPath("completed-mobile.png") });
+      expect(errors).toEqual([]);
+    } finally { await app.close(); }
+  });
 }
 
 for (const command of ["claude", "codex"] as const) {
