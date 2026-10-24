@@ -213,6 +213,8 @@ unavailable for baseline capture. Pixel-oracle geometry is measured only after
 the same ready state that enables the user-facing capture button.
 Failed previews retain their error through passive bounds/presentation updates;
 only an explicit refresh or a newly prepared source clears it for another load.
+Image decoding failures are `unsupported`, distinct from missing source files:
+the file watcher's existence check must not clear a format/decoding failure.
 Markdown ATX headings accept zero to three leading ASCII spaces, so inserting
 one leading space does not change the heading into a paragraph or create a diff.
 This follows [CommonMark heading indentation](https://spec.commonmark.org/0.31.2/#atx-headings)

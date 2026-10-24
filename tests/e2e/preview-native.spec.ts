@@ -1153,7 +1153,7 @@ test("comparison readiness: an undecodable image cannot become a baseline", asyn
   const id = await cockpit.add(file), tabId = (await cockpit.snapshot()).tabId;
   await expect.poll(async () => { try { return await cockpit.guest(id, "document.querySelector('img')?.complete"); } catch { return false; } }).toBe(true);
   expect(await cockpit.guest(id, "document.querySelector('img').naturalWidth")).toBe(0);
-  await expect.poll(async () => (await cockpit.snapshot()).targets.find((target) => target.id === id)?.error).toBe("missing");
+  await expect.poll(async () => (await cockpit.snapshot()).targets.find((target) => target.id === id)?.error).toBe("unsupported");
   const errors = await cockpit.page.evaluateHandle(({ tabId, targetId }) => {
     const state = { cleared: 0 };
     window.cockpit!.preview!.onChanged((snapshot) => {
@@ -1161,6 +1161,15 @@ test("comparison readiness: an undecodable image cannot become a baseline", asyn
     });
     return state;
   }, { tabId, targetId: id });
+  // An independent file change is an observable barrier for the file watcher.
+  // Merely finding the corrupt image on disk must not clear its decode failure.
+  const clock = join(cockpit.directory, "watch-clock.md"); await writeFile(clock, "before", "utf8");
+  const added = await cockpit.page.evaluate(({ tabId, source }) => window.cockpit!.preview!.request({ action: "add", tabId, source }), { tabId, source: clock });
+  if (!added.ok) throw new Error("Missing file watcher barrier");
+  const clockId = added.value.targets.find((target) => target.source === clock)?.id;
+  await writeFile(clock, "after", "utf8");
+  await expect.poll(async () => (await cockpit.snapshot()).targets.find((target) => target.id === clockId)?.updated).toBe(true);
+  expect((await cockpit.snapshot()).targets.find((target) => target.id === id)?.error).toBe("unsupported");
   const bounds = await cockpit.page.getByTestId("preview-surface").evaluate((node) => {
     const box = node.getBoundingClientRect(); return { x: Math.round(box.x), y: Math.round(box.y), width: Math.floor(box.width), height: Math.floor(box.height) };
   });
@@ -1168,6 +1177,12 @@ test("comparison readiness: an undecodable image cannot become a baseline", asyn
   expect(await errors.evaluate((state) => state.cleared)).toBe(0);
   const result = await cockpit.page.evaluate(({ tabId, targetId }) => window.cockpit!.preview!.request({ action: "capture", tabId, targetId, baseline: true }), { tabId, targetId: id });
   expect(result.ok).toBe(false);
+  const revision = (await cockpit.snapshot()).targets.find((target) => target.id === id)!.revision;
+  await writeFile(file, await pngFixture(cockpit.app));
+  await expect.poll(async () => (await cockpit.snapshot()).targets.find((target) => target.id === id)?.revision).toBeGreaterThan(revision);
+  await expect(cockpit.page.getByRole("button", { name: "基準を保存", exact: true })).toBeEnabled();
+  const recovered = await cockpit.page.evaluate(({ tabId, targetId }) => window.cockpit!.preview!.request({ action: "capture", tabId, targetId, baseline: true }), { tabId, targetId: id });
+  expect(recovered.ok).toBe(true);
 });
 
 test("comparison correctness: identical PDF has no document differences", async ({ cockpit }) => {

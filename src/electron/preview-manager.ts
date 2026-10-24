@@ -431,7 +431,7 @@ export class PreviewManager {
       if (focusedBeforeLoad && focusedBeforeLoad !== record.view.webContents && !focusedBeforeLoad.isDestroyed()
         && webContents.getFocusedWebContents() === record.view.webContents) focusedBeforeLoad.focus();
       record.target.error = undefined; record.loadedRevision = revision;
-    } catch { record.target.error = "missing"; this.emit(record); }
+    } catch { record.target.error = record.target.kind === "image" ? "unsupported" : "missing"; this.emit(record); }
     finally { record.loading = false; }
   }
 
