@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.15 ? 2026-10-24
+## 0.2.15 — 2026-10-24
 
 - **Fixed automatic Preview opening for generated PDFs and images.** Completed generation/save messages and delivered artifact links are recognized. Reading existing material or startup documents such as AGENTS.md and README no longer opens them automatically.
 - **Automatic previews follow newly generated artifacts.** Manual selections, explicitly closed previews and active comparisons are retained. Links with spaces, Japanese completion messages and terminal file hyperlinks are supported.
