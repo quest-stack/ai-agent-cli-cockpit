@@ -420,6 +420,11 @@ the parent's tools. Stop, session end, a new turn and explicit Ctrl+C/Escape
 input recover missing tool endings. Ctrl+C/Escape only release the tool
 observation and return to output detection: the CLI decides what it interrupts,
 and existing Subagent observations remain. Exit and disposal reject late events.
+Stop/StopFailure for an identified child also ends that child's active turn;
+parent tools and sibling agents remain independent. Terminal-control framing is
+tracked across PTY chunks without retaining control payloads. Cursor, title and
+other control-only redraws neither start work nor postpone output settling;
+visible output and observed active tools/agents still drive the indicator.
 Queued hook files are read before an explicit Ctrl+C/Escape releases tool
 observations, preventing a delayed poll from restoring an already observed call.
 Detached background work whose launching tool has already returned is not

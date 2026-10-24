@@ -50,6 +50,61 @@ test("ordinary output transitions from busy to idle", async () => {
   assert.deepEqual(statuses, ["busy", "idle"]);
 });
 
+test("cursor and title redraws after completion do not keep an idle session busy", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const statuses: SessionStatus[] = [];
+  const detector = new StatusDetector((status) => statuses.push(status));
+  detector.handleData("Task completed.\r\n");
+  context.mock.timers.tick(1_000);
+  assert.deepEqual(statuses, ["busy", "idle"]);
+  for (let frame = 0; frame < 20; frame += 1) {
+    detector.handleData("\u001b[?25l\u001b[H\u001b[2K\u001b]0;CLI ready\u0007\r");
+    for (const chunk of ["\u001b", "[?25h", "\u001b]0;CLI", " ready", "\u001b", "\\", "\u0007\r\t "]) detector.handleData(chunk);
+    context.mock.timers.tick(200);
+  }
+  assert.deepEqual(statuses, ["busy", "idle"]);
+  detector.dispose();
+});
+
+test("visible output following split controls still marks work and settles normally", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const statuses: SessionStatus[] = [];
+  const detector = new StatusDetector((status) => statuses.push(status));
+  for (const chunk of ["\u001b]0;", "hidden title", "\u001b", "\\"]) detector.handleData(chunk);
+  assert.deepEqual(statuses, []);
+  detector.handleData("\u001b[32m新しい作業の結果\u001b[0m");
+  assert.deepEqual(statuses, ["busy"]);
+  context.mock.timers.tick(1_000);
+  assert.deepEqual(statuses, ["busy", "idle"]);
+  detector.dispose();
+});
+
+test("spaces split into separate chunks still join an approval prompt", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const statuses: SessionStatus[] = [];
+  const detector = new StatusDetector((status) => statuses.push(status));
+  for (const chunk of ["Do", " ", "you", " ", "want", " ", "to", " ", "proceed?"]) detector.handleData(chunk);
+  context.mock.timers.tick(1_000);
+  assert.deepEqual(statuses, ["busy", "waiting"]);
+  detector.dispose();
+});
+
+test("a cancelled control sequence does not swallow a subsequent approval prompt", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const prefix of ["\u001b[0;", "\u001b]0;hidden", "\u001bPprivate"]) {
+    for (const cancel of ["\u0018", "\u001a"]) {
+      const statuses: SessionStatus[] = [];
+      const detector = new StatusDetector((status) => statuses.push(status));
+      detector.handleData(prefix);
+      detector.handleData(cancel);
+      detector.handleData("Do you want to proceed?");
+      context.mock.timers.tick(1_000);
+      assert.deepEqual(statuses, ["busy", "waiting"]);
+      detector.dispose();
+    }
+  }
+});
+
 test("waiting survives terminal redraw output until real input", async () => {
   const statuses: SessionStatus[] = [];
   const detector = new StatusDetector((status) => statuses.push(status), 5);
@@ -251,6 +306,24 @@ test("child completion cannot clear the parent's tools or sibling work", () => {
     detector.dispose();
   }
 });
+
+for (const event of ["Stop", "StopFailure"] as const) {
+  for (const child of [{ sessionId: "parent", agentId: "child" }, { sessionId: "child" }]) {
+    test(`${event} ends a child turn with ${child.agentId ? "agent ID" : "child session ID"}`, () => {
+      const statuses: SessionStatus[] = [];
+      const detector = new StatusDetector((status) => statuses.push(status));
+      detector.handleSubagent("child", true);
+      detector.handleActivityEvent({ event: "PreToolUse", sessionId: "parent", toolUseId: "parent-call" });
+      detector.handleActivityEvent({ event: "PreToolUse", sessionId: "child", toolUseId: "child-call" });
+      detector.handleActivityEvent({ event, ...child });
+      // The parent is still working until its own tool finishes.
+      assert.deepEqual(statuses, ["busy"]);
+      detector.handleActivityEvent({ event: "PostToolUse", sessionId: "parent", toolUseId: "parent-call" });
+      assert.deepEqual(statuses, ["busy", "idle"]);
+      detector.dispose();
+    });
+  }
+}
 
 test("turn completion and a new prompt recover missing tool endings", () => {
   for (const event of ["Stop", "StopFailure", "UserPromptSubmit", "SessionEnd", "Interrupt", "SessionStart"] as const) {

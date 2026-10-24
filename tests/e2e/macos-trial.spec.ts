@@ -93,6 +93,39 @@ test("Mac launcher finds a CLI on PATH and preserves its working directory", asy
   ]);
 });
 
+test("a completed shell task stays idle through split cursor and title redraws", async ({}, testInfo) => {
+  const script = join(root, "idle-redraw.cjs"), framesFile = join(root, "redraw-frames.txt");
+  await writeFile(script, `
+    const fs=require('node:fs');console.log('Task completed.');
+    const chunks=['\\u001b','[?25l\\u001b[?25h','\\u001b]0;','CLI ready','\\u0007','\\r'];let frame=0;
+    setInterval(()=>{process.stdout.write(chunks[frame%chunks.length]);fs.writeFileSync(${JSON.stringify(framesFile)},String(++frame))},100);
+  `, "utf8");
+  await page.getByLabel("セッション名").fill("Completed redraw");
+  await start("shell");
+  const id = (await page.getByTestId(/^terminal-/u).getAttribute("data-testid"))?.slice("terminal-".length);
+  if (!id) throw new Error("No test shell");
+  const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+  await page.evaluate(({ sessionId, data }) => window.cockpit!.writeSession({ sessionId, data }), {
+    sessionId: id, data: `${quote(process.execPath)} ${quote(script)}\r`,
+  });
+  const frames = async () => { try { return Number(await readFile(framesFile, "utf8")); } catch { return 0; } };
+  await expect.poll(frames).toBeGreaterThanOrEqual(30);
+  const signal = page.getByRole("button", { name: /Completed redraw/u }).locator(".status-dot");
+  await expect(signal).toHaveAttribute("data-status", "idle");
+  await page.screenshot({ path: testInfo.outputPath("completed-desktop.png") });
+  await app.evaluate(({ BrowserWindow }) => {
+    const testWindow = BrowserWindow.getAllWindows()[0];
+    testWindow.setMinimumSize(320, 320);
+    testWindow.setContentSize(390, 844);
+  });
+  await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(390);
+  await expect.poll(frames).toBeGreaterThanOrEqual(40);
+  const paneSignal = page.locator("[data-active-tab-panel] .status-dot").first();
+  await expect(paneSignal).toBeVisible();
+  await expect(paneSignal).toHaveAttribute("data-status", "idle");
+  await page.screenshot({ path: testInfo.outputPath("completed-mobile.png") });
+});
+
 async function screenshotPaste(useNativeMenu: boolean): Promise<void> {
   await start("shell");
   await app.evaluate(({ clipboard, nativeImage }) => {

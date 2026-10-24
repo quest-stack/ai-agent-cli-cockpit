@@ -9,6 +9,7 @@
 - **Markdown headings retain their formatting with one to three leading ASCII spaces.** That indentation alone no longer changes the rendered heading or produces a comparison difference.
 - **Image viewer controls are omitted from comparison captures.** Hover and focus colors on the Fit button no longer appear as artifact differences.
 - **Updated existing runtime dependencies for published security fixes.** Electron is now 42.11.18 and Zod is 4.6.7.
+- **Fixed the yellow busy indicator remaining after task completion.** Cursor/title control updates no longer count as work, including split PTY sequences; child completion releases only that child's active turn.
 
 Automatic discovery relies on CLI wording; use the file picker when an output is not recognized. Comparison uses the saved baseline and the current view, rather than all PDF pages or document semantics.
 
