@@ -8,7 +8,18 @@ visibility, explicit dismissal, width and selection are remembered separately
 from terminal state. The first detected localhost URL or verified artifact in
 the active work tab opens an empty preview automatically. An explicit close is
 remembered and prevents automatic reopening, including after reload. Existing
-preview selections are never replaced by newly detected artifacts.
+manually chosen or restored ordinary preview selections are never replaced by newly
+detected artifacts. While following automatic selections, only generation/save
+messages or standalone delivered artifact links may select a file; incidental
+file references and read-tool output remain manual candidates. The latest
+verified generated artifact (including PDF and images) is shown; older artifacts
+from the same batch remain candidates rather than replacing it in reverse order. Choosing or
+closing a target pins the selection; an explicit-choice flag is kept per tab in
+localStorage so requested context documents stay selected after reload. Legacy
+restored context documents without that flag remain available as tabs but may
+yield to a newly generated artifact. Ordinary restored artifacts remain pinned.
+Dismissal, inactive
+tabs, comparison dialogs and the file chooser still prevent automatic display.
 URL extraction waits for a complete token and a short quiet interval; ANSI
 rendering and streamed ports cannot select a half-written URL. Automatic adds
 are serialized so repeated CLI output cannot race to select multiple targets.
@@ -77,6 +88,32 @@ not two running application instances: archive scripts are not executed and
 navigation, popups, downloads, permissions and network access are blocked.
 The terminal API is never exposed to either archive view.
 
+Automatic CLI-output discovery excludes project instructions and housekeeping
+documents by case-insensitive filename: AGENTS (including .override), CLAUDE
+(including .local), DESIGN, README (including language editions), SKILL,
+CURRENT_STATUS and HANDOFF files. This filter runs before the extraction limit
+and again at main-process resolution, so startup instructions cannot consume the
+artifact candidate budget or trigger a missing-artifact warning. Normal generated
+Markdown remains eligible. Explicit file/URL selection and existing saved targets
+retain their behavior; reading instructions does not prevent manually previewing
+them. Discovery does not infer file purpose from the document body or scan folders.
+
+Submitted input from Cockpit may explicitly request checking, editing or displaying
+a named context document. A bounded local input recognizer handles common Japanese
+and English requests, quoted paths, paste framing and multiline submission. It
+does not inspect CLI output for user intent. Negative requests, cancelled input and
+cursor edits that cannot be reconstructed do not trigger a preview. Partial input
+is held only in memory (4096 characters per session, at most 128 sessions) and is
+cleared on submission or session exit; this recognizer does not log, persist or
+send it to AI. The CLI's existing input delivery is unchanged.
+Up to 16 opening requests are queued. The same session-cwd, realpath, hidden-file
+and symlink checks apply before opening an existing requested document. It becomes
+selected and can reopen a dismissed preview only in the active work tab. This
+explicit opening does not remove the default startup exclusion or change normal
+artifact discovery. Input submitted outside Cockpit, such as another shared-server
+client, is not observed; manual file selection remains available. This is a local
+heuristic, not a general natural-language understanding feature.
+
 The first successful presentation of HTML, localhost or Markdown automatically
 saves a comparison baseline after the native load/presentation finishes. The UI
 identifies the automatic save. Later file reloads, in-place development-server
@@ -88,12 +125,32 @@ renderer session; app reload/restart establishes a new initial baseline.
 Transient initial capture failures receive two bounded retries while the same
 target is active. Automatic saves use the same ownership and isolation checks.
 
+Markdown link destinations decode URL escapes, angle-bracket paths and local
+file URLs before the existing cwd/realpath checks. Remote URLs and file hosts
+receive no new grants. Raw quoted filesystem paths retain literal percent signs.
+Completed OSC 8 hyperlinks retain their local destination even when the visible
+label is only "View PDF". Generation progress and echoed shell commands do not
+select artifacts. Japanese completion messages include writing/exporting files.
+
 The pages use two isolated WebContentsViews at matching widths. They can be
-scrolled independently. Text, selected computed styles including SVG stroke/fill,
-and geometry changes are outlined by stable element selectors. This is an
+scrolled independently. Text and selected computed styles including SVG
+stroke/fill are matched by tag and signature occurrence, independently of sibling
+indices. Each side's own selectors locate its changed elements. Absolute
+coordinates and rendered dimensions are excluded, so inserted paragraphs,
+wrapping and downstream reflow do not turn unchanged content into differences.
+CSS Typed OM retains declared sizing and offsets (including auto/percent values)
+instead of resolving ordinary flow boxes to used pixel dimensions. Actual CSS
+width/height/offset changes are therefore marked without flagging all displaced
+siblings. A longest ordered sequence of equal elements detects reorders while
+keeping insertions and deletions local. This is an
 element comparison, not a semantic document diff. Analysis is bounded to 5,000
-elements and 500 selectors
+elements. ASCII whitespace collapses only in normal rendered text; preformatted
+spacing, line breaks, Japanese full-width spaces and non-breaking spaces remain
+part of the comparison. Highlighting is limited to 500 selectors
 per side. An unchanged image URL with replaced pixels may require Images mode.
+Full direct text and SVG geometry attributes are hashed in the main process;
+long paragraphs are not compared by a truncated prefix. DOM markup remains
+limited to 10,485,760 characters and the UTF-8 metadata strings to 32 MiB total.
 Archives are limited to 32 MiB each. Initial automatic capture, Save baseline
 and Compare changes record up to three distinct versions per target. Ordinary
 file saves and DOM updates do not create continuous background history. A
@@ -103,7 +160,9 @@ evicted, comparison uses the most recent retained earlier version. If no older
 complete page remains, the existing image fallback is used. Identical
 archives/element metadata reuse the existing version: generated MIME dates,
 boundaries and Blink resource IDs do not create duplicates. Changed embedded
-resources still participate in the fingerprint.
+resources still participate in the fingerprint. Deduplication also requires the
+same capture viewport, scroll position and raster dimensions, so an unchanged
+archive cannot substitute a screenshot from different display conditions.
 
 Only the selected pair's PNGs are read into the comparison UI. Archive views are
 created for the chosen two versions and destroyed when hidden, closed or changed.
@@ -141,6 +200,11 @@ the isolated guest view itself, not the terminal or desktop. PNGs are limited
 to 1600 pixels on either side and 12 MiB, returned only to the trusted main
 renderer. The current baseline and comparison are held in renderer memory;
 historical PNGs stay in the bounded temporary store until selected or evicted.
+Capture controls remain disabled until the selected revision finishes native
+presentation. PDF capture waits within a bounded deadline for the built-in
+viewer frame and completed load; an incomplete PDF cannot become a baseline.
+Ready PDFs with unavailable page/zoom metadata retain side-by-side review with
+highlighting disabled.
 The native comparison dialog hides the live guest and makes the rest of the
 renderer inert. Pixel captures remain in memory. The complete-page mode uses
 the temporary archives described above. No AI, external upload, user-facing

@@ -11,7 +11,7 @@ import { archiveFingerprint, historyVictims, PREVIEW_HISTORY_BYTES } from "./pre
 import type { BrowserWindow, Rectangle, WebContents } from "electron";
 import type { PreviewCapture, PreviewVersion, PreviewVersionComparison } from "../shared/preview";
 
-const itemSchema = z.object({ selector: z.string().max(1200), signature: z.string().max(6000) });
+const itemSchema = z.object({ selector: z.string().max(1200), signature: z.string().max(6000), content: z.string().max(32 * 1024 * 1024) });
 const itemsSchema = z.array(itemSchema).max(5000);
 type PageMarks = Map<string, string>;
 interface SavedPage extends PreviewVersion { targetId: string; path: string; png: string; bytes: number; fingerprint: string; marks: PageMarks; capture: Omit<PreviewCapture, "image" | "page"> }
@@ -20,13 +20,16 @@ interface PagePair { before: SavedPage; after?: SavedPage; changes?: [string[], 
 // Only metadata is returned; page scripts and values never reach the trusted renderer.
 const MARKS = `(()=>{
   if(document.documentElement.outerHTML.length>10485760)throw new Error('Page too large');
-  const result=[];
+  const result=[],encoder=new TextEncoder();let metadataSize=0;
   for(const node of [...document.body.querySelectorAll('*')].slice(0,5000)){
     if(['SCRIPT','STYLE','LINK','META','NOSCRIPT','IFRAME','OBJECT','EMBED'].includes(node.tagName.toUpperCase()))continue;
     const r=node.getBoundingClientRect();if(r.width<1||r.height<1)continue;
-    const s=getComputedStyle(node),text=[...node.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join('').trim().slice(0,1600);
+    const s=getComputedStyle(node),raw=[...node.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join('');
+    const text=['pre','pre-wrap','break-spaces'].includes(s.whiteSpace)?raw:s.whiteSpace==='pre-line'?raw.replace(/[ \\t\\f]+/g,' ').replace(/^ +| +$/g,''):raw.replace(/[ \\t\\r\\n\\f]+/g,' ').replace(/^ +| +$/g,'');
     const svg=node.namespaceURI==='http://www.w3.org/2000/svg';
-    const style=['color','backgroundColor','backgroundImage','fontSize','fontWeight','borderColor','borderWidth','textDecorationLine','display','flexDirection','gridTemplateColumns',...(svg?['stroke','fill','strokeWidth','strokeDasharray','strokeDashoffset','opacity']:[])].map(k=>s[k]).join('|');
+    const style=['color','backgroundColor','backgroundImage','fontSize','fontWeight','fontFamily','lineHeight','whiteSpace','borderColor','borderWidth','textDecorationLine','display','flexDirection','padding','margin','gap','textAlign','position','transform',...(svg?['stroke','fill','strokeWidth','strokeDasharray','strokeDashoffset','opacity']:[])].map(k=>s[k]).join('|');
+    const computed=node.computedStyleMap?.();
+    const layout=['width','height','min-width','min-height','max-width','max-height','top','right','bottom','left','grid-template-columns','grid-template-rows','flex-basis','object-fit','object-position'].map(k=>computed?.get(k)?.toString()??s.getPropertyValue(k)).join('|');
     if(!svg&&!text&&!['IMG','INPUT','BUTTON','TEXTAREA','SELECT'].includes(node.tagName)&&s.backgroundColor==='rgba(0, 0, 0, 0)'&&s.backgroundImage==='none'&&s.borderWidth==='0px')continue;
     let selector='',part=node;
     for(let depth=0;part&&part!==document.body&&depth<16;depth++,part=part.parentElement){
@@ -34,13 +37,47 @@ const MARKS = `(()=>{
       selector=tag+':nth-of-type('+(siblings.indexOf(part)+1)+')'+(selector?' > '+selector:'');
     }
     if(part!==document.body)continue;
-    result.push({selector:'body > '+selector,signature:JSON.stringify([text,style,Math.round(r.width),Math.round(r.height),Math.round(r.x+scrollX),Math.round(r.y+scrollY),node.tagName==='IMG'?node.currentSrc.slice(0,1024):''])});
+    const geometry=svg?['d','points','x','y','cx','cy','r','rx','ry','width','height','x1','x2','y1','y2','viewBox','transform'].map(k=>[k,node.getAttribute(k)]):[];
+    const item={selector:'body > '+selector,signature:JSON.stringify([style,layout,node.tagName==='IMG'?node.currentSrc.slice(0,1024):'']),content:JSON.stringify([text,geometry])};
+    if(item.selector.length>1200||item.signature.length>6000||item.content.length>33554432)throw new Error('Page metadata too large');
+    metadataSize+=encoder.encode(item.selector+item.signature+item.content).byteLength;if(metadataSize>33554432)throw new Error('Page metadata too large');
+    result.push(item);
   }return result;
 })()`;
 
 export function pageChanges(before: PageMarks, after: PageMarks): [string[], string[]] {
-  const changed = (left: PageMarks, right: PageMarks): string[] => [...left].filter(([key, value]) => right.get(key) !== value).map(([key]) => key).slice(0, 500);
-  return [changed(before, after), changed(after, before)];
+  // Match equal content/style occurrences across sibling insertions and reflow.
+  // Selectors locate outlines in each saved page; their indices are not identities.
+  const identity = (selector: string, signature: string): string => `${selector.split(" > ").at(-1)!.replace(/:nth-of-type\(\d+\)/gu, "")}\0${signature}`;
+  const available = new Map<string, Array<{ selector: string; index: number }>>();
+  let rightIndex = 0;
+  for (const [selector, signature] of after) {
+    const key = identity(selector, signature), items = available.get(key) ?? [];
+    items.push({ selector, index: rightIndex++ }); available.set(key, items);
+  }
+  const cursors = new Map<string, number>();
+  const changedBefore = new Set<string>(), changedAfter = new Set(after.keys());
+  const matched: Array<{ left: string; right: string; index: number }> = [];
+  for (const [selector, signature] of before) {
+    const key = identity(selector, signature), cursor = cursors.get(key) ?? 0;
+    const match = available.get(key)?.[cursor];
+    if (!match) { changedBefore.add(selector); continue; }
+    cursors.set(key, cursor + 1); changedAfter.delete(match.selector);
+    matched.push({ left: selector, right: match.selector, index: match.index });
+  }
+  // Keep the longest ordered sequence of equal elements. Insertions/reflow do
+  // not move every later sibling; an actual reorder still marks moved elements.
+  const tails: number[] = [], tailMatches: number[] = [], previous: number[] = [];
+  for (const [index, match] of matched.entries()) {
+    let low = 0, high = tails.length;
+    while (low < high) { const middle = (low + high) >>> 1; if (tails[middle] < match.index) low = middle + 1; else high = middle; }
+    previous[index] = low ? tailMatches[low - 1] : -1;
+    tails[low] = match.index; tailMatches[low] = index;
+  }
+  const stable = new Set<number>();
+  for (let index = tailMatches.at(-1) ?? -1; index >= 0; index = previous[index]) stable.add(index);
+  for (const [index, match] of matched.entries()) if (!stable.has(index)) { changedBefore.add(match.left); changedAfter.add(match.right); }
+  return [[...before.keys()].filter((selector) => changedBefore.has(selector)).slice(0, 500), [...after.keys()].filter((selector) => changedAfter.has(selector)).slice(0, 500)];
 }
 
 /** Immutable complete-page archives; they have no terminal API, script execution or network access. */
@@ -83,7 +120,7 @@ export class PreviewPageReview {
     const raw: unknown = await contents.executeJavaScript(MARKS);
     const items = itemsSchema.safeParse(raw);
     if (!items.success) throw new Error("Page metadata unavailable");
-    const marks = new Map(items.data.map((item) => [item.selector, createHash("sha256").update(item.signature).digest("hex")]));
+    const marks = new Map(items.data.map((item) => [item.selector, createHash("sha256").update(item.signature).update("\0").update(item.content).digest("hex")]));
     const path = join(this.directory, `page-${randomUUID()}.mhtml`);
     const png = path.replace(/\.mhtml$/u, ".png");
     this.files.set(path, 0);
@@ -94,7 +131,11 @@ export class PreviewPageReview {
       this.files.set(path, bytes);
       if (bytes > 32 * 1024 * 1024) throw new Error("Page archive too large");
       const fingerprint = archiveFingerprint(await readFile(path), marks);
-      const duplicate = this.versions.get(id)?.find((version) => version.fingerprint === fingerprint);
+      // Equal page content can have a different pixel capture after resizing or scrolling.
+      const duplicate = this.versions.get(id)?.find((version) => version.fingerprint === fingerprint
+        && version.capture.viewport.width === capture.viewport.width && version.capture.viewport.height === capture.viewport.height
+        && version.capture.position.x === capture.position.x && version.capture.position.y === capture.position.y
+        && version.capture.width === capture.width && version.capture.height === capture.height);
       if (duplicate) { await this.removeFile(path); return duplicate; }
       const image = Buffer.from(capture.image.slice(capture.image.indexOf(",") + 1), "base64");
       this.files.set(png, image.length);

@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { dialog, session, WebContentsView, webContents } from "electron";
 
 import { localPreviewUrl, previewCaptureMetricsSchema, previewPdfMetricsSchema, previewSavedSchema, previewViewportSchema } from "../shared/preview";
+import { ContextPreviewInput } from "../shared/preview-context-input";
 import { cacheGrant, createGrant, createPreviewCache, escapeHtml, fileResponse, grantDocument, PREVIEW_SCHEME, previewKind, resolvePreviewAsset, resolvePreviewCandidates, signature } from "./preview-files";
 import { PreviewPageReview } from "./preview-page-review";
 import { releasePreviewCache } from "./preview-cache";
@@ -22,6 +23,7 @@ interface TargetRecord {
   pendingStamp?: string;
   loadedRevision?: number;
   loading?: boolean;
+  loadPromise?: Promise<void>;
   scroll?: { x: number; y: number; time: number; zoom: boolean };
   fullscreen?: boolean;
   emulation?: string;
@@ -41,12 +43,38 @@ export class PreviewManager {
   private polling = false;
   private disposed = false;
   private saving: Promise<void> = Promise.resolve();
+  private requestedOpening: Promise<void> = Promise.resolve();
+  private pendingRequests = 0;
+  private readonly contextInputs = new Map<string, ContextPreviewInput>();
   private readonly generatedCaches = new Set<string>();
   private readonly retiredCaches = new Set<string>();
   private readonly cacheVersions = new Map<string, string[]>();
 
   constructor(private readonly dataDirectory: string, private readonly changed: (snapshot: PreviewSnapshot) => void,
     private readonly sessionDirectory: (tabId: string, sessionId: string) => string | undefined = () => undefined) {}
+
+  forgetInput(sessionId: string): void { this.contextInputs.delete(sessionId); }
+
+  handleInput(tabId: string, sessionId: string, data: string): void {
+    if (this.disposed || !this.sessionDirectory(tabId, sessionId)) return;
+    if (!this.contextInputs.has(sessionId)) {
+      if (this.contextInputs.size >= 128) this.contextInputs.delete(this.contextInputs.keys().next().value!);
+      this.contextInputs.set(sessionId, new ContextPreviewInput());
+    }
+    const paths = this.contextInputs.get(sessionId)!.push(data);
+    if (!paths.length || this.pendingRequests >= 16) return;
+    this.pendingRequests++;
+    this.requestedOpening = this.requestedOpening.then(async () => {
+      if (this.disposed) return;
+      const directory = this.sessionDirectory(tabId, sessionId);
+      const discovery = await resolvePreviewCandidates(directory, paths, true);
+      for (const file of discovery.files) {
+        if (this.disposed || this.sessionDirectory(tabId, sessionId) !== directory) return;
+        const result = await this.request({ action: "add", tabId, source: file.source });
+        if (result.ok && !this.disposed) this.changed({ ...result.value, requestedOpen: true });
+      }
+    }).catch(() => undefined).finally(() => { this.pendingRequests--; });
+  }
 
   async initialize(): Promise<void> {
     this.cacheDirectory = await createPreviewCache();
@@ -196,11 +224,16 @@ export class PreviewManager {
               const root: unknown = await wc.executeJavaScript(`new Promise(resolve=>{${position ? `scrollTo(${position.x},${position.y});` : ""}requestAnimationFrame(()=>requestAnimationFrame(()=>resolve({viewport:{width:Math.round(innerWidth),height:Math.round(innerHeight)},position:{x:Math.max(0,Math.round(scrollX)),y:Math.max(0,Math.round(scrollY))}})))})`);
               let pdf: unknown;
               if (record.target.kind === "pdf") {
-                const frame = wc.mainFrame.framesInSubtree.find((item) => item.url.startsWith("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/"));
+                const deadline = Date.now() + 2400;
+                const findViewer = () => wc.mainFrame.framesInSubtree.find((item) => item.url.startsWith("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/"));
+                let frame = findViewer();
+                while (!frame && Date.now() < deadline && !wc.isDestroyed() && this.active?.id === record.target.id) {
+                  await new Promise<void>((resolve) => setTimeout(resolve, 25)); frame = findViewer();
+                }
                 pdf = await frame?.executeJavaScript(`new Promise(resolve=>{
-                  const deadline=performance.now()+2400;let last='',stable=0;
+                  const deadline=performance.now()+${Math.max(0, deadline - Date.now())};let last='',stable=0;
                   const read=()=>{const toolbar=document.querySelector('pdf-viewer')?.shadowRoot?.querySelector('viewer-toolbar');
-                    const value={toolbarBottom:Math.max(0,toolbar?.getBoundingClientRect().bottom||0),page:typeof toolbar?.pageNo==='number'&&toolbar.pageNo>=1?toolbar.pageNo:undefined,zoom:typeof toolbar?.viewportZoom==='number'?toolbar.viewportZoom:undefined};
+                    const value={toolbarBottom:Math.max(0,toolbar?.getBoundingClientRect().bottom||0),ready:toolbar?.loadProgress>=100,page:typeof toolbar?.pageNo==='number'&&toolbar.pageNo>=1?toolbar.pageNo:undefined,zoom:typeof toolbar?.viewportZoom==='number'?toolbar.viewportZoom:undefined};
                     const key=JSON.stringify(value);stable=key===last?stable+1:0;last=key;
                     if((value.page!==undefined&&value.zoom>0&&toolbar?.loadProgress>=100&&stable>=2)||performance.now()>deadline){resolve(value);return}
                     requestAnimationFrame(read)};read()})`).catch(() => undefined);
@@ -211,6 +244,7 @@ export class PreviewManager {
             const metrics = previewCaptureMetricsSchema.safeParse(raw.root);
             const pdfMetrics = previewPdfMetricsSchema.safeParse(raw.pdf);
             if (!metrics.success || this.active?.id !== record.target.id || wc.isDestroyed()) return { ok: false, error: "failed" };
+            if (record.target.kind === "pdf" && (!pdfMetrics.success || !pdfMetrics.data.ready)) return { ok: false, error: "failed" };
             let image = await wc.capturePage();
             const size = image.getSize();
             if (image.isEmpty() || size.width < 1 || size.height < 1) return { ok: false, error: "failed" };
@@ -311,7 +345,15 @@ export class PreviewManager {
     void old.view.webContents.executeJavaScript(`(()=>{if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});document.querySelectorAll('video,audio').forEach(v=>v.pause());return {x:scrollX,y:scrollY,time:document.querySelector('video')?.currentTime||0,zoom:document.getElementById('image')?.classList.contains('zoomed')||false}})()`)
       .then((value: unknown) => { if (value && typeof value === "object" && "time" in value) old.scroll = value as TargetRecord["scroll"]; }).catch(() => undefined);
   }
-  private async load(record: TargetRecord): Promise<void> {
+  private load(record: TargetRecord): Promise<void> {
+    if (record.loadPromise) return record.loadPromise;
+    const operation = this.loadOne(record); record.loadPromise = operation;
+    const clear = (): void => { if (record.loadPromise === operation) record.loadPromise = undefined; };
+    void operation.then(clear, clear);
+    return operation;
+  }
+
+  private async loadOne(record: TargetRecord): Promise<void> {
     if (!this.window || record.loading || this.disposed) return;
     if (record.target.error && !record.grant?.cached) return;
     if (record.view && record.loadedRevision === record.target.revision) return;
@@ -437,6 +479,7 @@ export class PreviewManager {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.contextInputs.clear();
     if (this.pollTimer) clearInterval(this.pollTimer);
     this.hide();
     this.pageReview?.dispose();

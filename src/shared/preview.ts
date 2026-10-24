@@ -20,6 +20,7 @@ export const previewCaptureMetricsSchema = z.object({
 });
 export const previewPdfMetricsSchema = z.object({
   toolbarBottom: z.number().min(0).max(20000),
+  ready: z.boolean().optional(),
   page: z.number().int().min(1).max(100000).optional(),
   zoom: z.number().min(0.01).max(100).optional(),
 });
@@ -65,7 +66,7 @@ export interface PreviewTarget {
   updated: boolean;
   error?: "missing" | "loading" | "unsupported";
 }
-export interface PreviewSnapshot { tabId: string; targets: PreviewTarget[]; focusId?: string }
+export interface PreviewSnapshot { tabId: string; targets: PreviewTarget[]; focusId?: string; requestedOpen?: boolean }
 export interface PreviewCapture {
   image: string;
   width: number;

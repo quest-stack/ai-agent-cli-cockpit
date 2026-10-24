@@ -123,6 +123,9 @@ function PreviewWorkspaceLayout({ active, children, tabId, suspended = false, se
             onAutoOpen={() => {
               onOpen?.(); setView("preview");
               setState((current) => current.dismissed ? current : { ...current, open: true });
+            }} onRequestedOpen={() => {
+              if (!active || suspended) return;
+              onOpen?.(); setView("preview"); setState((current) => ({ ...current, open: true, dismissed: false }));
             }} sessionIds={sessionIds} tabId={tabId} visible={previewVisible} />
             : <PreviewPanel onChange={updateState} state={state} tabId={tabId} visible={previewVisible} />}
         </section>

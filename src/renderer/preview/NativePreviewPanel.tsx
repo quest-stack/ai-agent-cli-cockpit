@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { t } from "../../shared/i18n";
 import { localPreviewUrl, previewFrame, previewViewportSchema, previewViewportsSchema } from "../../shared/preview";
-import { previewPaths, previewUrls } from "../../shared/preview-paths";
+import { isPreviewContextFile, previewArtifactPaths, previewPaths, previewUrls } from "../../shared/preview-paths";
 import { cockpitApi } from "../bridge";
 import { ResponsivePreviewControls } from "./ResponsivePreviewControls";
 import { compareCaptures, VisualComparison } from "./VisualComparison";
@@ -13,8 +13,8 @@ import type { VisualComparisonData } from "./VisualComparison";
 
 const icons = { web: Globe, markdown: FileText, image: FileImage, pdf: FileText, video: Video };
 
-export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAutoOpen }: {
-  tabId: string; visible: boolean; sessionIds: string[]; autoOpen: boolean; onAutoOpen: () => void;
+export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAutoOpen, onRequestedOpen }: {
+  tabId: string; visible: boolean; sessionIds: string[]; autoOpen: boolean; onAutoOpen: () => void; onRequestedOpen: () => void;
 }) {
   const [targets, setTargets] = useState<PreviewTarget[]>([]);
   const [selection, setSelection] = useState<string | null>(() => {
@@ -25,8 +25,9 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [presented, setPresented] = useState<string>();
   const [candidates, setCandidates] = useState<string[]>([]);
-  const [fileCandidates, setFileCandidates] = useState<PreviewFileCandidate[]>([]);
+  const [fileCandidates, setFileCandidates] = useState<Array<PreviewFileCandidate & { automatic: boolean }>>([]);
   const [unresolved, setUnresolved] = useState(false);
   const [viewports, setViewports] = useState<Record<string, PreviewViewport>>(() => {
     try {
@@ -46,24 +47,42 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
   const stripRef = useRef<HTMLDivElement>(null);
   const currentIdRef = useRef<string | null>(null);
   const autoAdded = useRef(new Set<string>());
+  const manualSelection = useRef(false);
+  const initialSelection = useRef(selection);
+  const restoringSelection = useRef(true);
   const autoPending = useRef(false);
   const autoOpenRef = useRef({ enabled: autoOpen, open: onAutoOpen });
+  const requestedOpenRef = useRef(onRequestedOpen);
   const selected = targets.find((target) => target.id === selection) ?? targets[0];
   const selectedId = selected?.id;
   const selectedRevision = selected?.revision;
+  const ready = presented === `${selectedId}:${selectedRevision}`;
   const viewport = selected?.kind === "web" ? viewports[selected.id] : undefined;
   const canPresent = visible && !chooser && !comparison && Boolean(selected) && !busy;
 
+  const pinSelection = useCallback((): void => {
+    manualSelection.current = true;
+    try { window.localStorage.setItem(`cockpit.previewManualSelection.${tabId}`, "true"); } catch { /* Keep in-memory choice. */ }
+  }, [tabId]);
+
   const accept = useCallback((snapshot: PreviewSnapshot): void => {
     if (snapshot.tabId !== tabId) return;
+    if (restoringSelection.current) {
+      const restored = snapshot.targets.find((target) => target.id === initialSelection.current) ?? snapshot.targets[0];
+      let pinned = false;
+      try { pinned = window.localStorage.getItem(`cockpit.previewManualSelection.${tabId}`) === "true"; } catch { /* Infer legacy selection. */ }
+      manualSelection.current = pinned || Boolean(restored && !isPreviewContextFile(restored.source));
+      restoringSelection.current = false;
+    }
     setTargets(snapshot.targets); setLoaded(true);
-  }, [tabId]);
-  const request = useCallback(async (input: PreviewRequest): Promise<boolean> => {
+    if (snapshot.requestedOpen && snapshot.focusId) { pinSelection(); setSelection(snapshot.focusId); requestedOpenRef.current(); }
+  }, [pinSelection, tabId]);
+  const request = useCallback(async (input: PreviewRequest, automatic = false): Promise<boolean> => {
     try {
       const result = await cockpitApi.preview!.request(input);
       if (result.ok) {
         accept(result.value);
-        if (result.value.focusId) setSelection(result.value.focusId);
+        if (result.value.focusId && (!automatic || !manualSelection.current)) setSelection(result.value.focusId);
         return true;
       } else setError(result.error === "unsupported" ? t("この形式はプレビューできません。") : t("開けませんでした。ファイルの場所やURLを確認してください。"));
     } catch { setError(t("プレビューを読み込めませんでした。もう一度お試しください。")); }
@@ -71,6 +90,7 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
   }, [accept]);
 
   useEffect(() => { autoOpenRef.current = { enabled: autoOpen, open: onAutoOpen }; }, [autoOpen, onAutoOpen]);
+  useEffect(() => { requestedOpenRef.current = onRequestedOpen; }, [onRequestedOpen]);
   useEffect(() => {
     const remove = cockpitApi.preview!.onChanged(accept);
     void Promise.resolve().then(() => request({ action: "list", tabId }));
@@ -90,18 +110,27 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
     const allowed = new Set(sessionKey.split("|"));
     const tails = new Map<string, string>();
     const checked = new Map<string, number>();
-    const pending = new Map<string, Set<string>>();
+    const pending = new Map<string, Map<string, boolean>>();
     const timers = new Map<string, number>();
     const urlTimers = new Map<string, number>();
     let disposed = false;
     const flush = async (sessionId: string): Promise<void> => {
-      timers.delete(sessionId); const paths = [...(pending.get(sessionId) ?? [])].slice(-12); pending.delete(sessionId);
+      timers.delete(sessionId); const entries = [...(pending.get(sessionId) ?? [])].slice(-12); pending.delete(sessionId);
+      const paths = entries.map(([path]) => path);
       if (!paths.length) return;
       try {
         const result = await cockpitApi.preview!.request({ action: "discover", tabId, sessionId, paths });
         if (disposed || !result.ok || !result.discovery) return;
         const discovery = result.discovery;
-        setFileCandidates((current) => [...new Map([...current, ...discovery.files].map((file) => [file.source, file])).values()].slice(-10));
+        setFileCandidates((current) => {
+          const files = new Map(current.map((file) => [file.source, file]));
+          for (const file of discovery.files) {
+            const automatic = entries.some(([path, generated]) => path === file.label && generated) || Boolean(files.get(file.source)?.automatic);
+            if (automatic) files.delete(file.source);
+            files.set(file.source, { ...file, automatic });
+          }
+          return [...files.values()].slice(-10);
+        });
         setUnresolved(discovery.unresolved);
       } catch { if (!disposed) setUnresolved(true); }
     };
@@ -115,12 +144,14 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
         const urls = previewUrls(tails.get(event.sessionId) ?? "");
         if (urls.length) setCandidates((current) => [...new Set([...urls, ...current])].slice(0, 5));
       }, 300));
+      const artifacts = new Set(previewArtifactPaths(text));
       for (const path of previewPaths(text)) {
-        const key = `${event.sessionId}:${path}`;
+        const automatic = artifacts.has(path);
+        const key = `${event.sessionId}:${automatic}:${path}`;
         if (Date.now() - (checked.get(key) ?? 0) < 2000) continue;
         checked.set(key, Date.now());
         if (checked.size > 256) checked.delete(checked.keys().next().value!);
-        const list = pending.get(event.sessionId) ?? new Set<string>(); list.add(path); pending.set(event.sessionId, list);
+        const list = pending.get(event.sessionId) ?? new Map<string, boolean>(); list.set(path, automatic || Boolean(list.get(path))); pending.set(event.sessionId, list);
       }
       if (pending.has(event.sessionId) && !timers.has(event.sessionId)) timers.set(event.sessionId, window.setTimeout(() => { void flush(event.sessionId); }, 250));
     });
@@ -130,16 +161,19 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
     };
   }, [sessionKey, tabId]);
   useEffect(() => {
-    const first = candidates.find((url) => !autoAdded.current.has(url))
-      ?? fileCandidates.find((file) => !autoAdded.current.has(file.source))?.source;
-    if ((!visible && !autoOpen) || !loaded || targets.length || !first || chooser || busy || autoPending.current) return;
+    const unseen = (source: string): boolean => !autoAdded.current.has(source) && !targets.some((target) => target.source === source);
+    const artifact = [...fileCandidates].reverse().find((file) => file.automatic && unseen(file.source));
+    const first = targets.length ? !manualSelection.current ? artifact?.source : undefined
+      : artifact?.source ?? candidates.find(unseen);
+    if ((!visible && !autoOpen) || !loaded || !first || chooser || comparison || busy || autoPending.current) return;
+    if (first === artifact?.source) for (const file of fileCandidates) if (file.automatic) autoAdded.current.add(file.source);
     autoAdded.current.add(first);
     autoPending.current = true;
-    void request({ action: "add", tabId, source: first }).then((added) => {
+    void request({ action: "add", tabId, source: first }, true).then((added) => {
       const current = autoOpenRef.current;
       if (added && current.enabled) current.open();
     }).finally(() => { autoPending.current = false; });
-  }, [autoOpen, busy, candidates, chooser, fileCandidates, loaded, request, tabId, targets.length, visible]);
+  }, [autoOpen, busy, candidates, chooser, comparison, fileCandidates, loaded, request, tabId, targets, visible]);
 
   useEffect(() => {
     const api = cockpitApi.preview!;
@@ -158,7 +192,9 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
       }, viewport);
       setScale(frame.scale);
       void api.request({ action: "present", tabId, targetId: selectedId, bounds: frame.bounds, viewport }).then((result) => {
-        if (result.ok && !disposed && currentIdRef.current === selectedId) autoBaselineRef.current(selectedId);
+        if (result.ok && !disposed && currentIdRef.current === selectedId) {
+          setPresented(`${selectedId}:${selectedRevision}`); autoBaselineRef.current(selectedId);
+        }
       }).catch(() => undefined);
     };
     const observer = new ResizeObserver(present);
@@ -174,11 +210,13 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
   }, [canPresent, selectedId, selectedRevision, tabId, viewport]);
 
   const add = async (pick: boolean, value = source): Promise<void> => {
+    pinSelection();
     setError(undefined); setBusy(true);
     await request(pick ? { action: "pick", tabId } : { action: "add", tabId, source: value.trim() });
     setBusy(false); setChooser(false); setSource("");
   };
   const closeTarget = (id: string): void => {
+    pinSelection();
     const index = targets.findIndex((target) => target.id === id);
     if (selected?.id === id) setSelection(targets[index + 1]?.id ?? targets[index - 1]?.id ?? null);
     setViewports((current) => { const next = { ...current }; delete next[id]; return next; });
@@ -233,11 +271,12 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
       <div aria-label={t("プレビュー対象")} className="preview-target-tabs" ref={stripRef} role="tablist">{targets.map((target, index) => {
         const Icon = icons[target.kind];
         return <div className={`preview-target ${selected?.id === target.id ? "is-selected" : ""}`} key={target.id}>
-          <button aria-selected={selected?.id === target.id} onClick={() => setSelection(target.id)} role="tab"
+          <button aria-selected={selected?.id === target.id} onClick={() => { pinSelection(); setSelection(target.id); }} role="tab"
             tabIndex={selected?.id === target.id ? 0 : -1} title={target.source} type="button"
             onKeyDown={(event) => {
               if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
               event.preventDefault();
+              pinSelection();
               const next = event.key === "Home" ? targets[0] : event.key === "End" ? targets.at(-1)!
                 : targets[(index + (event.key === "ArrowLeft" ? -1 : 1) + targets.length) % targets.length];
               setSelection(next.id);
@@ -276,8 +315,8 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
           const next = { ...current }; if (value) next[selected.id] = value; else delete next[selected.id]; return next;
         })} scale={scale} value={viewport} />}
         {selected.kind !== "video" && <div className="preview-comparison-actions">
-          <button disabled={busy || capturing || Boolean(selected.error)} onClick={() => void capture(false)} type="button">{t("基準を保存")}</button>
-          <button disabled={busy || capturing || !baselines[selected.id] || Boolean(selected.error)} onClick={() => void capture(true)} type="button">{t("変更を比較")}</button>
+          <button disabled={!ready || !canPresent || capturing || Boolean(selected.error)} onClick={() => void capture(false)} type="button">{t("基準を保存")}</button>
+          <button disabled={!ready || !canPresent || capturing || !baselines[selected.id] || Boolean(selected.error)} onClick={() => void capture(true)} type="button">{t("変更を比較")}</button>
           <span role="status">{capturing ? autoSaving ? t("比較の基準を自動保存中…") : t("比較画像を準備中…") : baselines[selected.id]?.automatic ? t("基準を自動保存しました") : baselines[selected.id] ? t("基準を保存しました") : t("修正前の見た目を残して、変更後と比べる")}</span>
         </div>}
         {selected.updated && ["pdf", "video"].includes(selected.kind) && <div className="preview-update-banner" role="status"><span>{t("新しい版ができました")}</span><button onClick={() => void request({ action: "refresh", tabId, targetId: selected.id })} type="button"><RefreshCw aria-hidden="true" size={12} />{t("新しい版を表示")}</button></div>}

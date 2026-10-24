@@ -444,6 +444,8 @@ function registerIpcHandlers(): void {
     const parsed = ptyWriteRequestSchema.safeParse(payload);
     if (parsed.success) {
       ptyManager.write(parsed.data.sessionId, parsed.data.data);
+      const tab = sessionStore.snapshot.tabs.find((item) => collectPanes(item.root).some((pane) => pane.sessionId === parsed.data.sessionId));
+      if (tab) previewManager.handleInput(tab.id, parsed.data.sessionId, parsed.data.data);
     }
   });
 
@@ -603,6 +605,7 @@ app.whenReady().then(async () => {
       diagnosticLogger.log(category, message);
     },
     onStatus: (event) => {
+      if (event.status === "exited" || event.status === "error") previewManager.forgetInput(event.sessionId);
       sendToRenderer(IPC_CHANNELS.ptyStatus, event);
     },
   }, join(userDataDirectory, "cli-activity"));
