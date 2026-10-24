@@ -5,7 +5,7 @@
 - **Fixed automatic Preview opening for generated PDFs and images.** Completed generation/save messages and delivered artifact links are recognized. Reading existing material or startup documents such as AGENTS.md and README no longer opens them automatically.
 - **Automatic previews follow newly generated artifacts.** Manual selections, explicitly closed previews and active comparisons are retained. Links with spaces, Japanese completion messages and terminal file hyperlinks are supported.
 - **Fixed unchanged paragraphs being highlighted as changes.** Insertions, deletions and reflow no longer mark every displaced element. Comparison checks text, specified CSS, reordered elements, SVG shapes/colors, long text and meaningful whitespace.
-- **Fixed capturing a comparison baseline before the preview finished loading.** PDF highlighting requires matching displayed pages and zoom levels.
+- **Fixed capturing a comparison baseline before the preview finished loading.** Refreshing during navigation waits for the newer revision. PDF highlighting requires matching displayed pages and zoom levels.
 
 Automatic discovery relies on CLI wording; use the file picker when an output is not recognized. Comparison uses the saved baseline and the current view, rather than all PDF pages or document semantics.
 

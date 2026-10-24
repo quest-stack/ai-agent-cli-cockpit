@@ -1101,6 +1101,7 @@ test("comparison correctness: PNG highlights only a known 32px patch and keeps b
   const file = join(cockpit.directory, "patch.png"); await writeFile(file, await pngFixture(cockpit.app));
   const id = await cockpit.add(file), tabId = (await cockpit.snapshot()).tabId;
   await expect.poll(async () => { try { return await cockpit.guest(id, "document.querySelector('img')?.naturalWidth"); } catch { return 0; } }).toBe(320);
+  await expect(cockpit.page.getByRole("button", { name: "基準を保存", exact: true })).toBeEnabled();
   const box = await cockpit.guest(id, "(()=>{const r=document.querySelector('img').getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height,viewport:innerWidth}})()") as { x: number; y: number; width: number; height: number; viewport: number };
   const reference = await cockpit.page.evaluate(({ tabId, targetId }) => window.cockpit!.preview!.request({ action: "capture", tabId, targetId }), { tabId, targetId: id });
   if (!reference.ok || !reference.capture) throw new Error("Missing original PNG capture");
@@ -1116,6 +1117,8 @@ test("comparison correctness: PNG highlights only a known 32px patch and keeps b
   const observed = await pixelBounds(cockpit.app, images[0], images[1]); expect(observed.box).not.toBeNull();
   const scale = observed.size.width / box.viewport;
   const expected = { x: (box.x + box.width * 64 / 320) * scale, y: (box.y + box.height * 48 / 200) * scale, width: box.width * 32 / 320 * scale, height: box.height * 32 / 200 * scale };
+  await writeFile(testInfo.outputPath("patch-oracle.json"), JSON.stringify({ expected, observed, box, before: reference.capture.viewport }, null, 2), "utf8");
+  for (const [index, image] of images.entries()) await writeFile(testInfo.outputPath(`patch-${index === 0 ? "before" : "after"}.png`), Buffer.from(image.split(",")[1], "base64"));
   for (const key of ["x", "y", "width", "height"] as const) expect(Math.abs(observed.box![key] - expected[key])).toBeLessThanOrEqual(2);
   const regions = await dialog.locator(".visual-comparison-side").first().getByTestId("visual-diff-region").evaluateAll((nodes) => nodes.map((node) => {
     const style = (node as HTMLElement).style; return { x: parseFloat(style.left), y: parseFloat(style.top), width: parseFloat(style.width), height: parseFloat(style.height) };
@@ -1128,6 +1131,16 @@ test("comparison correctness: PNG highlights only a known 32px patch and keeps b
   expect(region.width).toBeLessThanOrEqual(observed.box!.width + 32); expect(region.height).toBeLessThanOrEqual(observed.box!.height + 32);
   await writeFile(testInfo.outputPath("patch-oracle.json"), JSON.stringify({ expected, observed, region }, null, 2), "utf8");
   await dialog.screenshot({ path: testInfo.outputPath("known-patch-comparison.png") });
+});
+
+test("comparison readiness: an undecodable image cannot become a baseline", async ({ cockpit }) => {
+  const file = join(cockpit.directory, "broken.png"); await writeFile(file, "not a decodable PNG image", "utf8");
+  const id = await cockpit.add(file), tabId = (await cockpit.snapshot()).tabId;
+  await expect.poll(async () => { try { return await cockpit.guest(id, "document.querySelector('img')?.complete"); } catch { return false; } }).toBe(true);
+  expect(await cockpit.guest(id, "document.querySelector('img').naturalWidth")).toBe(0);
+  await expect.poll(async () => (await cockpit.snapshot()).targets.find((target) => target.id === id)?.error).toBe("missing");
+  const result = await cockpit.page.evaluate(({ tabId, targetId }) => window.cockpit!.preview!.request({ action: "capture", tabId, targetId, baseline: true }), { tabId, targetId: id });
+  expect(result.ok).toBe(false);
 });
 
 test("comparison correctness: identical PDF has no document differences", async ({ cockpit }) => {
@@ -1259,6 +1272,40 @@ test("comparison readiness: concurrent presentations wait for the same unfinishe
     }, `http://127.0.0.1:${address.port}/`)).toContain("Released document");
   } finally {
     released = true; for (const response of pending) response.end("<h1>Released document</h1>");
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+for (const superseded of ["completed", "failed"] as const) test(`comparison readiness: refresh during loading (${superseded}) presents the new response before becoming ready`, async ({ cockpit }) => {
+  let first: ServerResponse | undefined, requests = 0;
+  let received!: () => void; const requested = new Promise<void>((resolve) => { received = resolve; });
+  const server = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html"); response.setHeader("Cache-Control", "no-store");
+    if (++requests === 1) { first = response; received(); }
+    else response.end("<h1>NEW_RESPONSE_AFTER_REFRESH</h1>");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === "string") throw new Error("Missing refresh fixture port");
+    const url = `http://127.0.0.1:${address.port}/`;
+    const id = await cockpit.add(url), tabId = (await cockpit.snapshot()).tabId;
+    await requested;
+    const refresh = await cockpit.page.evaluateHandle(({ tabId, targetId }) => {
+      const state = { completed: false, ok: false };
+      void window.cockpit!.preview!.request({ action: "refresh", tabId, targetId }).then((result) => { state.completed = true; state.ok = result.ok; });
+      return state;
+    }, { tabId, targetId: id });
+    await expect.poll(async () => (await cockpit.snapshot()).targets.find((target) => target.id === id)?.revision).toBe(1);
+    if (superseded === "failed") first!.destroy();
+    else first!.end("<h1>OLD_RESPONSE_BEFORE_REFRESH</h1>");
+    await expect.poll(() => refresh.jsonValue()).toEqual({ completed: true, ok: true });
+    await expect.poll(async () => cockpit.app.evaluate(async ({ webContents }, url) => {
+      const view = webContents.getAllWebContents().find((contents) => contents.getURL() === url);
+      return view ? view.executeJavaScript("document.body.innerText") : "";
+    }, url)).toBe("NEW_RESPONSE_AFTER_REFRESH");
+    expect(requests).toBeGreaterThanOrEqual(2);
+  } finally {
+    if (first && !first.writableEnded && !first.destroyed) first.end("<h1>Release pending fixture</h1>");
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });

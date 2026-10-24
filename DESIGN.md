@@ -205,6 +205,12 @@ presentation. PDF capture waits within a bounded deadline for the built-in
 viewer frame and completed load; an incomplete PDF cannot become a baseline.
 Ready PDFs with unavailable page/zoom metadata retain side-by-side review with
 highlighting disabled.
+Concurrent presentations share the navigation operation. A refresh during that
+operation queues the newer revision before any joined caller reports success;
+an older response cannot be stamped with the newer revision number.
+Image presentation also waits for decoding, and failed/undecodable images are
+unavailable for baseline capture. Pixel-oracle geometry is measured only after
+the same ready state that enables the user-facing capture button.
 The native comparison dialog hides the live guest and makes the rest of the
 renderer inert. Pixel captures remain in memory. The complete-page mode uses
 the temporary archives described above. No AI, external upload, user-facing

@@ -347,7 +347,17 @@ export class PreviewManager {
   }
   private load(record: TargetRecord): Promise<void> {
     if (record.loadPromise) return record.loadPromise;
-    const operation = this.loadOne(record); record.loadPromise = operation;
+    const operation = (async (): Promise<void> => {
+      while (this.window && !this.disposed) {
+        const revision = record.target.revision;
+        await this.loadOne(record);
+        if (record.target.revision === revision) break;
+        // A refresh arriving during navigation belongs to a newer revision.
+        // All joined callers must wait for that revision, including when the
+        // superseded navigation failed after refresh cleared its old error.
+        record.target.error = undefined;
+      }
+    })(); record.loadPromise = operation;
     const clear = (): void => { if (record.loadPromise === operation) record.loadPromise = undefined; };
     void operation.then(clear, clear);
     return operation;
@@ -357,6 +367,7 @@ export class PreviewManager {
     if (!this.window || record.loading || this.disposed) return;
     if (record.target.error && !record.grant?.cached) return;
     if (record.view && record.loadedRevision === record.target.revision) return;
+    const revision = record.target.revision;
     record.loading = true;
     try {
       if (!record.view) {
@@ -412,9 +423,14 @@ export class PreviewManager {
         : localPreviewUrl(record.target.source) ?? `${PREVIEW_SCHEME}://${record.target.id}/${encodeURIComponent(basename(record.target.source))}?v=${record.target.revision}`;
       const focusedBeforeLoad = webContents.getFocusedWebContents();
       await record.view.webContents.loadURL(url);
+      if (record.target.kind === "image") await record.view.webContents.executeJavaScript(`new Promise((resolve,reject)=>{
+        const image=document.querySelector('img');if(!image){reject(new Error('Image preview unavailable'));return}
+        const timer=setTimeout(()=>reject(new Error('Image decode timeout')),3000);
+        image.decode().then(()=>{clearTimeout(timer);if(image.naturalWidth)resolve(true);else reject(new Error('Image preview unavailable'))},error=>{clearTimeout(timer);reject(error)})
+      })`);
       if (focusedBeforeLoad && focusedBeforeLoad !== record.view.webContents && !focusedBeforeLoad.isDestroyed()
         && webContents.getFocusedWebContents() === record.view.webContents) focusedBeforeLoad.focus();
-      record.loadedRevision = record.target.revision;
+      record.loadedRevision = revision;
     } catch { record.target.error = "missing"; this.emit(record); }
     finally { record.loading = false; }
   }
