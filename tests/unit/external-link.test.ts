@@ -20,6 +20,8 @@ test("invalid URLs and non-web protocols never reach the OS opener", async () =>
     "javascript:alert(1)", "file:///C:/Windows/system32/cmd.exe", "data:text/html,hello",
     "ms-settings:", "about:blank", "//example.com", "not a URL", null, {},
     "https://user:password@example.com/", "https://example.com/\nfoo",
+    " https://example.com/", "https://example.com/ ", "https://exam\tple.com/",
+    "https://example.com/\r\nfoo", "https://example.com/\tfoo",
   ]) {
     assert.equal(await openExternalWebLink(value, async () => { calls += 1; }), false);
   }

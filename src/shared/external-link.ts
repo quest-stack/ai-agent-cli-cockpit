@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-const externalWebUrlSchema = z.string().url().refine((value) => {
+// Validate the original text: Zod's URL format may normalize away controls
+// before later refinements. The platform URL parser below checks syntax.
+const externalWebUrlSchema = z.string().refine((value) => {
   try {
     const url = new globalThis.URL(value);
     return (
