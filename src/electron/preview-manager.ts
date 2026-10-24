@@ -365,7 +365,7 @@ export class PreviewManager {
 
   private async loadOne(record: TargetRecord): Promise<void> {
     if (!this.window || record.loading || this.disposed) return;
-    if (record.target.error && !record.grant?.cached) return;
+    if (record.target.error) return;
     if (record.view && record.loadedRevision === record.target.revision) return;
     const revision = record.target.revision;
     record.loading = true;

@@ -211,6 +211,8 @@ an older response cannot be stamped with the newer revision number.
 Image presentation also waits for decoding, and failed/undecodable images are
 unavailable for baseline capture. Pixel-oracle geometry is measured only after
 the same ready state that enables the user-facing capture button.
+Failed previews retain their error through passive bounds/presentation updates;
+only an explicit refresh or a newly prepared source clears it for another load.
 The native comparison dialog hides the live guest and makes the rest of the
 renderer inert. Pixel captures remain in memory. The complete-page mode uses
 the temporary archives described above. No AI, external upload, user-facing

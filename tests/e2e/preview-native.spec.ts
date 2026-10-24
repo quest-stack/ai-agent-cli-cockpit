@@ -1139,6 +1139,18 @@ test("comparison readiness: an undecodable image cannot become a baseline", asyn
   await expect.poll(async () => { try { return await cockpit.guest(id, "document.querySelector('img')?.complete"); } catch { return false; } }).toBe(true);
   expect(await cockpit.guest(id, "document.querySelector('img').naturalWidth")).toBe(0);
   await expect.poll(async () => (await cockpit.snapshot()).targets.find((target) => target.id === id)?.error).toBe("missing");
+  const errors = await cockpit.page.evaluateHandle(({ tabId, targetId }) => {
+    const state = { cleared: 0 };
+    window.cockpit!.preview!.onChanged((snapshot) => {
+      if (snapshot.tabId === tabId && snapshot.targets.some((target) => target.id === targetId && !target.error)) state.cleared++;
+    });
+    return state;
+  }, { tabId, targetId: id });
+  const bounds = await cockpit.page.getByTestId("preview-surface").evaluate((node) => {
+    const box = node.getBoundingClientRect(); return { x: Math.round(box.x), y: Math.round(box.y), width: Math.floor(box.width), height: Math.floor(box.height) };
+  });
+  await cockpit.page.evaluate(({ tabId, targetId, bounds }) => window.cockpit!.preview!.request({ action: "present", tabId, targetId, bounds }), { tabId, targetId: id, bounds });
+  expect(await errors.evaluate((state) => state.cleared)).toBe(0);
   const result = await cockpit.page.evaluate(({ tabId, targetId }) => window.cockpit!.preview!.request({ action: "capture", tabId, targetId, baseline: true }), { tabId, targetId: id });
   expect(result.ok).toBe(false);
 });
