@@ -833,6 +833,21 @@ test("Markdown escapes HTML, updates on save and recovers after an atomic file r
   expect((await cockpit.snapshot()).targets[0].revision).toBeGreaterThan(1);
 });
 
+test("Markdown comparison ignores one leading space before a heading without marking later paragraphs", async ({ cockpit }) => {
+  const file = join(cockpit.directory, "leading-space.md");
+  const body = "# Document title\n\nFirst unchanged paragraph.\n\nSecond unchanged paragraph.\n";
+  await writeFile(file, body, "utf8");
+  const id = await cockpit.add(file);
+  await expect(cockpit.page.getByText("基準を自動保存しました", { exact: true })).toBeVisible();
+  const revision = (await cockpit.snapshot()).targets[0].revision;
+  await writeFile(file, " " + body, "utf8");
+  await expect.poll(async () => (await cockpit.snapshot()).targets[0].revision).toBeGreaterThan(revision);
+  await expect.poll(() => cockpit.guest(id, "document.querySelector('h1')?.textContent")).toBe("Document title");
+  await cockpit.page.getByRole("button", { name: "変更を比較", exact: true }).click();
+  await expect(cockpit.page.getByTestId("comparison-pages")).toHaveAttribute("data-ready", "true");
+  await expect(cockpit.page.getByText("変更した要素はありません。左右のページをスクロールできます。", { exact: true })).toBeVisible();
+});
+
 test("SVG loads as an image, blocks scripts and preserves the selected target on another file update", async ({ cockpit }) => {
   const markdown = join(cockpit.directory, "article.md"); const image = join(cockpit.directory, "cover.svg");
   await writeFile(markdown, "# Article");

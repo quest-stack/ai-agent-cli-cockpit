@@ -39,6 +39,14 @@ test("Markdown escapes raw HTML and unsafe links while rendering common document
   assert.match(html, /&lt;script&gt;/u); assert.match(html, /src="cover.png"/u);
 });
 
+test("up to three leading ASCII spaces preserve Markdown headings and following paragraphs", () => {
+  for (let level = 1; level <= 6; level++) {
+    const source = `${"#".repeat(level)} Heading\n\nUnchanged paragraph.\n\nSecond paragraph.`;
+    for (let spaces = 1; spaces <= 3; spaces++) assert.equal(renderMarkdown(" ".repeat(spaces) + source), renderMarkdown(source));
+  }
+  assert.doesNotMatch(renderMarkdown("    # Heading"), /<h1>/u);
+});
+
 test("asset grants deny traversal, hidden files and symlinks outside the selected folder", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cockpit-preview-assets-"));
   const root = join(directory, "site"); const outside = join(directory, "outside");

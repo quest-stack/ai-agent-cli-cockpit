@@ -402,7 +402,7 @@ export class PreviewManager {
           // Navigation can reset Chromium's emulation even when its key is unchanged.
           record.emulation = undefined;
           if (this.active?.id === record.target.id) this.clampBounds();
-          record.target.error = undefined; this.emit(record);
+          this.emit(record);
           if (record.scroll) {
             const state = record.scroll;
             void view.webContents.executeJavaScript(`(()=>{scrollTo(${Number(state.x) || 0},${Number(state.y) || 0});const v=document.querySelector('video');if(v){v.pause();const restore=()=>{v.currentTime=Math.min(${Number(state.time) || 0},v.duration||0);v.pause()};if(v.readyState>=1)restore();else v.addEventListener('loadedmetadata',restore,{once:true})}if(${Boolean(state.zoom)})document.getElementById('image')?.classList.add('zoomed')})()`).catch(() => undefined);
@@ -430,7 +430,7 @@ export class PreviewManager {
       })`);
       if (focusedBeforeLoad && focusedBeforeLoad !== record.view.webContents && !focusedBeforeLoad.isDestroyed()
         && webContents.getFocusedWebContents() === record.view.webContents) focusedBeforeLoad.focus();
-      record.loadedRevision = revision;
+      record.target.error = undefined; record.loadedRevision = revision;
     } catch { record.target.error = "missing"; this.emit(record); }
     finally { record.loading = false; }
   }

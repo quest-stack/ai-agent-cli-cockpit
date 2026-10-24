@@ -74,7 +74,7 @@ export function renderMarkdown(input: string): string {
     const line = lines[index];
     if (/^\s*```/u.test(line)) { output.push(fenced ? "</code></pre>" : "<pre><code>"); fenced = !fenced; continue; }
     if (fenced) { output.push(`${escapeHtml(line)}\n`); continue; }
-    const heading = /^(#{1,6})\s+(.+)$/u.exec(line);
+    const heading = /^ {0,3}(#{1,6})\s+(.+)$/u.exec(line);
     if (heading) { output.push(`<h${heading[1].length}>${inlineMarkdown(heading[2])}</h${heading[1].length}>`); continue; }
     if (line.includes("|") && /^\s*\|?\s*:?-{3,}/u.test(lines[index + 1] ?? "")) {
       const cells = (row: string): string[] => row.trim().replace(/^\||\|$/gu, "").split("|");

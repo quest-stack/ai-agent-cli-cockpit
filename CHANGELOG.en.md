@@ -6,6 +6,7 @@
 - **Automatic previews follow newly generated artifacts.** Manual selections, explicitly closed previews and active comparisons are retained. Links with spaces, Japanese completion messages and terminal file hyperlinks are supported.
 - **Fixed unchanged paragraphs being highlighted as changes.** Insertions, deletions and reflow no longer mark every displaced element. Comparison checks text, specified CSS, reordered elements, SVG shapes/colors, long text and meaningful whitespace.
 - **Fixed capturing a comparison baseline before the preview finished loading.** Refreshing during navigation waits for the newer revision. PDF highlighting requires matching displayed pages and zoom levels.
+- **Markdown headings retain their formatting with one to three leading ASCII spaces.** That indentation alone no longer changes the rendered heading or produces a comparison difference.
 
 Automatic discovery relies on CLI wording; use the file picker when an output is not recognized. Comparison uses the saved baseline and the current view, rather than all PDF pages or document semantics.
 
