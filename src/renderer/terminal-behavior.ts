@@ -64,6 +64,17 @@ export function getNewlineSequenceForCommand(
  */
 export const TERMINAL_SUBMIT_SEQUENCE = "\r";
 
+/** Codex can be silent during loading; that quiet interval is not an input prompt. */
+export function isCliInitialPromptReady(command: string | undefined, lines: readonly string[]): boolean {
+  if (getCliKind(command) !== "codex") return true;
+  const screen = lines.join("\n");
+  if (/Update available|Trust and continue|Do you trust|Resume (?:a previous )?session|Type to search/iu.test(screen)) return false;
+  if (lines.some(line => /^\s*(?:loading|Resuming session)(?:\.{0,3}|…)?\s*$/iu.test(line)
+    || /(?:^|\s[·|]\s)(?:Starting|Loading)(?:\s[·|]|\s*$)/iu.test(line))) return false;
+  return lines.some(line => /^\s*[›❯]\s/u.test(line))
+    && /\bReady\b|context.{0,18}(?:left|remaining)|(?:left|remaining).{0,18}context/iu.test(screen);
+}
+
 /**
  * Enter と Shift+Enter の役割。
  *

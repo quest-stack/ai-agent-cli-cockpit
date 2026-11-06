@@ -347,7 +347,10 @@ for (const enterInsertsNewline of [true, false]) test.describe(`Codex history pi
     await expect.poll(async () => (await ime.writes()).slice(promptBefore)).toEqual([enterInsertsNewline ? "\x1b\r" : "\r"]);
     await ime.helper.press("Shift+Enter");
     await expect.poll(async () => (await ime.writes()).slice(promptBefore)).toEqual(enterInsertsNewline ? ["\x1b\r", "\r"] : ["\r", "\x1b\r"]);
-    await ime.send(picker); await expect.poll(ime.writes).toContain("\x1b[5;16R");
+    const pickerReportsBefore = (await ime.writes()).filter(value => value === "\x1b[5;16R").length;
+    await ime.send(picker);
+    // The earlier picker produced the same reply; wait for this parse barrier.
+    await expect.poll(async () => (await ime.writes()).filter(value => value === "\x1b[5;16R").length).toBe(pickerReportsBefore + 1);
     const imeBefore = (await ime.writes()).length;
     await ime.cdp.send("Input.imeSetComposition", { text: "日本", selectionStart: 2, selectionEnd: 2 });
     await ime.helper.dispatchEvent("keydown", { key: "Enter", code: "Enter", keyCode: 229, isComposing: true, bubbles: true, cancelable: true });

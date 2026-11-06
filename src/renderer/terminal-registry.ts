@@ -40,6 +40,7 @@ import { TerminalLinkMouse } from "./terminal-link-mouse";
 import {
   getTerminalManualNewlineSequence,
   getCodexHistoryPickerSubmitSequence,
+  isCliInitialPromptReady,
   isPlausibleCharacterWidth,
   rebindCaptureKeydown,
   resolveTerminalEnterDisposition,
@@ -1721,9 +1722,9 @@ class TerminalController {
   /**
    * 起動コマンド送信後の出力が一定時間止まるまで待つ。
    *
-   * CLI の起動完了を知る手段が端末には無いため、「描画が落ち着いたら
-   * 入力を受け付けられる状態になった」とみなす。起動に失敗した場合に
-   * 待ち続けないよう、上限を超えたら false を返す。
+   * Codex は静かな読み込み画面と入力待ちを区別し、現在画面の入力欄と
+   * 待機表示も確認する。他の CLI は従来の出力停止の判定を維持する。
+   * 起動に失敗した場合に待ち続けないよう、上限で false を返す。
    */
   waitForOutputToSettle({
     quietMs,
@@ -1745,7 +1746,11 @@ class TerminalController {
           this.lastOutputAfterBootstrapAt === undefined
             ? 0
             : Date.now() - this.lastOutputAfterBootstrapAt;
-        if (this.lastOutputAfterBootstrapAt !== undefined && since >= quietMs) {
+        const buffer = this.terminal.buffer.active;
+        const count = Math.min(this.terminal.rows, 200);
+        const lines = Array.from({ length: count }, (_, row) =>
+          buffer.getLine(buffer.baseY + this.terminal.rows - count + row)?.translateToString(true).slice(0, 1024) ?? "");
+        if (this.lastOutputAfterBootstrapAt !== undefined && since >= quietMs && isCliInitialPromptReady(this.command, lines)) {
           resolve(true);
           return;
         }

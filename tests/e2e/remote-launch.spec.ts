@@ -11,7 +11,7 @@ import type { PersistedWorkspace } from "../../src/shared/types";
 
 test.skip(process.platform !== "win32", "Windows inbox and real ConPTY integration.");
 
-async function fixture(info: TestInfo, actual = false, delayBootstrap = false): Promise<{
+async function fixture(info: TestInfo, actual = false, delayBootstrap = false, delayClientReady = false): Promise<{
   app: ElectronApplication; directory: string; inbox: string; result: string; project: string;
 }> {
   const directory = info.outputPath("profile"), bin = join(directory, "bin");
@@ -43,13 +43,15 @@ async function fixture(info: TestInfo, actual = false, delayBootstrap = false): 
       if(args[0]==='app-server')process.exit(0);
       process.stdin.setEncoding('utf8');
       if(process.stdin.isTTY)process.stdin.setRawMode(true);
-      console.log('REMOTE_FIXTURE_READY:'+cli);
+      let ready=${!delayClientReady};
+      const renderReady=()=>{console.log('REMOTE_FIXTURE_READY:'+cli);if(cli==='codex')console.log('› Ask Codex to do anything\\nGPT-6.1 · Ready · Context 100% left');};
+      if(ready)renderReady();else{console.log('OpenAI Codex loading');setTimeout(()=>{ready=true;renderReady();},3000);}
       let text='';
       process.stdin.on('data',chunk=>{
         text+=chunk;
         const end=text.search(/[\\r\\n]/);
         if(end<0)return;
-        fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({cli,args,cwd:process.cwd(),prompt:text.slice(0,end),pid:process.pid,parentPid:process.ppid}));
+        fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({cli,args,cwd:process.cwd(),prompt:text.slice(0,end),ready,pid:process.pid,parentPid:process.ppid}));
         console.log('REMOTE_FIXTURE_DONE');process.exit(0);
       });process.stdin.resume();`, "utf8");
     for (const cli of ["claude", "codex"]) {
@@ -139,6 +141,19 @@ for (const cli of [undefined, "claude", "codex"] as const) {
     } finally { await app.close(); }
   });
 }
+
+test("Codex inbox waits through a quiet loading screen before delivering the initial prompt", async ({}, info) => {
+  test.setTimeout(45_000);
+  const { app, inbox, result, project } = await fixture(info, false, false, true);
+  try {
+    const page = await app.firstWindow(); await expect(page.getByTestId("launcher")).toBeVisible();
+    const prompt = "DELAYED_STARTUP_ACCEPTANCE";
+    await writeFile(join(inbox, "delayed.json"), JSON.stringify({ cli: "codex", cwd: project, prompt }), "utf8");
+    await expect.poll(() => json(result), { timeout: 20_000 }).toMatchObject({ cli: "codex", prompt, ready: true });
+    const row = page.getByTestId(/^session-row-/u), id = (await row.getAttribute("data-testid"))!.slice("session-row-".length);
+    await exitShell(page, id);
+  } finally { await app.close(); }
+});
 
 test("invalid inbox CLI selectors cannot create a tab or process", async ({}, info) => {
   const { app, directory, inbox, project } = await fixture(info);

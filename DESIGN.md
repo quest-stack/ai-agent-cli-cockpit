@@ -10,8 +10,13 @@ arguments. Invalid selectors are rejected before any tab is created. Existing
 opt-in, cwd validation, size/rate limits and control-character rejection remain
 in place. Initial prompt delivery requires output after the PTY has actually
 written the CLI bootstrap command, followed by the existing quiet interval;
-the parent shell's early prompt cannot satisfy this condition. This is an output
-heuristic, not proof that provider login/trust prompts have been completed.
+the parent shell's early prompt cannot satisfy this condition. Codex additionally
+requires its live composer and idle footer, bounded to the bottom 200 current
+screen rows; loading, update, trust and history-selection screens do not receive
+the initial task. A quiet Codex loading interval is not readiness. This remains
+screen recognition rather than a provider readiness protocol; unrecognized
+screens time out visibly without sending the task. Other providers retain their
+existing output-settle heuristic, which is not proof of completed login/trust.
 No new network listener is created by inbox
 delivery. This selects the CLI only; it does not repair provider browser access.
 

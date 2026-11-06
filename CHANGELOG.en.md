@@ -10,7 +10,7 @@
 - **Preview static sites before deployment.** Open a folder containing index.html and shared assets, then open directions in separate target tabs. Saved changes, responsive widths, baselines and comparisons work without a helper server or deployment. Applications requiring a development server still use localhost Preview.
 - **Reduce false differences from unedited animations.** Align animation phases during comparison capture and restore live playback afterward.
 - **Capture complete Web/Markdown pages and save PNGs.** Preserve viewport width, input and scroll position; retry temporary Windows replacement failures. Also fix the terminal composer falling outside the viewport after changing renderers.
-- **Start Codex from local inbox requests.** Set cli to codex; claude or omission keeps Claude Code. Arbitrary shell commands remain unavailable. Initial instructions no longer reach PowerShell before the CLI bootstrap is written.
+- **Start Codex from local inbox requests.** Set cli to codex; claude or omission keeps Claude Code. Arbitrary shell commands remain unavailable. Initial instructions no longer reach PowerShell before the CLI bootstrap is written, and a quiet Codex loading screen is no longer mistaken for input readiness. If an update, authentication or other screen prevents readiness confirmation, Cockpit reports that the instruction was not sent.
 - **Preserve Claude's configured history/settings directory.** Keep CLAUDE_CONFIG_DIR when filtering parent-session metadata.
 - **Route right-click and Shift+right-click through image-aware paste.** Selected text still copies and mouse-aware CLIs retain their behavior. Clearing the launcher's folder field no longer restores the previous path.
 

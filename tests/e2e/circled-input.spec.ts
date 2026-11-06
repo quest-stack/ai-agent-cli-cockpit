@@ -124,8 +124,19 @@ for (const renderer of ["dom", "webgl"] as const) test.describe(renderer, () => 
     const row = layer.locator(".cockpit-circled-input-row");
     const bounds = (await row.boundingBox())!, last = (await row.locator(".cockpit-circled-input-cell").last().boundingBox())!;
     expect(last.x + last.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1);
-    const first = (await symbols.nth(0).boundingBox())!, second = (await symbols.nth(1).boundingBox())!;
-    await input.send("\x1b[?1000h\x1b[?1006h");
+    const reportsBefore = (await input.writes()).filter(value => value === "\x1b[4;7R").length;
+    await input.send("\x1b[?1000h\x1b[?1006h\x1b[6n");
+    // IPC delivery does not mean xterm has parsed the mouse-mode change yet.
+    await expect.poll(async () => (await input.writes()).filter(value => value === "\x1b[4;7R").length).toBe(reportsBefore + 1);
+    // Read current children after paint, without retaining nodes replaced by render.
+    let boxes: { x: number; y: number; width: number; height: number }[] = [];
+    await expect.poll(async () => {
+      boxes = await input.terminal.evaluate(host => [...host.querySelectorAll(".cockpit-circled-input:not([hidden]) .cockpit-circled-input-symbol")].map(node => {
+        const { x, y, width, height } = node.getBoundingClientRect(); return { x, y, width, height };
+      }));
+      return boxes.length === 2 && boxes.every(box => box.width > 0 && box.height > 0);
+    }).toBe(true);
+    const [first, second] = boxes;
     await input.page.mouse.click(second.x + second.width * 0.75, second.y + second.height / 2);
     await expect.poll(input.writes).toContain("\x1b[<0;4;3M");
     await input.page.keyboard.down("Shift"); await input.page.mouse.move(first.x + 0.1, first.y + first.height / 2); await input.page.mouse.down();

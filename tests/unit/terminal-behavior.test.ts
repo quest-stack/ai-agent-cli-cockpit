@@ -5,6 +5,7 @@ import {
   type CaptureKeydownTarget,
   getTerminalManualNewlineSequence,
   getCodexHistoryPickerSubmitSequence,
+  isCliInitialPromptReady,
   isPlausibleCharacterWidth,
   isTerminalLineFeedKey,
   rebindCaptureKeydown,
@@ -23,6 +24,31 @@ interface PendingFrame {
   callback: () => void;
   id: number;
 }
+
+test("Codex initial directives require a live composer and an idle status", () => {
+  assert.equal(isCliInitialPromptReady("codex", ["› Ask Codex to do anything", "GPT-6.1 · Ready · weekly 80% left"]), true);
+  assert.equal(isCliInitialPromptReady("codex", ["❯ ", "gpt-5.2-codex · 100% context left"]), true);
+  assert.equal(isCliInitialPromptReady("codex", ["GPT-6.1 · Ready"]), false);
+  assert.equal(isCliInitialPromptReady("codex", ["› Ask Codex to do anything"]), false);
+});
+
+test("Codex loading and bootstrap echoes cannot accept an inbox directive", () => {
+  for (const lines of [[], ["PS C:\\project> codex.cmd"], ["OpenAI Codex", "loading"],
+    ["› Ask Codex to do anything", "GPT-6.1 · Starting · Context 100% left"]]) {
+    assert.equal(isCliInitialPromptReady("codex", lines), false);
+  }
+});
+
+test("Codex provider dialogs never receive a task as an automatic answer", () => {
+  for (const dialog of ["Update available", "Trust and continue", "Do you trust this directory?", "Resume a previous session", "Type to search"]) {
+    assert.equal(isCliInitialPromptReady("codex", [dialog, "› 1. Continue", "GPT-6.1 · Ready · Context 100% left"]), false);
+  }
+});
+
+test("other CLI providers retain their existing output-settle behavior", () => {
+  assert.equal(isCliInitialPromptReady("claude", []), true);
+  assert.equal(isCliInitialPromptReady(undefined, []), true);
+});
 
 test("Codex history uses Enter confirmation only with all live picker landmarks", () => {
   const lines = ["Resume a previous session", "Filter: Cwd All  Status: Active Archived", "enter resume  esc start new  ctrl+c quit"];
