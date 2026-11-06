@@ -16,25 +16,34 @@ interface ImeFixture {
   writes: () => Promise<string[]>;
 }
 
-const test = base.extend<{ ime: ImeFixture; command: string }>({
+const test = base.extend<{ ime: ImeFixture; command: string; enterInsertsNewline: boolean }>({
   command: ["codex", { option: true }],
-  ime: async ({ command }, provide, testInfo) => {
+  enterInsertsNewline: [false, { option: true }],
+  ime: async ({ command, enterInsertsNewline }, provide, testInfo) => {
     const directory = testInfo.outputPath("user-data");
     const workspace = createDefaultWorkspace();
     workspace.settings.tourCompleted = true;
     workspace.settings.notificationsEnabled = false;
+    workspace.settings.enterInsertsNewline = enterInsertsNewline;
     await mkdir(directory, { recursive: true });
     await writeFile(join(directory, "session.json"), JSON.stringify(workspace), "utf8");
     const entry = join(directory, "hidden-entry.cjs");
+    const executablePath = process.env.COCKPIT_PACKAGED_EXECUTABLE;
     await writeFile(entry, `
       const { app } = require('electron');
       app.on('browser-window-created', (_, win) => { win.show = () => {}; win.showInactive = () => {}; });
-      require(${JSON.stringify(resolve("dist/electron/main.js"))});
+      ${executablePath ? "" : `require(${JSON.stringify(resolve("dist/electron/main.js"))});`}
     `, "utf8");
     const app = await electron.launch({
-      args: [entry], env: { ...process.env, COCKPIT_USER_DATA: directory },
+      args: executablePath ? ["-r", entry] : [entry], ...(executablePath ? { executablePath } : {}),
+      env: { ...process.env, COCKPIT_USER_DATA: directory },
     });
     try {
+      await app.evaluate(({ app, BrowserWindow }) => {
+        const hide = (window: Electron.BrowserWindow): void => { window.show = () => {}; window.showInactive = () => {}; window.hide(); };
+        app.on("browser-window-created", (_event, window) => hide(window));
+        for (const window of BrowserWindow.getAllWindows()) hide(window);
+      });
       const page = await app.firstWindow();
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
@@ -121,7 +130,8 @@ for (const command of ["codex", "claude"]) {
       // Native Windows IME delivers keyCode 229 and a short composition in one
       // task. An awaited CDP call between those events would let xterm's timer
       // run before the textarea changes and miss the duplicate.
-      await ime.helper.evaluate((textarea) => {
+      await ime.helper.evaluate((element) => {
+        const textarea = element as globalThis.HTMLTextAreaElement;
         textarea.dispatchEvent(new window.KeyboardEvent("keydown", {
           bubbles: true, cancelable: true, code: "Space", key: " ", keyCode: 229,
         }));
@@ -138,7 +148,8 @@ for (const command of ["codex", "claude"]) {
     test("keyCode 229 without composition still sends inserted punctuation", async ({ ime }) => {
       await ready(ime);
       const before = (await ime.writes()).length;
-      await ime.helper.evaluate((textarea) => {
+      await ime.helper.evaluate((element) => {
+        const textarea = element as globalThis.HTMLTextAreaElement;
         textarea.dispatchEvent(new window.KeyboardEvent("keydown", {
           bubbles: true, cancelable: true, code: "Digit1", key: "Process", keyCode: 229,
         }));
@@ -166,7 +177,8 @@ for (const command of ["codex", "claude"]) {
       await ready(ime);
       await ime.page.keyboard.type("   ");
       const before = (await ime.writes()).length;
-      await ime.helper.evaluate((textarea) => {
+      await ime.helper.evaluate((element) => {
+        const textarea = element as globalThis.HTMLTextAreaElement;
         textarea.dispatchEvent(new window.CompositionEvent("compositionstart", { bubbles: true, data: "" }));
         textarea.value = "あ";
         textarea.dispatchEvent(new window.CompositionEvent("compositionupdate", { bubbles: true, data: "あ" }));
@@ -178,7 +190,8 @@ for (const command of ["codex", "claude"]) {
     test("empty compositionend data waits for the final textarea update", async ({ ime }) => {
       await ready(ime);
       const before = (await ime.writes()).length;
-      await ime.helper.evaluate((textarea) => {
+      await ime.helper.evaluate((element) => {
+        const textarea = element as globalThis.HTMLTextAreaElement;
         textarea.dispatchEvent(new window.CompositionEvent("compositionstart", { bubbles: true, data: "" }));
         textarea.dispatchEvent(new window.CompositionEvent("compositionupdate", { bubbles: true, data: "日本語" }));
         textarea.dispatchEvent(new window.CompositionEvent("compositionend", { bubbles: true, data: "" }));
@@ -190,7 +203,8 @@ for (const command of ["codex", "claude"]) {
     test("back-to-back empty compositionend events send each commit once", async ({ ime }) => {
       await ready(ime);
       const before = (await ime.writes()).length;
-      await ime.helper.evaluate((textarea) => {
+      await ime.helper.evaluate((element) => {
+        const textarea = element as globalThis.HTMLTextAreaElement;
         for (const text of ["あ", "い"]) {
           textarea.dispatchEvent(new window.CompositionEvent("compositionstart", { bubbles: true, data: "" }));
           textarea.dispatchEvent(new window.CompositionEvent("compositionupdate", { bubbles: true, data: text }));
@@ -204,7 +218,8 @@ for (const command of ["codex", "claude"]) {
     test("empty compositionend data on cancellation sends nothing", async ({ ime }) => {
       await ready(ime);
       const before = (await ime.writes()).length;
-      await ime.helper.evaluate((textarea) => {
+      await ime.helper.evaluate((element) => {
+        const textarea = element as globalThis.HTMLTextAreaElement;
         const initial = textarea.value;
         textarea.dispatchEvent(new window.CompositionEvent("compositionstart", { bubbles: true, data: "" }));
         textarea.value = `${initial}取消`;
@@ -219,7 +234,8 @@ for (const command of ["codex", "claude"]) {
     test("cancelled IME composition refocuses the input for the next conversion", async ({ ime }) => {
       await ready(ime);
       const before = (await ime.writes()).length;
-      await ime.helper.evaluate((textarea) => {
+      await ime.helper.evaluate((element) => {
+        const textarea = element as globalThis.HTMLTextAreaElement;
         textarea.dataset.testBlurCount = "0";
         textarea.dataset.testFocusCount = "0";
         textarea.addEventListener("blur", () => {
@@ -316,3 +332,28 @@ for (const command of ["codex", "claude"]) {
     });
   });
 }
+
+for (const enterInsertsNewline of [true, false]) test.describe(`Codex history picker, Enter newline=${enterInsertsNewline}`, () => {
+  test.use({ command: "codex", enterInsertsNewline });
+  test("Enter selects history while the composer retains its configured newline behavior", async ({ ime }) => {
+    const picker = "\x1b[2J\x1b[HResume a previous session\x1b[3;1HFilter: Cwd All  Status: Active Archived  Sort: Updated Created\x1b[5;1HType to search\x1b[7;1H› Owned conversation\x1b[999;1Henter resume  ctrl+a archive  esc start new  ctrl+c quit\x1b[5;16H\x1b[?25l\x1b[6n";
+    await ime.send(picker); await expect.poll(ime.writes).toContain("\x1b[5;16R");
+    const before = (await ime.writes()).length;
+    await ime.helper.press("Enter"); await expect.poll(async () => (await ime.writes()).slice(before)).toEqual(["\r"]);
+    await ime.helper.press("Shift+Enter"); await expect.poll(async () => (await ime.writes()).slice(before)).toEqual(["\r", "\r"]);
+    await ime.send("\x1b[2J\x1b[H› \x1b[?25h\x1b[6n"); await expect.poll(ime.writes).toContain("\x1b[1;3R");
+    const promptBefore = (await ime.writes()).length;
+    await ime.helper.press("Enter");
+    await expect.poll(async () => (await ime.writes()).slice(promptBefore)).toEqual([enterInsertsNewline ? "\x1b\r" : "\r"]);
+    await ime.helper.press("Shift+Enter");
+    await expect.poll(async () => (await ime.writes()).slice(promptBefore)).toEqual(enterInsertsNewline ? ["\x1b\r", "\r"] : ["\r", "\x1b\r"]);
+    await ime.send(picker); await expect.poll(ime.writes).toContain("\x1b[5;16R");
+    const imeBefore = (await ime.writes()).length;
+    await ime.cdp.send("Input.imeSetComposition", { text: "日本", selectionStart: 2, selectionEnd: 2 });
+    await ime.helper.dispatchEvent("keydown", { key: "Enter", code: "Enter", keyCode: 229, isComposing: true, bubbles: true, cancelable: true });
+    expect((await ime.writes()).slice(imeBefore)).toEqual([]);
+    await ime.cdp.send("Input.imeSetComposition", { text: "", selectionStart: 0, selectionEnd: 0 });
+    await expect(ime.page.getByTestId(/^terminal-/u).locator(".composition-view.active")).toHaveCount(0);
+    expect((await ime.writes()).slice(imeBefore)).toEqual([]);
+  });
+});

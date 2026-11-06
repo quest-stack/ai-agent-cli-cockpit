@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, realpath, symlink, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
+import { homedir, tmpdir } from "node:os";
 import test from "node:test";
 
 import { cacheGrant, createGrant, createPreviewCache, fileResponse, previewKind, previewRange, renderMarkdown, resolvePreviewAsset, resolvePreviewCandidates } from "../../src/electron/preview-files";
@@ -97,12 +97,32 @@ test("relative artifacts resolve only from the source CLI directory and require 
   assert.deepEqual(rejected, { files: [], unresolved: true });
 });
 
+test("home-prefixed artifacts resolve inside the CLI directory without widening its boundary", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cockpit-home-preview-")), project = join(directory, "project");
+  await mkdir(project); const image = join(project, "image.png"), other = join(directory, "outside.png");
+  await writeFile(image, "owned image"); await writeFile(other, "outside CLI boundary");
+  const homePath = (file: string, separator: string): string => `~${separator}${relative(homedir(), file).split(/[\\/]/u).join(separator)}`;
+  const resolved = await resolvePreviewCandidates(project, [homePath(image, "\\"), homePath(image, "/")]);
+  assert.equal(resolved.files.length, 1); assert.equal(resolved.files[0].source, await realpath(image));
+  assert.equal(resolved.unresolved, false);
+  assert.deepEqual(await resolvePreviewCandidates(project, [homePath(other, "\\")]), { files: [], unresolved: true });
+});
+
 test("project context documents are ignored by discovery without reporting missing artifacts", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cockpit-preview-context-"));
   for (const name of ["AGENTS.md", "Claude.md", "DESIGN.md", "README.md", "SKILL.md"]) await writeFile(join(directory, name), "# Project instructions");
   const names = ["AGENTS.md", "Claude.md", "DESIGN.md", "README.md", "SKILL.md", "CURRENT_STATUS.md", "HANDOFF_20261021.md"];
   assert.deepEqual(await resolvePreviewCandidates(directory, names), { files: [], unresolved: false });
   assert.deepEqual(await resolvePreviewCandidates(undefined, names), { files: [], unresolved: false });
+});
+
+test("discovery retains every output label when relative and absolute paths identify one file", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cockpit-preview-aliases-"));
+  const source = join(directory, "report.png"); await writeFile(source, "image fixture");
+  const result = await resolvePreviewCandidates(directory, ["report.png", source]);
+  assert.equal(result.files.length, 1);
+  assert.deepEqual(result.files[0].labels, ["report.png", source]);
+  assert.equal(result.unresolved, false);
 });
 
 test("project context documents can still be opened explicitly", async () => {

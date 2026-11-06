@@ -44,6 +44,17 @@ test("observational hooks apply only to independent Windows CLI invocations", ()
   assert.ok(createBootstrapCommand("codex", false, "win32", hooks).includes(hooks));
   assert.ok(!createBootstrapCommand("codex", true, "win32", hooks).includes(hooks));
   assert.ok(!createBootstrapCommand("claude", false, "darwin", hooks).includes(hooks));
+  for (const command of ["claude --resume", "claude --continue", "codex resume", "codex resume --last"]) {
+    assert.ok(createBootstrapCommand(command, false, "win32", hooks).includes(hooks));
+  }
+});
+
+test("POSIX conversation modes retain cwd and the existing shared connection policy", () => {
+  assert.equal(createBootstrapCommand("codex resume", false, "darwin"), 'codex resume --cd "$PWD" -c tui.whimsy=false\r');
+  assert.equal(createBootstrapCommand("codex resume --last", false, "darwin"), 'codex resume --last --cd "$PWD" -c tui.whimsy=false\r');
+  assert.ok(createBootstrapCommand("codex resume --last", true, "darwin").includes('codex --remote unix:// --cd "$PWD" -c tui.whimsy=false resume --last;'));
+  assert.equal(createBootstrapCommand("claude --resume", true, "darwin"), "claude --resume\r");
+  assert.equal(createBootstrapCommand("claude -c", true, "darwin"), "claude --continue\r");
 });
 
 function runBootstrap(root: string, command: string, shared: boolean, daemonExit = 0) {
@@ -106,6 +117,39 @@ test("failed daemon startup never opens an independent Codex session", {
     assert.notEqual(result.stderr, "");
   });
 });
+
+for (const mode of ["resume", "resume --last"] as const) {
+  test(`shared Codex ${mode} keeps the daemon, remote connection and chosen directory`, {
+    skip: process.platform !== "win32",
+  }, () => {
+    withFixture((root) => {
+      const { result, calls, cwd } = runBootstrap(root, `codex ${mode}`, true);
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(calls, [["app-server", "daemon", "start"],
+        ["--remote", "unix://", "--cd", cwd, "-c", "tui.whimsy=false", ...mode.split(" ")]]);
+    });
+  });
+
+  test(`independent Codex ${mode} keeps the chosen directory`, {
+    skip: process.platform !== "win32",
+  }, () => {
+    withFixture((root) => {
+      const { result, calls, cwd } = runBootstrap(root, `codex ${mode}`, false);
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(calls, [[...mode.split(" "), "--cd", cwd, "-c", "tui.whimsy=false"]]);
+    });
+  });
+}
+
+for (const option of ["--resume", "--continue"] as const) {
+  test(`Claude ${option} reaches the CLI without changing to Codex`, { skip: process.platform !== "win32" }, () => {
+    withFixture((root) => {
+      const { result, calls } = runBootstrap(root, `claude ${option}`, true);
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(calls, [[option]]);
+    });
+  });
+}
 
 test("Codex without remote opt-in keeps its existing terminal arguments", {
   skip: process.platform !== "win32",

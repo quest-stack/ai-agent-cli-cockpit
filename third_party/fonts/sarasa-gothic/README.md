@@ -57,3 +57,21 @@ done
 - 著作権表示とライセンス本文は THIRD-PARTY-NOTICES.md に自動で載る
   （scripts/generate-third-party-notices.mjs が third_party/fonts/*/LICENSE を読む）。
 - 範囲を変えるときは、`src/renderer/styles.css` の `unicode-range` も同じ値にそろえる。
+
+## Cockpit丸数字用の派生フォント（2026-10-21）
+
+`CockpitCircledNumbers-Regular.ttf` / `CockpitCircledNumbers-Bold.ttf` は、上記の
+同梱記号フォントから42文字の丸数字の数字部分を再利用したOFL上の改変版。
+原本の記号フォント2本は変更していない。著作権・OFLの表示は既存のものを保持する。
+
+- 対象: U+2460–2473、U+24EA–24FF。数字の輪郭を残し、外周を8区間の二次曲線で
+  作る円に置き換える。黒丸・二重丸の区別も保持する。
+- 単独の字形は500/1000 em幅の1セルに収める。空白と描画を結合できるときは
+  1000/1500 em幅の字形を使う。隣の文字や端末のセル数を変更しない。
+- ASCII空白・全角空白との標準合字、およびCanvas描画専用のVS1字形を含む。
+  VS1は描画文字列だけに使い、端末バッファ・PTY・コピーには追加しない。
+- 同じ装飾の丸数字は8文字まで、後ろに十分な空白があればまとめて大きく描く。
+  `①②　`は元の4セルのまま2つの大きい円にする。数字の輪郭も読み取りやすく広げる。
+- 内部フォント名は `Cockpit Circled Numbers` に変更済み。
+- 再生成: `python scripts/build-circled-fonts.py`（fontTools 4.66.1）。取得や依存追加は行わない。
+- OSフォントに依存しない。Macの実表示はこの候補について別途検証する。

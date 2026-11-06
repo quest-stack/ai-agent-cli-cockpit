@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { providerConversationSchema } from "./provider-conversation";
+
 import {
   CLI_COMMANDS,
   DEFAULT_SIDEBAR_WIDTH,
@@ -68,6 +70,7 @@ export const tabStateSchema = z.object({
 
 export const persistedSessionSchema = z.object({
   command: commandSchema,
+  conversation: providerConversationSchema.nullable().optional(),
   cwd: pathSchema,
   id: safeIdSchema,
   projectName: z.string().min(1).max(160),
@@ -187,6 +190,7 @@ export function stripByteOrderMark(value: string): string {
 }
 
 export const remoteLaunchRequestSchema = z.object({
+  cli: z.enum(["claude", "codex"]).default("claude"),
   cwd: pathSchema,
   prompt: z.string().min(1).max(4_000).refine(
     (value) => !hasControlCharacter(value),
@@ -201,6 +205,8 @@ export const remoteLaunchRequestSchema = z.object({
 export const spawnSessionRequestSchema = z.object({
   cols: z.number().int().min(2).max(1_000),
   command: commandSchema,
+  conversation: providerConversationSchema.nullable().optional(),
+  restoreConversation: z.boolean().optional(),
   cwd: pathSchema,
   id: safeIdSchema,
   projectName: z.string().min(1).max(160),

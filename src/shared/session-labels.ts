@@ -1,3 +1,5 @@
+import { getCliKind } from "./cli-launch";
+
 import type { PersistedWorkspace } from "./types";
 
 interface SessionLabelInput {
@@ -62,13 +64,14 @@ export function getProjectNameFromPath(path: string): string {
 }
 
 export function getDefaultSessionTitle(command: string): string {
-  if (command === "claude") {
+  const cli = getCliKind(command);
+  if (cli === "claude") {
     return "Claude";
   }
-  if (command === "codex") {
+  if (cli === "codex") {
     return "Codex";
   }
-  if (command === "powershell") {
+  if (cli === "powershell") {
     return "PowerShell";
   }
   return "Terminal";

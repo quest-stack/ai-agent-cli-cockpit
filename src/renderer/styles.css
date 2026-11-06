@@ -1,18 +1,34 @@
-/* 空白を伴う丸数字は2セルにまとめ、OS同梱の丸い字形で描く。 */
+/* 同梱字形は1セルでも正円。空白と結合した場合だけ大きい字形に切り替える。 */
 @font-face {
   font-family: "Cockpit Circled Numbers";
-  src: local("Segoe UI Symbol"), local("Segoe UI");
+  src: url("./assets/fonts/CockpitCircledNumbers-Regular.ttf") format("truetype");
   font-weight: 400;
-  size-adjust: 120%;
-  /* xtermはDingbatsを絵文字扱いし縮小しないため、❶などは従来のSarasaを使う。 */
-  unicode-range: U+2460-2473, U+24EA-24FF;
+  font-display: block;
+  unicode-range: U+0020, U+2460-2473, U+24EA-24FF, U+3000, U+FE00;
+}
+
+@font-face {
+  font-family: "Cockpit Circled Numbers";
+  src: url("./assets/fonts/CockpitCircledNumbers-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: block;
+  unicode-range: U+0020, U+2460-2473, U+24EA-24FF, U+3000, U+FE00;
 }
 
 @font-face {
   font-family: "Cockpit Mac Circled Numbers";
-  src: local("HiraginoSans-W3"), local("Hiragino Kaku Gothic ProN W3"), local("Apple Symbols");
+  src: url("./assets/fonts/CockpitCircledNumbers-Regular.ttf") format("truetype");
   font-weight: 400;
-  unicode-range: U+2460-2473, U+24EA-24FF;
+  font-display: block;
+  unicode-range: U+0020, U+2460-2473, U+24EA-24FF, U+3000, U+FE00;
+}
+
+@font-face {
+  font-family: "Cockpit Mac Circled Numbers";
+  src: url("./assets/fonts/CockpitCircledNumbers-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: block;
+  unicode-range: U+0020, U+2460-2473, U+24EA-24FF, U+3000, U+FE00;
 }
 
 /*
@@ -1092,6 +1108,26 @@ select:focus-visible,
   color: #fff;
 }
 
+/* IME preedit uses DOM flow; reserve the same two cells as committed circles.
+   Generated ink leaves the actual composition/copy text unchanged. The sizing
+   also applies to the off-screen natural-width measurement element. */
+.cockpit-composition-circle {
+  display: inline-block;
+  position: relative;
+  width: var(--composition-circle-width);
+  color: transparent;
+}
+
+.cockpit-composition-circle::after {
+  content: attr(data-circled-glyph);
+  position: absolute;
+  inset: 0;
+  color: #fff;
+  font-size: var(--composition-circle-font-size);
+  line-height: inherit;
+  text-align: center;
+}
+
 .terminal-pane.is-active {
   border-color: #f5a62366;
   box-shadow: inset 0 0 0 1px #f5a62318;
@@ -1229,10 +1265,10 @@ select:focus-visible,
   scrollbar-width: thin;
 }
 
-/* DOMの結合spanは丸数字＋空白で2セル、連続丸数字は元のセル数へ固定する。 */
+/* 丸数字の並びと実在する空白を合わせた元のセル数へ固定する。 */
 .terminal-host .xterm-rows > div > span.cockpit-spaced-circled,
 .terminal-host .xterm-rows > div > span.cockpit-compact-circled {
-  /* 結合できない丸数字は従来の半角字形。隣のセルや選択位置を侵食しない。 */
+  /* 空白を借りられない場合も、隣の文字や選択位置を侵食しない。 */
   display: inline-block;
   inline-size: var(--cockpit-circled-width);
   letter-spacing: normal !important;
@@ -1241,8 +1277,35 @@ select:focus-visible,
 }
 
 .terminal-host .xterm-rows > div > span.cockpit-compact-circled {
-  font-family: "Cockpit Symbols", Consolas, monospace;
+  font-family: "Cockpit Circled Numbers", "Cockpit Symbols", Consolas, monospace;
   text-align: center;
+}
+
+.cockpit-circled-input {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  pointer-events: none;
+  white-space: pre;
+  overflow: hidden;
+}
+
+.cockpit-circled-input[hidden] { display: none; }
+.cockpit-circled-input-row { position: absolute; left: 0; overflow: hidden; }
+.cockpit-circled-input-row > span {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  line-height: inherit;
+  white-space: pre;
+}
+.cockpit-circled-input-symbol { text-align: center; }
+.cockpit-circled-input-caret {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 1px;
 }
 
 .terminal-closing {
@@ -1635,6 +1698,33 @@ select:focus-visible,
   margin: 6px 0 0;
 }
 
+.launch-mode-options {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.launch-mode-option > span {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  justify-content: flex-start;
+  padding: 10px 12px;
+  text-align: left;
+  white-space: normal;
+}
+
+.launch-mode-option strong {
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.launch-mode-option small {
+  color: var(--fg-dim);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
 .pane-actions .cancel-input-button {
   font-size: 10px;
   padding-inline: 7px;
@@ -1728,6 +1818,37 @@ select:focus-visible,
   grid-template-columns: minmax(0, 1fr) auto;
   padding: 7px 8px;
   text-align: left;
+  width: 100%;
+}
+
+.recent-entry {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.recent-item > em {
+  color: var(--fg-dim);
+  font-size: 8px;
+  font-style: normal;
+  grid-column: 1 / -1;
+  margin-top: 4px;
+}
+
+.recent-resume {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg-dim);
+  font-size: 9px;
+  margin-top: 4px;
+  min-height: 28px;
+  text-align: left;
+}
+
+.recent-resume:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .recent-item:hover {

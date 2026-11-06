@@ -23,6 +23,7 @@ import {
   splitPane,
   updateSplitRatio,
 } from "../shared/layout";
+import { getCliKind } from "../shared/cli-launch";
 import {
   getDefaultSessionTitle,
   getProjectNameFromPath,
@@ -85,6 +86,7 @@ const REMOTE_PROMPT_SUBMIT_DELAY_MS = 150;
 function toPersistedSession(session: SessionState): PersistedSession {
   return {
     command: session.command,
+    ...(session.conversation !== undefined ? { conversation: session.conversation } : {}),
     cwd: session.cwd,
     id: session.id,
     projectName: session.projectName,
@@ -232,7 +234,7 @@ export function App() {
       if (removedSessionIds.current.has(event.sessionId)) {
         return;
       }
-      terminalRegistry.write(event.sessionId, event.data);
+      terminalRegistry.write(event.sessionId, event.data, event.bootstrapWritten);
     });
     // redrawAll 自体が「間を置いてもう一度」まで面倒を見るので、
     // ここでは呼ぶだけでよい（手動の Ctrl+Shift+R と同じ経路）。
@@ -248,6 +250,7 @@ export function App() {
           session.id === event.sessionId
             ? {
                 ...session,
+                ...(event.conversation !== undefined ? { conversation: event.conversation } : {}),
                 exitCode: event.exitCode ?? session.exitCode,
                 shouldRestore:
                   event.status !== "exited" && event.status !== "error",
@@ -297,6 +300,10 @@ export function App() {
         setWorkspace(loadedWorkspace);
         workspaceRef.current = loadedWorkspace;
         setTourOpen(!loadedWorkspace.settings.tourCompleted);
+        if (loadedWorkspace.sessions.some(session => session.shouldRestore && !session.conversation &&
+          (getCliKind(session.command) === "claude" || getCliKind(session.command) === "codex"))) {
+          setNotice(t("会話が記録されていないタブは、履歴から会話を選んでください。記録できた会話は、次回から自動で再開します。"));
+        }
 
         const initialSessions: SessionState[] = loadedWorkspace.sessions.map(
           (session) => ({
@@ -320,6 +327,7 @@ export function App() {
               ...session,
               cols: 100,
               rows: 30,
+              restoreConversation: true,
             });
             restored.push(result.session);
           } catch (error: unknown) {
@@ -467,6 +475,8 @@ export function App() {
   };
 
   const removeTab = (tabId: string): void => {
+    // The tab may be closed before its first debounced workspace save.
+    void cockpitApi.preview?.request({ action: "clear", tabId }).catch(() => undefined);
     setZoomedTabId((current) => current === tabId ? null : current);
     setWorkspace((current) => {
       if (!current) {
@@ -702,10 +712,10 @@ export function App() {
    * 受付フォルダに置かれた依頼から、新しいタブでセッションを起動する。
    *
    * 外出先から「この案件で作業を始めておいて」を受け取るための入口。
-   * Remote Control が有効なら起動した時点でスマホ／ブラウザ側に現れ、
+   * 通常のペイン起動と同じCLI設定を使い、
    * 帰宅後は Cockpit のペインとしてそのまま続きを触れる。
    *
-   * 起動するコマンドは依頼では指定させず、常に `claude` を使う。
+   * 起動先は検証済みの Claude Code / Codex から選ぶ。
    * 受付フォルダに書けることが任意コマンド実行と同義になるのを避ける。
    */
   const launchFromRemoteRequest = async (
@@ -728,7 +738,7 @@ export function App() {
     );
 
     const sessionId = await startSession(tab.id, tab.activePaneId, {
-      command: "claude",
+      command: request.cli ?? "claude",
       cwd: request.cwd,
       projectName,
       title: request.title || projectName,
@@ -753,7 +763,8 @@ export function App() {
    *
    * spawn 直後に書くと、シェルの初期化や CLI 本体の起動が終わる前に
    * 送られて捨てられる。CLI が入力を受け付けられる状態になるのを、
-   * 出力が落ち着いたかどうかで判断する。「起動したはずなのに指示だけ
+   * 起動コマンド送信後の出力が落ち着いたかどうかで判断する。
+   * 「起動したはずなのに指示だけ
    * 消えている」が最も分かりにくい失敗なので、諦めるまでの上限も置く。
    */
   const deliverRemotePrompt = async (
@@ -790,10 +801,12 @@ export function App() {
       const result = await cockpitApi.spawnSession({
         cols: 100,
         command: session.command,
+        conversation: session.conversation,
         cwd: session.cwd,
         id: session.id,
         projectName: session.projectName,
         rows: 30,
+        restoreConversation: true,
         title: session.title,
       });
       setSessions((current) => upsertSessions(current, [result.session]));
@@ -1480,7 +1493,7 @@ export function App() {
                 }
                 type="checkbox"
               />{t("受け取った依頼でセッションを起動する")}</label>
-            <p>{t("inbox フォルダに置かれた依頼から Claude を起動します。 ネットワークは開きませんが、そのフォルダに書ける相手に この PC で作業を実行させることになります。")}</p>
+            <p>{t("inbox フォルダに置かれた依頼から Claude Code または Codex を起動します。起動先は依頼の cli で指定し、省略時は Claude Code です。そのフォルダに書ける相手は、この PC で作業を開始できます。")}</p>
             {remoteLaunchInbox && (
               <div className="settings-inbox">
                 <code>{remoteLaunchInbox}</code>

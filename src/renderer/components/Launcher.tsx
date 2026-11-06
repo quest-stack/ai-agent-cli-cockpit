@@ -9,7 +9,7 @@ import {
   Search,
   TerminalSquare,
 } from "lucide-react";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
   getDefaultSessionTitle,
@@ -21,6 +21,8 @@ import { cockpitApi } from "../bridge";
 import { normalizeShellCommand } from "../../shared/platform";
 
 import { t } from "../../shared/i18n";
+import { createCliLaunchCommand, getCliKind } from "../../shared/cli-launch";
+import type { CliLaunchMode } from "../../shared/cli-launch";
 
 import type {
   AppSettings,
@@ -59,6 +61,8 @@ export function Launcher({
 }: LauncherProps) {
   const command = normalizeShellCommand(settings.defaultCommand, cockpitApi.platform);
   const commandGroupId = useId();
+  const launchModeGroupId = useId();
+  const [launchMode, setLaunchMode] = useState<CliLaunchMode>("new");
   const commands: { value: CliCommand; label: string }[] = [
     { value: "claude", label: "Claude Code" },
     { value: "codex", label: "Codex" },
@@ -71,16 +75,18 @@ export function Launcher({
   const [cwd, setCwd] = useState(() =>
     resolveInitialLauncherCwd(recent, projects),
   );
+  const cwdEditedByUser = useRef(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [sessionName, setSessionName] = useState("");
   const [starting, setStarting] = useState(false);
 
   useEffect(() => {
-    if (cwd) {
+    if (cwd || cwdEditedByUser.current) {
       return;
     }
     // 起動直後は projects / recent がまだ空のことがある。空欄のままに
     // ならないよう、届いた時点で同じ規則で埋め直す。
+    // 利用者が編集した後の空欄は維持し、履歴を再入力しない。
     const initial = resolveInitialLauncherCwd(recent, projects);
     if (initial) {
       setCwd(initial);
@@ -121,11 +127,11 @@ export function Launcher({
 
     setStarting(true);
     try {
-      const recentCommand = commands.find((item) => item.value === input?.command);
+      const recentCommand = commands.find((item) => item.value === getCliKind(input?.command));
       if (recentCommand) onSelectCommand(recentCommand.value);
       await onStart(
         input ?? {
-          command,
+          command: createCliLaunchCommand(command, launchMode),
           cwd: selectedCwd,
           projectName: exactProject?.name ?? getProjectNameFromPath(selectedCwd),
           title: sessionName.trim(),
@@ -146,6 +152,7 @@ export function Launcher({
     try {
       const selectedPath = await cockpitApi.pickProjectDirectory();
       if (selectedPath) {
+        cwdEditedByUser.current = true;
         setCwd(selectedPath);
         setDropdownOpen(false);
       }
@@ -199,6 +206,7 @@ export function Launcher({
                 window.setTimeout(() => setDropdownOpen(false), 120);
               }}
               onChange={(event) => {
+                cwdEditedByUser.current = true;
                 setCwd(event.target.value);
                 setDropdownOpen(true);
               }}
@@ -243,6 +251,7 @@ export function Launcher({
                     className="project-option"
                     key={project.path}
                     onClick={() => {
+                      cwdEditedByUser.current = true;
                       setCwd(project.path);
                       setDropdownOpen(false);
                     }}
@@ -298,6 +307,21 @@ export function Launcher({
           </div>
           <p className="cli-picker-note">{t("前回の選択を次回も使います")}</p>
         </fieldset>
+        {(command === "claude" || command === "codex") && <fieldset className="cli-picker" data-testid="launch-mode-picker">
+          <legend className="field-label">{t("セッションの開始方法")}</legend>
+          <div className="cli-options launch-mode-options">
+            {([
+              { value: "new", label: t("新規セッションを開始"), description: t("選択したフォルダで、新しくCLIを起動します") },
+              { value: "resume", label: t("履歴から選んで再開"), description: t("起動後、CLIの履歴からセッションを選びます") },
+              { value: "continue", label: t("直近のセッションを再開"), description: t("選択したフォルダの直近の履歴を、そのまま再開します") },
+            ] as const).map((item) => <label className="cli-option launch-mode-option" key={item.value}>
+              <input aria-describedby={`${launchModeGroupId}-${item.value}`} aria-label={item.label}
+                checked={launchMode === item.value} data-testid={`launch-mode-${item.value}`} name={launchModeGroupId}
+                onChange={() => setLaunchMode(item.value)} type="radio" value={item.value} />
+              <span><strong>{item.label}</strong><small id={`${launchModeGroupId}-${item.value}`}>{item.description}</small></span>
+            </label>)}
+          </div>
+        </fieldset>}
         <div className="launcher-fields-row">
           <label>
             <span className="field-label">{t("セッション名")}</span>
@@ -331,29 +355,39 @@ export function Launcher({
           <div className="recent-launches">
             <div className="recent-heading">
               <Clock3 aria-hidden="true" size={14} />
-              <span>{t("最近使った独立セッション")}</span>
+              <span>{t("最近使ったフォルダから起動")}</span>
             </div>
+            <p className="cli-picker-note">{t("同じフォルダで新規起動するか、resumeで履歴から再開できます")}</p>
             <div className="recent-list">
-              {recent.slice(0, 4).map((item) => (
+              {recent.slice(0, 4).map((item, index) => {
+                const cli = getCliKind(item.command);
+                const newCommand = cli ?? item.command;
+                const canResume = cli === "claude" || cli === "codex";
+                return <div className="recent-entry" key={`${item.cwd}-${item.command}-${item.title}`}>
                 <button
                   className="recent-item"
-                  key={`${item.cwd}-${item.command}-${item.title}`}
                   onClick={() =>
                     void start({
-                      command: item.command,
+                      command: newCommand,
                       cwd: item.cwd,
                       projectName: item.projectName,
                       title: item.title,
                     })
                   }
-                  title={`${item.cwd} · ${item.command}`}
+                  title={`${item.cwd} · ${newCommand}`}
                   type="button"
                 >
                   <span>{item.title.trim() || getDefaultSessionTitle(item.command)}</span>
                   <small>{item.projectName}</small>
                   <Play aria-hidden="true" size={13} />
+                  <em>{cli ? t("同じフォルダで新規起動") : t("同じ設定で起動")}</em>
                 </button>
-              ))}
+                {canResume && <button className="recent-resume" data-testid={`recent-resume-${index}`}
+                  aria-label={t("{value0}のフォルダでresumeを起動", { value0: item.title.trim() || item.projectName })}
+                  disabled={starting} onClick={() => void start({ command: createCliLaunchCommand(cli, "resume"), cwd: item.cwd,
+                    projectName: item.projectName, title: item.title })} type="button">{t("履歴から選んで再開")}</button>}
+                </div>;
+              })}
             </div>
           </div>
         )}

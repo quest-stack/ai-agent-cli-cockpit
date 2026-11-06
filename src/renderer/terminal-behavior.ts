@@ -1,4 +1,5 @@
 import { isPrimaryShortcut } from "../shared/platform";
+import { getCliKind } from "../shared/cli-launch";
 
 interface TerminalKeyEvent {
   altKey: boolean;
@@ -50,7 +51,7 @@ export const TERMINAL_CODEX_NEWLINE_SEQUENCE = "\x1b\r";
 export function getNewlineSequenceForCommand(
   command: string | undefined,
 ): string {
-  return command === "codex"
+  return getCliKind(command) === "codex"
     ? TERMINAL_CODEX_NEWLINE_SEQUENCE
     : TERMINAL_MANUAL_NEWLINE_SEQUENCE;
 }
@@ -206,6 +207,17 @@ export type TerminalEnterDisposition =
   | "ime-second-keydown"
   | "manual-newline"
   | "delegate-to-xterm";
+
+/** A full-screen Codex history picker confirms choices, rather than inserting prompt text. */
+export function getCodexHistoryPickerSubmitSequence(event: TerminalKeyEvent, command: string | undefined, lines: readonly string[]): string | undefined {
+  if (getCliKind(command) !== "codex" || event.type !== "keydown" ||
+    !(event.key === "Enter" || TERMINAL_ENTER_CODES.has(event.code)) ||
+    event.altKey || event.ctrlKey || event.metaKey || isImeComposing(event)) return undefined;
+  const header = lines.some(line => /^\s*Resume (?:a previous )?session\s*$/iu.test(line));
+  const filters = lines.some(line => /^\s*Filter:\s+(?:Cwd|All)\b.*\bStatus:/iu.test(line));
+  const actions = lines.some(line => /\benter\s+resume\b/iu.test(line) && /\besc\s+start\s+new\b/iu.test(line));
+  return header && filters && actions ? TERMINAL_SUBMIT_SEQUENCE : undefined;
+}
 
 /**
  * IME 変換中の Shift+Enter に伴う 2 回の keydown を状態として追い、

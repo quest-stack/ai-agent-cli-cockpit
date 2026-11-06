@@ -28,7 +28,13 @@ test("shared Codex waits for the client to return when output repeats a PowerShe
   await verifySharedStart(testInfo, true);
 });
 
-async function verifySharedStart(testInfo: TestInfo, repeatPrompt = false): Promise<void> {
+for (const mode of ["resume", "continue"] as const) {
+  test(`shared Codex ${mode} reaches its history through the real PTY`, async ({}, testInfo) => {
+    await verifySharedStart(testInfo, false, mode);
+  });
+}
+
+async function verifySharedStart(testInfo: TestInfo, repeatPrompt = false, mode: "new" | "resume" | "continue" = "new"): Promise<void> {
   const root = testInfo.outputPath("fixture");
   const userHome = join(root, "home");
   const userData = join(root, "user-data");
@@ -81,7 +87,7 @@ async function verifySharedStart(testInfo: TestInfo, repeatPrompt = false): Prom
   `, "utf8");
 
   const app = await electron.launch({
-    args: process.env.COCKPIT_PACKAGED_EXECUTABLE ? [] : [entry],
+    args: process.env.COCKPIT_PACKAGED_EXECUTABLE ? ["-r", entry] : [entry],
     ...(process.env.COCKPIT_PACKAGED_EXECUTABLE
       ? { executablePath: process.env.COCKPIT_PACKAGED_EXECUTABLE }
       : {}),
@@ -99,6 +105,11 @@ async function verifySharedStart(testInfo: TestInfo, repeatPrompt = false): Prom
     },
   });
   try {
+    await app.evaluate(({ app, BrowserWindow }) => {
+      const hide = (window: Electron.BrowserWindow): void => { window.show = () => {}; window.showInactive = () => {}; window.hide(); };
+      app.on("browser-window-created", (_event, window) => hide(window));
+      for (const window of BrowserWindow.getAllWindows()) hide(window);
+    });
     const page = await app.firstWindow();
     await expect(page.getByTestId("launcher")).toBeVisible();
     console.info("[Shared Codex E2E] Launcher ready");
@@ -109,6 +120,7 @@ async function verifySharedStart(testInfo: TestInfo, repeatPrompt = false): Prom
     });
     await page.getByRole("combobox", { name: "プロジェクト" }).fill(project);
     await page.getByTestId(`cli-option-${"codex"}`).check();
+    await page.getByTestId(`launch-mode-${mode}`).check();
     await page.getByRole("button", { name: /Start Session/u }).click();
     console.info("[Shared Codex E2E] Session requested");
     await expect.poll(async () => {
@@ -120,7 +132,7 @@ async function verifySharedStart(testInfo: TestInfo, repeatPrompt = false): Prom
       }
     }, { timeout: 20_000 }).toEqual([
       ["app-server", "daemon", "start"],
-      ["--remote", "unix://", "--cd", project, "-c", "tui.whimsy=false"],
+      ["--remote", expect.stringMatching(/^ws:\/\/127\.0\.0\.1:\d+$/u), "--remote-auth-token-env", "COCKPIT_CODEX_OBSERVER_TOKEN", "--cd", project, "-c", "tui.whimsy=false", ...(mode === "new" ? [] : mode === "resume" ? ["resume"] : ["resume", "--last"])],
     ]);
     console.info("[Shared Codex E2E] Daemon and client arguments verified");
     // Output can replay an old prompt before the remote child returns. Wait

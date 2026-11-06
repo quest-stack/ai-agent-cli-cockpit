@@ -43,10 +43,12 @@ export function previewFrame(box: z.infer<typeof bounds>, viewport?: PreviewView
 export const previewRequestSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("list"), tabId: previewId }),
   z.object({ action: z.literal("pick"), tabId: previewId }),
-  z.object({ action: z.literal("add"), tabId: previewId, source: z.string().min(1).max(2048) }),
+  z.object({ action: z.literal("pick-site"), tabId: previewId }),
+  z.object({ action: z.literal("add"), tabId: previewId, source: z.string().min(1).max(2048), siteRoot: z.string().min(1).max(2048).optional() }),
   z.object({ action: z.literal("remove"), tabId: previewId, targetId: previewId }),
   z.object({ action: z.literal("refresh"), tabId: previewId, targetId: previewId }),
   z.object({ action: z.literal("capture"), tabId: previewId, targetId: previewId, position: capturePosition.optional(), baseline: z.boolean().optional(), viewport: previewViewportSchema.optional() }),
+  z.object({ action: z.literal("screenshot"), tabId: previewId, targetId: previewId, destination: z.enum(["clipboard", "file"]) }).strict(),
   z.object({ action: z.literal("review-pages"), tabId: previewId, targetId: previewId, before: bounds, after: bounds, highlight: z.boolean() }),
   z.object({ action: z.literal("hide-review"), tabId: previewId, targetId: previewId }),
   z.object({ action: z.literal("history"), tabId: previewId, targetId: previewId }),
@@ -62,6 +64,7 @@ export interface PreviewTarget {
   kind: PreviewKind;
   name: string;
   source: string;
+  siteRoot?: string;
   revision: number;
   updated: boolean;
   error?: "missing" | "loading" | "unsupported";
@@ -77,10 +80,10 @@ export interface PreviewCapture {
   page?: { changedElements: number; versionId?: string };
   pdf?: { page?: number; zoom?: number; ignoredTop: number };
 }
-export interface PreviewFileCandidate { source: string; label: string; kind: PreviewKind }
+export interface PreviewFileCandidate { source: string; label: string; labels?: string[]; kind: PreviewKind; siteRoot?: string }
 export interface PreviewVersion { id: string; sequence: number; capturedAt: number }
 export interface PreviewVersionComparison { before: PreviewCapture; after: PreviewCapture; changedElements: number }
-export type PreviewResult = { ok: true; value: PreviewSnapshot; capture?: PreviewCapture; versions?: PreviewVersion[]; comparison?: PreviewVersionComparison; discovery?: { files: PreviewFileCandidate[]; unresolved: boolean } } | { ok: false; error: "invalid" | "unsupported" | "missing" | "failed" };
+export type PreviewResult = { ok: true; value: PreviewSnapshot; capture?: PreviewCapture; versions?: PreviewVersion[]; comparison?: PreviewVersionComparison; screenshot?: { width: number; height: number; destination: "clipboard" | "file"; canceled?: boolean }; discovery?: { files: PreviewFileCandidate[]; unresolved: boolean } } | { ok: false; error: "invalid" | "unsupported" | "missing" | "failed" | "busy" | "too-large" };
 export interface PreviewApi {
   request: (request: PreviewRequest) => Promise<PreviewResult>;
   onChanged: (listener: (snapshot: PreviewSnapshot) => void) => () => void;
@@ -88,5 +91,5 @@ export interface PreviewApi {
 
 export const previewSavedSchema = z.array(z.object({
   tabId: previewId,
-  targets: z.array(z.object({ id: previewId, source: z.string().min(1).max(2048) })).max(20),
+  targets: z.array(z.object({ id: previewId, source: z.string().min(1).max(2048), siteRoot: z.string().min(1).max(2048).optional() })).max(20),
 })).max(32);

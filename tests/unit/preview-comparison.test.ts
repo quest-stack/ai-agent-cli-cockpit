@@ -2,7 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { previewRequestSchema } from "../../src/shared/preview";
-import { previewArtifactPaths, previewPaths, previewUrls } from "../../src/shared/preview-paths";
+import { previewArtifactPaths, previewDeliveredPaths, previewPaths, previewUrls } from "../../src/shared/preview-paths";
+
+test("Claude image delivery labels with a byte size are explicit artifacts", () => {
+  for (const path of ["proof/icon sample.png", "~\\my-project\\proof\\icon.png", "~/my-project/proof/icon.png"]) {
+    const output = `› [image] ${path} (258.1KB)\r\n`;
+    assert.deepEqual(previewPaths(output), [path]);
+    assert.deepEqual(previewDeliveredPaths(output), [path]);
+    assert.deepEqual(previewArtifactPaths(output), [path]);
+  }
+  assert.deepEqual(previewDeliveredPaths("Reading [image] proof/input.png (24KB)\r\n"), []);
+  assert.deepEqual(previewDeliveredPaths("[image] proof/incomplete.png (258.1K"), []);
+});
 import { visualChanges } from "../../src/renderer/preview/visual-diff";
 
 test("artifact extraction accepts CLI-relative paths and quoted spaces but excludes source code and URLs", () => {
@@ -29,6 +40,63 @@ test("artifact links decode local image paths and exclude remote links", () => {
     ["output/cover image.png", "output/second image.svg", "C:/work/output/third image.jpg"]);
   assert.deepEqual(previewPaths('first.png\n[Middle](middle.svg)\n"last image.png"'), ["first.png", "middle.svg", "last image.png"]);
   assert.deepEqual(previewPaths('![Remote](file://server/private.png)\n![Invalid](output/%zz.png)\n![Null](output/%00.png)'), []);
+});
+
+test("explicit file deliveries retain unquoted spaces and wrapped Japanese paths", () => {
+  const path = "clients/20261029_Sample Leaf Japan/01_編集元/記事取込/確認依頼_20261029.md";
+  const messages = [
+    `ファイル: ${path}\r\n`,
+    `- ファイル：${path}\n`,
+    `File: C:/work/${path}\n`,
+    `ファイル: clients/20261029_Sample Leaf\r\n Japan/01_編集元/記事取込/確認依頼_20261029.md\r\n`,
+    `ファイル:\n${path}\n`,
+    `ファイル: \u001b[36m${path}\u001b[0m\r\n`,
+  ];
+  for (const message of messages) {
+    const expected = message.startsWith("File:") ? `C:/work/${path}` : path;
+    assert.deepEqual(previewPaths(message), [expected], message);
+    assert.deepEqual(previewArtifactPaths(message), [expected], message);
+  }
+});
+
+test("terminal-rendered delivery links preserve wrapped paths and OSC link destinations", () => {
+  const path = "scratchpad/preview-proof/reported-file-preview.png";
+  for (const text of [
+    `目視した表示画像 (${path})\r\n`,
+    "  目視した表示画像 (scratchpad/preview-proof/reported-file-\r\n  preview.png)\r\n",
+  ]) {
+    assert.deepEqual(previewPaths(text), [path], text);
+    assert.deepEqual(previewArtifactPaths(text), [path], text);
+  }
+  const escape = String.fromCharCode(27), bell = String.fromCharCode(7);
+  const osc = `${escape}]8;;file:///C:/work/${path}${bell}目視した表示画像\r\n (${path})${escape}]8;;${bell}\r\n`;
+  assert.deepEqual(previewPaths(osc), [`C:/work/${path}`]);
+  assert.deepEqual(previewArtifactPaths(osc), [`C:/work/${path}`]);
+  assert.deepEqual(previewArtifactPaths(osc.replaceAll(bell, `${escape}\\`)), [`C:/work/${path}`]);
+  for (const text of [`Reading (${path})\n`, `参照元 (${path})\n`, `目視した表示画像 (https://example.com/proof.png)\n`]) assert.deepEqual(previewArtifactPaths(text), [], text);
+});
+
+test("explicit deliveries are distinct from generation messages and incidental references", () => {
+  assert.deepEqual(previewDeliveredPaths("Created output/first.png\n[View image](output/second.png)\nFile: output/third image.png\nReading [Reference](output/fourth.png)\n"),
+    ["output/second.png", "output/third image.png"]);
+});
+
+test("delivery labels do not combine unrelated lines or promote read output and commands", () => {
+  for (const text of [
+    "参照ファイル: output/old report.pdf\n",
+    "入力ファイル: output/old report.pdf\n",
+    "Reading File: output/old report.pdf\n",
+    'echo "File: output/old report.pdf"\n',
+    "ファイル: output/incomplete\n\noutput/unrelated.pdf\n",
+    "ファイル: output/incomplete\nReading output/reference.pdf\n",
+    "ファイル: output/incomplete\n- output/unrelated.pdf\n",
+    "ファイル: https://example.com/private.pdf\n",
+    "ファイル: AGENTS.md\n",
+  ]) assert.deepEqual(previewArtifactPaths(text), [], text);
+  const text = "ファイル: output/incomplete\n\noutput/unrelated.pdf\n";
+  assert.ok(!previewPaths(text).some((path) => path.includes("incomplete")));
+  assert.deepEqual(previewArtifactPaths("File: output/first report.pdf\nCreated output/second.png\nファイル: output/last report.md\n"),
+    ["output/first report.pdf", "output/second.png", "output/last report.md"]);
 });
 
 test("automatic previews require generated or delivered artifacts instead of incidental paths", () => {

@@ -43,6 +43,21 @@ test("a remote launch request works with only a working directory", () => {
 
   assert.equal(parsed.prompt, undefined);
   assert.equal(parsed.title, undefined);
+  assert.equal(parsed.cli, "claude");
+});
+
+test("incoming requests can choose Claude Code or Codex", () => {
+  for (const cli of ["claude", "codex"]) {
+    const parsed = remoteLaunchRequestSchema.parse({ cli, cwd: "C:/work/project", prompt: "変更を確認して" });
+    assert.equal(parsed.cli, cli);
+    assert.equal(parsed.prompt, "変更を確認して");
+  }
+});
+
+test("incoming requests cannot turn the CLI selector into a shell command", () => {
+  for (const cli of ["powershell", "shell", "cmd", "codex --yolo", "claude; whoami", "codex\rwhoami", "", null, 42, { command: "codex" }]) {
+    assert.equal(remoteLaunchRequestSchema.safeParse({ cli, cwd: "C:/work/project" }).success, false);
+  }
 });
 
 test("a remote launch request cannot choose which command runs", () => {

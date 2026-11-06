@@ -19,21 +19,27 @@ import { shouldAvoidWebgl } from "../shared/gpu-fallback";
 import { shouldRunPreventiveRedraw } from "../shared/preventive-redraw";
 
 import { cockpitApi } from "./bridge";
+import { synchronizeCircledNumberCanvas } from "./circled-number-canvas";
+import { synchronizeCircledInput } from "./circled-input";
 import {
   getCircledNumberJoinRanges,
   getCompactCircledNumberCount,
+  getSpacedCircledNumberColumns,
   isSpacedCircledNumber,
 } from "./circled-number-rendering";
+import { joinStyledCircledNumbers } from "./styled-circled-number-joining";
 import {
   resolveCompositionHorizontalLayout,
   resolveCompositionTranslateY,
 } from "./composition-layout";
 import { synchronizeCompositionPosition } from "./composition-sync";
+import { renderCompositionText } from "./composition-circled-numbers";
 import { synchronizeCompositionInput } from "./composition-input";
 import { getEmojiCellCount } from "./emoji-width";
 import { TerminalLinkMouse } from "./terminal-link-mouse";
 import {
   getTerminalManualNewlineSequence,
+  getCodexHistoryPickerSubmitSequence,
   isPlausibleCharacterWidth,
   rebindCaptureKeydown,
   resolveTerminalEnterDisposition,
@@ -252,13 +258,16 @@ class TerminalController {
   /** 折返し判定前に変換文字列の非折返し幅を測る不可視要素。 */
   private compositionMeasureElement: HTMLElement | undefined;
   private disposeCompositionSync: (() => void) | undefined;
+  private disposeStyledCircledNumbers: (() => void) | undefined;
+  private disposeCircledNumberCanvas: (() => void) | undefined;
+  private circledInput: ReturnType<typeof synchronizeCircledInput> | undefined;
   private disposeCompositionInput: (() => void) | undefined;
   private opened = false;
   /** ペイン横スクロール打ち消しリスナを張っている host。 */
   private paneScrollHost: HTMLElement | undefined;
   /** handleLineFeedKey を張っている host（解除用）。 */
-  /** 直近に CLI から出力が届いた時刻。起動完了の判断に使う。 */
-  private lastOutputAt: number | undefined;
+  /** 起動コマンド送信後の出力時刻。シェル起動時の出力とは区別する。 */
+  private lastOutputAfterBootstrapAt: number | undefined;
   /** 直近に全行を再描画した時刻。アトラス劣化までの時間を追うために使う。 */
   private lastRedrawAt: number | undefined;
   /** サイズが動かなくなったかを見るタイマー。 */
@@ -565,7 +574,16 @@ class TerminalController {
     // Enter 以外まで来たらフラグは持ち越さない（2回目が来ない場合の取り残し防止）。
     this.pendingImeEnterSuppression = false;
 
-    const sequence = getTerminalManualNewlineSequence(
+    let pickerSequence: string | undefined;
+    if (event.key === "Enter" || event.code === "Enter" || event.code === "NumpadEnter") {
+      const buffer = this.terminal.buffer.active;
+      // Only bounded live-screen landmarks, never scrollback or output logs.
+      const rows = new Set([...Array.from({ length: Math.min(10, this.terminal.rows) }, (_, index) => index),
+        ...Array.from({ length: Math.min(10, this.terminal.rows) }, (_, index) => this.terminal.rows - index - 1)]);
+      const lines = [...rows].map(row => buffer.getLine(buffer.baseY + row)?.translateToString(true).slice(0, 1024) ?? "");
+      pickerSequence = getCodexHistoryPickerSubmitSequence(event, this.command, lines);
+    }
+    const sequence = pickerSequence ?? getTerminalManualNewlineSequence(
       event,
       enterRole,
       this.command,
@@ -576,7 +594,7 @@ class TerminalController {
         branch:
           sequence === undefined
             ? "delegate-to-xterm"
-            : "manual-newline-sequence",
+            : pickerSequence ? "history-picker-submit" : "manual-newline-sequence",
         eventId,
         resultPayload:
           sequence === undefined
@@ -653,6 +671,25 @@ class TerminalController {
     }
     this.terminal.paste(result.text);
   }
+
+  private handleContextMenu = (event: InstanceType<typeof window.MouseEvent>): void => {
+    if (event.button !== 2 || (event.target instanceof window.Element && event.target.closest("a[href]"))) return;
+    // Mouse-aware TUIs own unmodified clicks. Shift explicitly requests paste.
+    if (this.terminal.modes.mouseTrackingMode !== "none" && !event.shiftKey) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.terminal.focus();
+    if (this.terminal.hasSelection()) {
+      const selection = this.terminal.getSelection();
+      void cockpitApi.writeClipboardText(selection).then(() => {
+        if (!this.disposed && this.terminal.getSelection() === selection) this.terminal.clearSelection();
+      }).catch(() => terminalRegistry.reportInputError(t("コピーできませんでした。もう一度お試しください。")));
+    } else {
+      void this.pasteFromClipboard().catch(() => {
+        terminalRegistry.reportInputError(t("貼り付けできませんでした。コピーし直して、もう一度お試しください。"));
+      });
+    }
+  };
 
   // macOS Edit-menu accelerators may dispatch clipboard events without a
   // keydown. Capture before xterm so native menu Paste and Command+V use the
@@ -786,9 +823,9 @@ class TerminalController {
     const spacedCircledNumber = isSpacedCircledNumber(text);
     const circledNumberCount = getCompactCircledNumberCount(text);
     // xterm DOMの結合spanはletter-spacingが2文字ともに適用され、表示幅が不足する。
-    // 丸数字＋空白だけを明示的に2セルへ固定。結合できない場合は半角字形へ戻す。
+    // 丸数字の並び＋空白を元のセル数へ固定。通常文字の表示幅は変更しない。
     if (spacedCircledNumber || circledNumberCount !== null) {
-      const width = `${cellWidthPx * (spacedCircledNumber ? 2 : circledNumberCount!)}px`;
+      const width = `${cellWidthPx * (getSpacedCircledNumberColumns(text) ?? circledNumberCount!)}px`;
       if (candidate.style.getPropertyValue("--cockpit-circled-width") !== width) {
         candidate.style.setProperty("--cockpit-circled-width", width);
       }
@@ -1126,7 +1163,10 @@ class TerminalController {
       measure.style.fontWeight = viewStyle.fontWeight;
       measure.style.letterSpacing = viewStyle.letterSpacing;
     }
-    measure.textContent = text;
+    for (const property of ["--composition-circle-width", "--composition-circle-font-size"]) {
+      measure.style.setProperty(property, view.style.getPropertyValue(property));
+    }
+    renderCompositionText(measure, text);
 
     return Math.max(1, Math.ceil(measure.getBoundingClientRect().width));
   }
@@ -1142,6 +1182,8 @@ class TerminalController {
 
     for (const property of [
       "--composition-line-height",
+      "--composition-circle-width",
+      "--composition-circle-font-size",
       "height",
       "max-width",
       "text-indent",
@@ -1194,15 +1236,13 @@ class TerminalController {
       existing instanceof HTMLElement &&
       existing.classList.contains(COMPOSITION_TEXT_CLASS)
     ) {
-      if (existing.textContent !== text) {
-        existing.textContent = text;
-      }
+      renderCompositionText(existing, text);
       return;
     }
 
     const span = window.document.createElement("span");
     span.className = COMPOSITION_TEXT_CLASS;
-    span.textContent = text;
+    renderCompositionText(span, text);
     view.replaceChildren(span);
   }
 
@@ -1241,6 +1281,14 @@ class TerminalController {
     // 広げると、1行目の text-indent より左（＝カーソルより手前にある入力済みの
     // 文字）まで黒く覆い、確定済みの文字が見えなくなる。テキストを span で包み、
     // 背景をその span にだけ付ける（CSS 側で box-decoration-break:clone 指定）。
+    const fontSize = Number.parseFloat(window.getComputedStyle(view).fontSize);
+    const circleStyles = {
+      "--composition-circle-width": `${screenBounds.width / this.terminal.cols * 2}px`,
+      "--composition-circle-font-size": `${Math.min(cellHeight, (Number.isFinite(fontSize) ? fontSize : 13) * 1.2)}px`,
+    };
+    for (const [property, value] of Object.entries(circleStyles)) {
+      if (view.style.getPropertyValue(property) !== value) view.style.setProperty(property, value);
+    }
     this.wrapCompositionText(view, text);
 
     // 背景を「1行目だけ透明・2行目以降は不透明」に切り替えるための境界。
@@ -1371,8 +1419,10 @@ class TerminalController {
     if (this.pasteHost !== host) {
       this.pasteHost?.removeEventListener("paste", this.handleNativePaste, true);
       this.pasteHost?.removeEventListener("copy", this.handleNativeCopy, true);
+      this.pasteHost?.removeEventListener("contextmenu", this.handleContextMenu, true);
       host.addEventListener("paste", this.handleNativePaste, true);
       host.addEventListener("copy", this.handleNativeCopy, true);
+      host.addEventListener("contextmenu", this.handleContextMenu, true);
     }
     this.pasteHost = rebindCaptureKeydown(
       this.pasteHost,
@@ -1383,9 +1433,12 @@ class TerminalController {
     if (!this.opened) {
       host.replaceChildren();
       this.terminal.open(host);
+      this.disposeCircledNumberCanvas = synchronizeCircledNumberCanvas();
       this.terminal.registerCharacterJoiner(getCircledNumberJoinRanges);
+      this.disposeStyledCircledNumbers = joinStyledCircledNumbers(this.terminal);
       this.linkMouse.attach(this.terminal);
       this.disposeCompositionSync = synchronizeCompositionPosition(this.terminal);
+      this.circledInput = synchronizeCircledInput(this.terminal, () => this.command);
       this.disposeCompositionInput = synchronizeCompositionInput(this.terminal, (fields) => {
         logRendererDiagnostic(DIAGNOSTIC_CATEGORIES.terminalComposition, {
           ...fields, sessionId: this.sessionId,
@@ -1469,6 +1522,7 @@ class TerminalController {
     if (this.pasteHost === host) {
       host.removeEventListener("paste", this.handleNativePaste, true);
       host.removeEventListener("copy", this.handleNativeCopy, true);
+      host.removeEventListener("contextmenu", this.handleContextMenu, true);
       host.removeEventListener("keydown", this.handlePasteKey, true);
       this.pasteHost = undefined;
     }
@@ -1511,6 +1565,14 @@ class TerminalController {
     }
 
     this.fitAddon.fit();
+    // A renderer switch can update cell height synchronously inside resize.
+    // Fit again against those final metrics before reporting the PTY size;
+    // otherwise the bottom composer may fall outside the visible host.
+    for (let pass = 0; pass < 2; pass++) {
+      const measured = this.fitAddon.proposeDimensions();
+      if (!measured || measured.cols === this.terminal.cols && measured.rows === this.terminal.rows) break;
+      this.fitAddon.fit();
+    }
     const nextSize = {
       cols: this.terminal.cols,
       rows: this.terminal.rows,
@@ -1632,6 +1694,7 @@ class TerminalController {
   /** このペインの CLI を覚える。改行シーケンスの選択に使う。 */
   setCommand(command: string): void {
     this.command = command;
+    this.circledInput?.refresh();
   }
 
   setVisible(visible: boolean): void {
@@ -1650,13 +1713,13 @@ class TerminalController {
       : this.searchAddon.findPrevious(query);
   }
 
-  write(data: string): void {
-    this.lastOutputAt = Date.now();
+  write(data: string, bootstrapWritten = false): void {
+    this.lastOutputAfterBootstrapAt = bootstrapWritten ? Date.now() : undefined;
     this.terminal.write(data);
   }
 
   /**
-   * 出力が一定時間止まるまで待つ。
+   * 起動コマンド送信後の出力が一定時間止まるまで待つ。
    *
    * CLI の起動完了を知る手段が端末には無いため、「描画が落ち着いたら
    * 入力を受け付けられる状態になった」とみなす。起動に失敗した場合に
@@ -1679,10 +1742,10 @@ class TerminalController {
         }
         // 一度も出力が来ていないなら、まだ起動していないとみなして待つ。
         const since =
-          this.lastOutputAt === undefined
+          this.lastOutputAfterBootstrapAt === undefined
             ? 0
-            : Date.now() - this.lastOutputAt;
-        if (this.lastOutputAt !== undefined && since >= quietMs) {
+            : Date.now() - this.lastOutputAfterBootstrapAt;
+        if (this.lastOutputAfterBootstrapAt !== undefined && since >= quietMs) {
           resolve(true);
           return;
         }
@@ -1700,8 +1763,14 @@ class TerminalController {
   dispose(): void {
     this.disposed = true;
     this.linkMouse.dispose();
+    this.circledInput?.dispose();
+    this.circledInput = undefined;
     this.disposeCompositionSync?.();
     this.disposeCompositionSync = undefined;
+    this.disposeStyledCircledNumbers?.();
+    this.disposeStyledCircledNumbers = undefined;
+    this.disposeCircledNumberCanvas?.();
+    this.disposeCircledNumberCanvas = undefined;
     this.disposeCompositionInput?.();
     this.disposeCompositionInput = undefined;
     if (this.sizeStableTimer !== undefined) {
@@ -1731,6 +1800,7 @@ class TerminalController {
     );
     this.pasteHost?.removeEventListener("paste", this.handleNativePaste, true);
     this.pasteHost?.removeEventListener("copy", this.handleNativeCopy, true);
+    this.pasteHost?.removeEventListener("contextmenu", this.handleContextMenu, true);
     this.pasteHost = undefined;
     // Enter 系は host（祖先）の capture に張っているので、そちらから外す。
     this.lineFeedHost?.removeEventListener(
@@ -2057,8 +2127,8 @@ class TerminalRegistry {
     this.controllers.get(sessionId)?.setVisible(visible);
   }
 
-  write(sessionId: string, data: string): void {
-    this.ensure(sessionId).write(data);
+  write(sessionId: string, data: string, bootstrapWritten = false): void {
+    this.ensure(sessionId).write(data, bootstrapWritten);
   }
 
   waitForOutputToSettle(

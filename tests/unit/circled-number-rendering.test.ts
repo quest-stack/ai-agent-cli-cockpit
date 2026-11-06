@@ -4,17 +4,24 @@ import test from "node:test";
 import {
   getCircledNumberJoinRanges,
   getCompactCircledNumberCount,
+  getSpacedCircledNumberColumns,
   isSpacedCircledNumber,
 } from "../../src/renderer/circled-number-rendering";
 
 test("joins only a circled number and its existing ASCII space", () => {
   assert.deepEqual(getCircledNumberJoinRanges("① first ② second ⑳ last"), [[0, 2], [8, 10], [17, 19]]);
-  assert.deepEqual(getCircledNumberJoinRanges("①②③x ①\t②\n③　㉑ text → next"), []);
+  assert.deepEqual(getCircledNumberJoinRanges("①②③x ①\t②\n③　㉑ text → next"), [[9, 11]]);
   assert.deepEqual(getCircledNumberJoinRanges("⓪ ❶ ➀ "), [[0, 2], [2, 4], [4, 6]]);
 });
 
 test("ranges use UTF-16 offsets after Japanese, emoji and repeated headings", () => {
   assert.deepEqual(getCircledNumberJoinRanges("日本✅① 見出し 👩‍💻② 次"), [[3, 5], [14, 16]]);
+});
+
+test("a consecutive run does not enlarge only its final circled number", () => {
+  assert.deepEqual(getCircledNumberJoinRanges("①②③ SAMPLE"), []);
+  assert.deepEqual(getCircledNumberJoinRanges("①②　これを見れば早いんじゃない？"), [[0, 3]]);
+  assert.deepEqual(getCircledNumberJoinRanges("①②③   SAMPLE"), [[0, 6]]);
 });
 
 test("compact fallback applies only to an entire span of circled numbers", () => {
@@ -27,7 +34,13 @@ test("compact fallback applies only to an entire span of circled numbers", () =>
 
 test("only a single circled number and ASCII space receive the wide span style", () => {
   assert.equal(isSpacedCircledNumber("① "), true);
-  for (const text of ["①", "①② ", "①　", "1 ", "① title", "㉑ "]) {
+  assert.equal(isSpacedCircledNumber("①　"), true);
+  assert.equal(getSpacedCircledNumberColumns("① "), 2);
+  assert.equal(getSpacedCircledNumberColumns("①　"), 3);
+  assert.equal(getSpacedCircledNumberColumns("①②　"), 4);
+  assert.equal(getSpacedCircledNumberColumns("①②③　 "), 6);
+  assert.equal(getSpacedCircledNumberColumns("①"), null);
+  for (const text of ["①", "①② ", "1 ", "① title", "㉑ "]) {
     assert.equal(isSpacedCircledNumber(text), false);
   }
 });

@@ -391,11 +391,15 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.workspaceSave, async (event, payload: unknown) => {
     assertTrustedSender(event);
+    if (quitInProgress) return;
     const parsed = persistedWorkspaceSchema.safeParse(payload);
     if (!parsed.success) {
       throw new Error(`Invalid workspace payload: ${parsed.error.message}`);
     }
+    const nextTabIds = new Set(parsed.data.tabs.map(tab => tab.id));
+    const closedTabIds = sessionStore.snapshot.tabs.filter(tab => !nextTabIds.has(tab.id)).map(tab => tab.id);
     await sessionStore.save(parsed.data);
+    for (const tabId of closedTabIds) await previewManager.request({ action: "clear", tabId });
     // 設定画面でトグルを切り替えた結果がここに届く。監視の開始・停止を
     // 保存と同じ場所で行うことで、設定と実際の挙動がずれないようにする。
     remoteLaunchWatcher.setEnabled(parsed.data.settings.remoteLaunchEnabled);
@@ -595,9 +599,14 @@ app.whenReady().then(async () => {
     if (!tab || !collectPanes(tab.root).some((pane) => pane.sessionId === sessionId)) return undefined;
     return workspace.sessions.find((item) => item.id === sessionId)?.cwd;
   });
-  await previewManager.initialize();
+  await previewManager.initialize(sessionStore.snapshot.tabs.map(tab => tab.id));
 
   ptyManager = new PtyManager({
+    onConversation: (sessionId, conversation) => {
+      void sessionStore.recordConversation(sessionId, conversation).catch(() => {
+        diagnosticLogger.log("conversation", "Could not persist the conversation identity.");
+      });
+    },
     onData: (event) => {
       sendToRenderer(IPC_CHANNELS.ptyData, event);
     },
@@ -645,13 +654,22 @@ app.whenReady().then(async () => {
   app.quit();
 });
 
-app.on("before-quit", () => {
+let quitFlushed = false;
+let quitInProgress = false;
+app.on("before-quit", (event) => {
+  if (quitFlushed) return;
+  event.preventDefault();
+  quitInProgress = true;
   if (updateCheckTimer) {
     clearTimeout(updateCheckTimer);
     updateCheckTimer = undefined;
   }
   ptyManager?.killAll();
   previewManager?.dispose();
+  void Promise.resolve(sessionStore?.flush()).finally(() => {
+    quitFlushed = true;
+    app.quit();
+  });
 });
 
 app.on("window-all-closed", () => {

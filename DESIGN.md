@@ -1,6 +1,63 @@
 # Cockpit build and signing boundaries
 
+## Incoming request CLI selection
+
+The local inbox request accepts `cli: "claude" | "codex"`; omission defaults to
+Claude Code for compatibility. Provider selection goes through the normal pane
+startup, including the existing opt-in Codex shared server and conversation
+observation. The inbox cannot specify an arbitrary executable, shell or launch
+arguments. Invalid selectors are rejected before any tab is created. Existing
+opt-in, cwd validation, size/rate limits and control-character rejection remain
+in place. Initial prompt delivery requires output after the PTY has actually
+written the CLI bootstrap command, followed by the existing quiet interval;
+the parent shell's early prompt cannot satisfy this condition. This is an output
+heuristic, not proof that provider login/trust prompts have been completed.
+No new network listener is created by inbox
+delivery. This selects the CLI only; it does not repair provider browser access.
+
 ## Native file and localhost previews
+
+Claude's standalone `› [image] path (258.1KB)` deliveries are normalized as
+explicit image links only when their complete byte-size terminator is present.
+Home prefixes `~/` and `~\` expand in the main process before canonical path
+validation. They still require a valid source CLI directory, and files outside
+that directory or through escaping links remain rejected. Existing explicit
+dismissal, incidental read-output and tab-ownership rules remain in force.
+
+### Static site folders before deployment
+
+Preview's **Open a site folder** picker grants a chosen directory containing
+`index.html`. Cockpit serves it directly through its isolated custom protocol;
+there is no helper server, listening port, package install, command execution or
+deployment. Absolute site paths, directory/index routes, clean `.html` routes
+and shared sibling assets resolve within that canonical root. Internal page
+links, including `target=_blank`, open distinct named Preview targets so each
+direction retains its own baseline and history. Root grants persist with targets
+and are validated again on restore. Requested pages/assets participate in the
+existing bounded change watcher; editing a direction reloads that direction.
+
+Explicit CLI deliveries such as `Site: /project/output/` or
+`サイト: ./output/` enter the existing artifact discovery/auto-open flow. A
+delivered `index.html` grants its containing folder, or its immediate parent
+when that parent also has an index within the source CLI directory. This handles
+`d1/index.html` using `../images/` in a static gallery without widening access to
+the entire workspace. Incidental directory mentions do not auto-open anything;
+the existing ownership, pinning and dismissal rules remain in force.
+
+All requests remain read-only and root-bounded; hidden paths, hidden aliases,
+symlink escapes, remote requests, forms and new external windows remain blocked.
+Folders requiring a framework dev server still use the existing localhost URL
+flow. A directory without a static index is not executed or built automatically.
+Windows ARM64 is the verified implementation target for this change; other
+platform packages need their own verification.
+
+Comparison capture temporarily pauses running document-timeline animations at
+a deterministic phase (finite effects just before completion; infinite effects
+at their start), then restores their times and running state even on failure.
+Already paused/finished animations are left alone. Isolated script state never
+appears in the page's namespace. Read-only comparison archives keep animations
+paused, so pulse timing does not become an edited-element highlight. This does
+not compare animation behavior over time or normalize arbitrary JavaScript timers.
 
 The renderer now exposes previews through the existing right-hand layout when
 the restricted native preview API is available. New work tabs start closed;
@@ -8,23 +65,32 @@ visibility, explicit dismissal, width and selection are remembered separately
 from terminal state. The first detected localhost URL or verified artifact in
 the active work tab opens an empty preview automatically. An explicit close is
 remembered and prevents automatic reopening, including after reload. Existing
-manually chosen or restored ordinary preview selections are never replaced by newly
-detected artifacts. While following automatic selections, only generation/save
-messages or standalone delivered artifact links may select a file; incidental
+manually chosen or restored ordinary preview selections remain pinned against
+generation messages and incidental references. A newly delivered artifact link
+or explicit File label opens and selects a separate Preview tab, retaining the
+previous target tab even when it was manually selected. While following automatic selections, generation/save
+messages, standalone delivered artifact links, or explicit `File:` / `ファイル:`
+delivery lines may select a file; incidental
 file references and read-tool output remain manual candidates. The latest
 verified generated artifact (including PDF and images) is shown; older artifacts
 from the same batch remain candidates rather than replacing it in reverse order. Choosing or
-closing a target pins the selection; an explicit-choice flag is kept per tab in
-localStorage so requested context documents stay selected after reload. Legacy
+closing a target pins the selection against passive generation output; an explicit-choice flag is kept per tab in
+localStorage so requested context documents stay selected after reload until a new explicit delivery. Legacy
 restored context documents without that flag remain available as tabs but may
-yield to a newly generated artifact. Ordinary restored artifacts remain pinned.
+yield to a newly generated artifact. Ordinary restored artifacts remain pinned against generation output.
 Dismissal, inactive
 tabs, comparison dialogs and the file chooser still prevent automatic display.
 URL extraction waits for a complete token and a short quiet interval; ANSI
 rendering and streamed ports cannot select a half-written URL. Automatic adds
 are serialized so repeated CLI output cannot race to select multiple targets.
 `preview.json` stores selected file/URL targets by work-tab ID. Closing a work
-tab clears its preview targets without changing CLI preferences. No new package
+tab clears its preview targets without changing CLI preferences, including tabs
+closed before their first debounced workspace save. The main-process workspace
+save also clears previews for explicitly removed previously saved tabs. Startup
+loads previews only for tabs still in the persisted workspace and rewrites any
+orphaned preview records; closed tabs must not exhaust the 32-tab preview limit.
+New tabs not yet persisted are not pruned during unrelated workspace saves.
+No new package
 dependency, workspace-schema migration, port scanner or CLI hook is required.
 
 `PreviewManager` owns sandboxed `WebContentsView` instances with no preload or
@@ -81,6 +147,30 @@ Safari rendering, touch behavior, mobile user agents or physical device metrics.
 
 ### Artifact discovery and visual comparison
 
+Web and Markdown also expose a separate full-page PNG export: one click copies
+the image to the clipboard, or an OS Save dialog chooses its destination. The
+renderer supplies only a validated target ID and destination enum. The main
+process requires the selected, ready target in the same work tab. Capture shares
+a lock with comparison capture, never disconnects an existing debugger, and owns
+and releases its temporary CDP attachment with a five-second deadline.
+
+Capture mirrors the current CSS viewport and DPR into CDP before rendering;
+Chromium's screenshot restoration would otherwise discard Electron's responsive
+emulation and render at the scaled native pane width. Electron's current view
+settings are reapplied after rendering and detach, including late timeout results.
+Tests check full-page pixels and the retained viewport, input and scroll state at
+normal and 2x DPI. Geometry/revision changes abort output. Limits are 32 million
+pixels, 32768 per side and 24 MiB encoded PNG. Save writes an exclusive temporary
+sibling and renames to the OS-selected path, cleaning up on failure. Cancel leaves
+files and clipboard alone. No automatic capture, network upload or desktop-wide
+capture is involved.
+An actual Windows overwrite failure was traced to `rename` returning `EPERM`
+after successful capture with an unchanged revision. Windows `EPERM`, `EACCES`
+and `EBUSY` replacements receive at most five retries (775 ms total backoff),
+rechecking the selected revision before every attempt. Persistent refusal leaves
+the destination intact and removes only the owned temporary file; no unlink of
+the existing destination or fallback non-atomic overwrite is used.
+
 HTML, localhost and Markdown comparisons now default to two saved, scrollable
 complete pages. Electron's [MHTML save API](https://www.electronjs.org/docs/latest/api/web-contents#contentssavepagefullpath-savetype)
 keeps loaded document resources with the old version. These are saved documents,
@@ -97,6 +187,27 @@ artifact candidate budget or trigger a missing-artifact warning. Normal generate
 Markdown remains eligible. Explicit file/URL selection and existing saved targets
 retain their behavior; reading instructions does not prevent manually previewing
 them. Discovery does not infer file purpose from the document body or scan folders.
+
+Explicit delivery labels preserve an entire unquoted path rather than splitting
+at spaces. Up to four adjacent output lines may form that path; actual spaces
+are retained and none are guessed. Blank lines, list items and new read/output
+blocks stop continuation. ANSI styling and streamed chunks retain this behavior.
+Only an existing supported file under the source session's canonical directory
+can open; relative paths never fall back to Cockpit's own directory. Incomplete,
+outside, hidden or symlink-escaped paths keep the existing discovery boundaries.
+
+Standalone CLI-rendered links of the form `label (path)` and OSC 8 link labels
+may wrap across output lines. Recognition preserves the link destination, strips
+only repeated paragraph indentation from wrapped destinations, and never guesses
+missing spaces. Explicit deliveries and ordinary generation messages retain
+distinct local flags: the former may select a new target while a document is
+pinned; the latter cannot. Read output, remote URLs and context documents remain
+excluded. Explicit dismissal, inactive work tabs, the chooser and comparison
+still prevent automatic display. A successful new add clears an earlier add error.
+When relative and absolute output paths resolve to one canonical file, discovery
+retains all validated labels in the bounded candidate. Delivery flags from any
+of those labels survive deduplication; an earlier read reference cannot downgrade
+a later explicit terminal hyperlink to a manual-only candidate.
 
 Submitted input from Cockpit may explicitly request checking, editing or displaying
 a named context document. A bounded local input recognizer handles common Japanese
@@ -264,6 +375,66 @@ rules, video playback, isolated rendering and open implementation questions.
 
 ## Launcher preference and explicit input cancellation
 
+The resume picker is labelled "choose from history and resume"; it is not an
+exact recorded-conversation shortcut. In Codex's full-screen history picker,
+Enter/Shift+Enter confirm a selection even when Enter inserts newlines in the
+composer. Detection uses three live-screen landmarks (header, filter/status,
+footer actions) from bounded first/last rows. It never reads scrollback/logs.
+IME commit suppression runs first; Ctrl/Alt/Meta combinations retain their own
+behavior. Once the picker disappears, the configured composer mapping applies
+again. No conversation selection is automated and no latest thread is guessed.
+
+Claude Code and Codex launchers offer new, history-picker and latest modes.
+The selected provider owns the history: Claude uses `--resume` / `--continue`,
+Codex uses `resume` / `resume --last`. The latter is scoped to the chosen cwd
+with explicit `--cd`, including when the existing opt-in shared daemon is used.
+Known invocation strings retain base-CLI labels, newline handling and independent
+Windows lifecycle hooks. No provider history is parsed, copied or converted by
+Cockpit. CLI choice remains persisted separately from the launcher's local mode.
+The launcher labels the options as a new session, resume from history, or
+continuing the most recent session. All three descriptions remain visible, with
+accessible radio names and descriptions. Recent-folder cards separate starting
+a new session from opening the CLI's resume picker; a saved resume/continue
+command cannot accidentally turn their new-session action into a history resume.
+Custom commands retain their exact invocation. Provider UUIDs are now stored per
+Cockpit session, separately from the command/cwd. Startup resumes that exact UUID;
+legacy sessions without an identity open the CLI picker instead of guessing the
+latest thread in the folder.
+Both absent and explicit null identities use the picker during restoration;
+null must not silently turn startup into a new conversation. The sidebar restart
+action also carries the saved identity and restore intent. Explicit new sessions
+are launched through the launcher without restore intent. Provider acceptance
+tests create their initial conversations through that real launcher rather than
+seeding null identities as a shortcut to fresh startup.
+
+Claude parent SessionStart/UserPromptSubmit hooks
+record its current conversation. Independent Codex uses the existing trusted
+hooks. Shared Codex observes only successful own-client thread RPC responses via
+a pane-scoped authenticated loopback relay to its existing control socket.
+Temporary (`ephemeral`) forks are excluded; actual TUI warm-up forks have no
+rollout and cannot survive client exit. The relay forwards the original bytes,
+does not start turns or change approvals, and records no prompts, output or
+account credentials. Its per-pane capability is passed only through the TUI's
+environment, rejected for browser origins, and never forwarded upstream.
+Up to four authenticated TUI connections may overlap within that pane: the real
+Codex history picker retains its connection while opening the selected thread.
+The relay does not create additional clients or issue RPC on their behalf.
+Observation is bounded and independent of transport forwarding. Backend identity
+observations survive stale renderer saves; shutdown flushes them before exit.
+Actual provider acceptance is opt-in and uses owned temporary conversations.
+
+The PTY preserves `CLAUDE_CONFIG_DIR`: this user-selected settings/history root
+must not be treated as inherited parent-session metadata. The exact exception
+retains the existing filtering of session IDs and parent credentials. Real-PTY
+fixtures check both resume and continue, with private synthetic configuration
+and no user-profile or provider-account changes. See Claude's
+[configuration directory reference](https://code.claude.com/docs/en/claude-directory).
+
+Terminal right-click shares the keyboard's image-aware clipboard path. A selection
+is copied and cleared only after successful copy. Unmodified clicks in mouse-aware
+TUIs pass through; Shift requests explicit clipboard handling. Link context clicks
+are excluded, and capture listeners follow terminal reattachment/disposal.
+
 Preview button resets and hover styles are scoped to the preview toolbar and
 region. The shared workspace also contains CLI controls; styling its descendant
 buttons would override the launcher's primary action and other CLI buttons.
@@ -274,6 +445,13 @@ new tab and split reads that same value. Reopening a standard recent CLI updates
 it too. Remote requests and restored sessions retain their own commands and do
 not change the user's selection. Legacy PowerShell/Shell values are normalized
 for the host platform without changing the workspace schema.
+
+The project field may hydrate from recent projects when startup data first
+arrives. Typing, choosing a project or browsing for a folder marks the field as
+edited. After that, clearing it remains an explicit empty value across CLI
+selection changes and rescans; history must not refill it while Backspace is
+held. An empty field keeps Start Session disabled. This state is local to each
+launcher and does not change saved history or the initial default on reopening.
 
 The pane's Cancel input button and Control+Shift+X (Command+Shift+X on Mac)
 send exactly one ETX byte through the existing PTY input IPC. Key repeats and
@@ -377,18 +555,70 @@ the update manifest, or existing releases.
 
 ## Circled-number rendering
 
-A circled number immediately followed by an ASCII space is joined for drawing
-within its existing two cells. The terminal buffer, Unicode width rules, cursor
-reports and copied text are unchanged. Compact circled numbers in DOM use the
-existing Sarasa symbol font; WebGL rescales oversized one-cell glyphs to avoid
-overlap. xterm excludes emoji from that rescaling. Joined numbers use the OS
-symbol font, including Hiragino on Mac.
-The Windows symbol face is normalized separately from the naturally wider Mac
-face so joined glyphs stay within two cells on both platforms. Dingbats retain
-Sarasa because xterm excludes that range from overlapping-glyph rescaling.
+Unconfirmed IME text has its own DOM composition view, independent from the
+committed terminal buffer. It wraps each circled number in a two-cell inline
+box; CSS generated content selects the same large variation glyph at 1.2 times
+the normal size. DOM textContent, textarea values and PTY commits keep the exact
+original characters. Natural-width measurement uses the same decorated DOM and
+metrics, preserving wrapping, overlay placement and cancellation. Tests inspect
+unconfirmed glyph ink before committing and verify exact-once commit/no cancel
+output in DOM/WebGL at normal and doubled display scale. Chromium composition
+events on actual Codex are checked separately; Windows candidate-window UI is
+not driven by these isolated tests.
+
+The Codex composer additionally mirrors circle-containing rows within its
+colored input block, including indented continuation rows and rows other than
+the current cursor row. Discovery is bounded to 32 visible rows with the same
+non-default background and a recognized prompt. Display-only boundaries expand
+each circle to two cells, including adjacent numbers without trailing blanks,
+at 1.2 times the configured font size (capped at the native row height).
+The buffer, copied text and PTY bytes stay unchanged. Mouse selection/reporting
+maps back to logical columns; the caret and IME helpers follow visual columns.
+The mirror is aria-hidden and does not intercept input. Rows keep their original
+height and bounds. Full prose rows fit by scaling ordinary glyphs horizontally,
+never below 80%; exceptionally dense symbol rows retain native rendering rather
+than overlapping neighboring rows. Mouse mapping uses each row's boundaries;
+caret and IME adjustments apply only when the current row is mirrored. Private
+xterm mouse/render APIs are guarded and restored on disposal.
+Regression tests cover both DOM and WebGL rendering, cursor visibility, logical
+DSR reports, mouse selection/copy and Japanese composition. Actual Codex draft
+editing is checked separately without submitting prompts.
+
+After renderer changes, fitting rechecks cell metrics for at most two additional
+passes before reporting PTY dimensions. WebGL can update cell height during the
+first resize; retaining the earlier row count would place the bottom composer
+outside its host. Actual-provider checks assert that input symbols are inside
+the visible host, rather than accepting only the presence of a mirror element.
+
+A circled number followed by an explicit ASCII/fullwidth blank can be drawn
+within its existing two/three cells. xterm 6.0.0 normally refuses to join across
+SGR foreground/bold changes. A guarded adapter to its shared character-joiner
+service extends ranges only across a real blank with the same background and
+no visible decorations. Existing selection/cursor exclusions still apply.
+The terminal buffer, Unicode widths, cursor reports and copied text are unchanged.
+Runs of up to eight numbers also share sufficient real trailing blanks: `①②　`
+has four existing cells and can draw two large circles. All numbers in the run
+must have matching visible styles; differently colored numbers and insufficient
+blank space retain compact glyphs. Only the required complete blank characters
+are consumed. DOM contextual shaping and Canvas drawing-only variation glyphs
+use the same total advance. Compact digit contours are larger for legibility.
+
+Two bundled OFL-derived fonts provide circular outlines: small one-cell numbers
+when no blank is available, larger ligatures when a blank can be used. Original
+Sarasa digit contours are retained inside mathematical circular rings. Font
+generation is reproducible with `python scripts/build-circled-fonts.py` using
+the existing Sarasa symbol fonts and fontTools 4.66.1. No OS font is required.
+Chromium Canvas does not shape the ASCII-space ligature like DOM does. A
+reference-counted fillText adapter selects a bundled variation glyph only for
+the exact joined drawing string and the owned circled-number font. It never
+rewrites buffer text or copy results; ordinary canvas fonts/text are untouched.
+Dingbats retain the previous behavior. Changing backgrounds or decorations
+keeps the compact form rather than painting over neighboring cells.
 DOM spans use screen-grid measurements rather than xterm's shared character
 measurement element, which can contain an arbitrary cached glyph. Tests cover
-DOM/WebGL geometry, raster width, cursor reporting and copied text.
+DOM/WebGL raster width and aspect ratio, distinct digit ink, SGR boundaries,
+compact numbers, resizing, cursor reporting and copied text. Native Mac and
+Windows x64 checks remain separate release gates for this new candidate.
 The Intel macOS hosted VM's WebGL fixture explicitly uses SwiftShader because
 that VM has no hardware WebGL. This is limited to the trusted test process;
 normal app launches retain the existing automatic DOM fallback.

@@ -19,9 +19,9 @@ for (const renderer of ["dom", "webgl"] as const) {
     await writeFile(entry, `
       const {app}=require('electron');
       app.on('browser-window-created',(_,win)=>{win.show=()=>{};win.showInactive=()=>{}});
-      require(${JSON.stringify(resolve(process.env.COCKPIT_TEST_APP_ROOT ?? process.cwd(), "dist/electron/main.js"))});
+      ${process.env.COCKPIT_PACKAGED_EXECUTABLE ? "" : `require(${JSON.stringify(resolve(process.env.COCKPIT_TEST_APP_ROOT ?? process.cwd(), "dist/electron/main.js"))});`}
     `, "utf8");
-    const launchArgs = process.env.COCKPIT_PACKAGED_EXECUTABLE ? [] : [entry];
+    const launchArgs = process.env.COCKPIT_PACKAGED_EXECUTABLE ? ["-r", entry] : [entry];
     // The Intel macOS hosted VM has no usable hardware WebGL. Exercise the
     // actual WebGL renderer with SwiftShader only in this trusted CI fixture;
     // production launches and the other Mac behavior tests keep their defaults.
@@ -36,6 +36,13 @@ for (const renderer of ["dom", "webgl"] as const) {
       env: { ...process.env, COCKPIT_USER_DATA: directory },
     });
     try {
+      if (process.env.COCKPIT_PACKAGED_EXECUTABLE) await app.evaluate(({ BrowserWindow }) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          window.setOpacity(0); window.setSkipTaskbar(true); window.setPosition(-30000, -30000);
+          // Present a compositor surface without displaying the isolated QA window.
+          Object.getPrototypeOf(window).showInactive.call(window);
+        }
+      });
       const page = await app.firstWindow();
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
@@ -44,7 +51,7 @@ for (const renderer of ["dom", "webgl"] as const) {
         window.localStorage.setItem("cockpit.disableWebgl", mode === "dom" ? "1" : "0");
         window.localStorage.setItem("cockpit.forceWebgl", mode === "webgl" ? "1" : "0");
       }, renderer);
-      const state = await app.evaluateHandle(({ ipcMain, clipboard }) => {
+      const state = await app.evaluateHandle(({ ipcMain }) => {
         const state = { written: [] as PtyWriteRequest[], copied: [] as string[], resized: [] as PtyResizeRequest[] };
         ipcMain.removeHandler("cockpit:pty-spawn");
         ipcMain.handle("cockpit:pty-spawn", (_event, request: SpawnSessionRequest) => ({
@@ -55,7 +62,6 @@ for (const renderer of ["dom", "webgl"] as const) {
         ipcMain.removeHandler("cockpit:clipboard-write-text");
         ipcMain.handle("cockpit:clipboard-write-text", (_event, text: string) => {
           state.copied.push(text);
-          clipboard.writeText(text);
         });
         return state;
       });
@@ -96,7 +102,7 @@ for (const renderer of ["dom", "webgl"] as const) {
         const canvas = document.createElement("canvas");
         const context = canvas.getContext("2d")!;
         context.font = `bold ${fontSize}px ${family}`;
-        const circleWidth = context.measureText("①").width;
+        const circleWidth = context.measureText("① ").width;
         const screenBounds = screen.getBoundingClientRect();
         const fonts = [family, '"HiraginoSans-W3"', '"Hiragino Sans"', '"Apple Symbols"'].map((font) => {
           context.font = `bold ${fontSize}px ${font}`;

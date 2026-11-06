@@ -31,6 +31,12 @@ test("normal environment vars are preserved", () => {
   }
 });
 
+test("Claude's configured settings and history directory is preserved", () => {
+  assert.equal(isInheritedCliSessionVar("CLAUDE_CONFIG_DIR"), false);
+  assert.equal(isInheritedCliSessionVar("claude_config_dir"), false);
+  assert.equal(isInheritedCliSessionVar("CLAUDE_CONFIG_DIR_SESSION"), true);
+});
+
 test("color suppression vars are filtered out of pty env", () => {
   // Cockpit を CLI から起動すると親の NO_COLOR=1 が pty へ継承され、
   // ペイン内の claude だけ色が消える（PowerShell は NO_COLOR に従わないため

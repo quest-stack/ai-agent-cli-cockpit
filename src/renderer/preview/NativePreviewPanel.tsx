@@ -1,9 +1,9 @@
-import { ExternalLink, FileImage, FileText, FolderOpen, Globe, Plus, RefreshCw, Video, X } from "lucide-react";
+import { Camera, Download, ExternalLink, FileImage, FileText, FolderOpen, Globe, Plus, RefreshCw, Video, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { t } from "../../shared/i18n";
 import { localPreviewUrl, previewFrame, previewViewportSchema, previewViewportsSchema } from "../../shared/preview";
-import { isPreviewContextFile, previewArtifactPaths, previewPaths, previewUrls } from "../../shared/preview-paths";
+import { isPreviewContextFile, previewArtifactPaths, previewDeliveredPaths, previewPaths, previewUrls } from "../../shared/preview-paths";
 import { cockpitApi } from "../bridge";
 import { ResponsivePreviewControls } from "./ResponsivePreviewControls";
 import { compareCaptures, VisualComparison } from "./VisualComparison";
@@ -27,7 +27,7 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
   const [loaded, setLoaded] = useState(false);
   const [presented, setPresented] = useState<string>();
   const [candidates, setCandidates] = useState<string[]>([]);
-  const [fileCandidates, setFileCandidates] = useState<Array<PreviewFileCandidate & { automatic: boolean }>>([]);
+  const [fileCandidates, setFileCandidates] = useState<Array<PreviewFileCandidate & { automatic: boolean; delivered: boolean }>>([]);
   const [unresolved, setUnresolved] = useState(false);
   const [viewports, setViewports] = useState<Record<string, PreviewViewport>>(() => {
     try {
@@ -39,6 +39,9 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
   const [baselines, setBaselines] = useState<Record<string, PreviewCapture & { automatic?: boolean }>>({});
   const [comparison, setComparison] = useState<VisualComparisonData>();
   const [capturing, setCapturing] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportNotice, setExportNotice] = useState<string>();
+  const exportingRef = useRef(false);
   const [autoSaving, setAutoSaving] = useState(false);
   const capturingRef = useRef(false);
   const baselineIds = useRef(new Set<string>());
@@ -82,6 +85,7 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
       const result = await cockpitApi.preview!.request(input);
       if (result.ok) {
         accept(result.value);
+        if (input.action === "add" || input.action === "pick" || input.action === "pick-site") setError(undefined);
         if (result.value.focusId && (!automatic || !manualSelection.current)) setSelection(result.value.focusId);
         return true;
       } else setError(result.error === "unsupported" ? t("この形式はプレビューできません。") : t("開けませんでした。ファイルの場所やURLを確認してください。"));
@@ -110,7 +114,7 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
     const allowed = new Set(sessionKey.split("|"));
     const tails = new Map<string, string>();
     const checked = new Map<string, number>();
-    const pending = new Map<string, Map<string, boolean>>();
+    const pending = new Map<string, Map<string, { automatic: boolean; delivered: boolean }>>();
     const timers = new Map<string, number>();
     const urlTimers = new Map<string, number>();
     let disposed = false;
@@ -125,9 +129,11 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
         setFileCandidates((current) => {
           const files = new Map(current.map((file) => [file.source, file]));
           for (const file of discovery.files) {
-            const automatic = entries.some(([path, generated]) => path === file.label && generated) || Boolean(files.get(file.source)?.automatic);
+            const labels = file.labels ?? [file.label];
+            const automatic = entries.some(([path, flags]) => labels.includes(path) && flags.automatic) || Boolean(files.get(file.source)?.automatic);
+            const delivered = entries.some(([path, flags]) => labels.includes(path) && flags.delivered) || Boolean(files.get(file.source)?.delivered);
             if (automatic) files.delete(file.source);
-            files.set(file.source, { ...file, automatic });
+            files.set(file.source, { ...file, automatic, delivered });
           }
           return [...files.values()].slice(-10);
         });
@@ -145,13 +151,17 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
         if (urls.length) setCandidates((current) => [...new Set([...urls, ...current])].slice(0, 5));
       }, 300));
       const artifacts = new Set(previewArtifactPaths(text));
+      const deliveries = new Set(previewDeliveredPaths(text));
       for (const path of previewPaths(text)) {
         const automatic = artifacts.has(path);
-        const key = `${event.sessionId}:${automatic}:${path}`;
+        const delivered = deliveries.has(path);
+        const key = `${event.sessionId}:${automatic}:${delivered}:${path}`;
         if (Date.now() - (checked.get(key) ?? 0) < 2000) continue;
         checked.set(key, Date.now());
         if (checked.size > 256) checked.delete(checked.keys().next().value!);
-        const list = pending.get(event.sessionId) ?? new Map<string, boolean>(); list.set(path, automatic || Boolean(list.get(path))); pending.set(event.sessionId, list);
+        const list = pending.get(event.sessionId) ?? new Map<string, { automatic: boolean; delivered: boolean }>();
+        const previous = list.get(path);
+        list.set(path, { automatic: automatic || Boolean(previous?.automatic), delivered: delivered || Boolean(previous?.delivered) }); pending.set(event.sessionId, list);
       }
       if (pending.has(event.sessionId) && !timers.has(event.sessionId)) timers.set(event.sessionId, window.setTimeout(() => { void flush(event.sessionId); }, 250));
     });
@@ -162,14 +172,14 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
   }, [sessionKey, tabId]);
   useEffect(() => {
     const unseen = (source: string): boolean => !autoAdded.current.has(source) && !targets.some((target) => target.source === source);
-    const artifact = [...fileCandidates].reverse().find((file) => file.automatic && unseen(file.source));
-    const first = targets.length ? !manualSelection.current ? artifact?.source : undefined
+    const artifact = [...fileCandidates].reverse().find((file) => file.automatic && unseen(file.source) && (!manualSelection.current || file.delivered));
+    const first = targets.length ? !manualSelection.current || artifact?.delivered ? artifact?.source : undefined
       : artifact?.source ?? candidates.find(unseen);
     if ((!visible && !autoOpen) || !loaded || !first || chooser || comparison || busy || autoPending.current) return;
     if (first === artifact?.source) for (const file of fileCandidates) if (file.automatic) autoAdded.current.add(file.source);
     autoAdded.current.add(first);
     autoPending.current = true;
-    void request({ action: "add", tabId, source: first }, true).then((added) => {
+    void request({ action: "add", tabId, source: first, siteRoot: first === artifact?.source ? artifact.siteRoot : undefined }, !artifact?.delivered).then((added) => {
       const current = autoOpenRef.current;
       if (added && current.enabled) current.open();
     }).finally(() => { autoPending.current = false; });
@@ -209,10 +219,10 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
     };
   }, [canPresent, selectedId, selectedRevision, tabId, viewport]);
 
-  const add = async (pick: boolean, value = source): Promise<void> => {
+  const add = async (pick: boolean | "site", value = source, siteRoot?: string): Promise<void> => {
     pinSelection();
     setError(undefined); setBusy(true);
-    await request(pick ? { action: "pick", tabId } : { action: "add", tabId, source: value.trim() });
+    await request(pick === "site" ? { action: "pick-site", tabId } : pick ? { action: "pick", tabId } : { action: "add", tabId, source: value.trim(), siteRoot });
     setBusy(false); setChooser(false); setSource("");
   };
   const closeTarget = (id: string): void => {
@@ -225,7 +235,7 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
     void request({ action: "remove", tabId, targetId: id });
   };
   const capture = async (compare: boolean, automatic = false): Promise<void> => {
-    if (!selected || capturingRef.current) return;
+    if (!selected || capturingRef.current || exportingRef.current) return;
     const baseline = baselines[selected.id];
     capturingRef.current = true;
     setCapturing(true); setAutoSaving(automatic); if (!automatic) setError(undefined);
@@ -254,11 +264,37 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
     } catch { if (!automatic) setError(t("比較画像を作れませんでした。プレビューの読み込み後にもう一度お試しください。")); }
     finally { capturingRef.current = false; setCapturing(false); setAutoSaving(false); }
   };
+  const exportPage = async (destination: "clipboard" | "file"): Promise<void> => {
+    if (!selected || capturingRef.current || exportingRef.current || !cockpitApi.preview) return;
+    const id = selected.id;
+    exportingRef.current = true; setExporting(true);
+    try {
+      const result = await cockpitApi.preview.request({ action: "screenshot", tabId, targetId: id, destination });
+      if (result.ok && result.screenshot) {
+        setError(undefined);
+        setExportNotice(result.screenshot.canceled ? t("PNGの保存をキャンセルしました")
+          : destination === "clipboard" ? t("ページ全体をコピーしました") : t("ページ全体をPNGで保存しました"));
+      } else if (currentIdRef.current !== id) {
+        setExportNotice(t("表示が切り替わったため撮影を中止しました"));
+      } else {
+        setError(!result.ok && result.error === "too-large" ? t("ページが大きすぎます。表示幅を変更して、もう一度お試しください。")
+          : !result.ok && result.error === "busy" ? t("ほかの撮影や開発者ツールを閉じて、もう一度お試しください。")
+          : t("ページ全体を撮影できませんでした。表示後にもう一度お試しください。"));
+      }
+    } catch { setError(t("ページ全体を撮影できませんでした。表示後にもう一度お試しください。")); }
+    finally { exportingRef.current = false; setExporting(false); }
+  };
   useEffect(() => {
     autoBaselineRef.current = (id) => {
       if (selected?.id === id && ["web", "markdown"].includes(selected.kind) && !baselineIds.current.has(id)) void capture(false, true);
     };
   });
+
+  useEffect(() => { setExportNotice(undefined); }, [selection]);
+  useEffect(() => {
+    if (!exporting && ready && canPresent && visible && selected && !selected.error
+      && ["web", "markdown"].includes(selected.kind) && !baselineIds.current.has(selected.id)) autoBaselineRef.current(selected.id);
+  }, [exporting, ready, canPresent, visible, selected]);
 
   return <div className="preview-panel" onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); }}
     onDrop={(event) => {
@@ -290,20 +326,23 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
     {chooser && <div aria-label={t("ファイル・URLを追加")} className="preview-chooser" role="dialog" onKeyDown={(event) => { if (event.key === "Escape") setChooser(false); }}>
       <div className="preview-chooser-heading"><strong>{t("ファイル・URLを追加")}</strong><button aria-label={t("閉じる")} onClick={() => setChooser(false)} type="button"><X aria-hidden="true" size={14} /></button></div>
       <button disabled={busy} onClick={() => void add(true)} type="button"><FolderOpen aria-hidden="true" size={16} /><span>{t("ファイルを選ぶ")}</span></button>
+      <button disabled={busy} onClick={() => void add("site")} type="button"><Globe aria-hidden="true" size={16} /><span>{t("サイトのフォルダーを開く")}</span></button>
+      <small>{t("index.htmlのあるフォルダーを選ぶと、公開せずにサイト全体を確認できます。")}</small>
       <form onSubmit={(event) => { event.preventDefault(); if (source.trim()) void add(false); }}>
         <label htmlFor={`preview-source-${tabId}`}>{t("localhostのURLまたはファイルパス")}</label>
         <input autoFocus id={`preview-source-${tabId}`} onChange={(event) => setSource(event.target.value)} placeholder="http://localhost:3000" value={source} />
         <button disabled={!source.trim() || busy} type="submit">{t("プレビューを開く")}</button>
       </form>
       {candidates.filter((url) => !targets.some((target) => target.source === url)).map((url) => <button key={url} onClick={() => void add(false, url)} type="button"><Globe aria-hidden="true" size={13} /><span>{url}</span></button>)}
-      {fileCandidates.filter((file) => !targets.some((target) => target.source === file.source)).map((file) => <button key={file.source} onClick={() => void add(false, file.source)} title={file.source} type="button"><FileText aria-hidden="true" size={13} /><span>{file.label}</span></button>)}
+      {fileCandidates.filter((file) => !targets.some((target) => target.source === file.source)).map((file) => <button key={file.source} onClick={() => void add(false, file.source, file.siteRoot)} title={file.source} type="button"><FileText aria-hidden="true" size={13} /><span>{file.label}</span></button>)}
       {unresolved && <p role="status">{t("場所を特定できない成果物があります。「ファイルを選ぶ」から開いてください。")}</p>}
     </div>}
     {error && <div className="preview-native-error" role="alert">{error}<button aria-label={t("閉じる")} onClick={() => setError(undefined)} type="button"><X aria-hidden="true" size={13} /></button></div>}
     {!selected ? <div className="preview-empty"><Globe aria-hidden="true" size={28} /><span className="preview-eyebrow">YOUR WORK, IN VIEW</span>
       <h2>{t("作ったものを、ここで見る。")}</h2><p>{t("HTML・Markdown・画像・PDF・MP4を開けます。")}</p>
-      <div className="preview-native-empty-actions"><button disabled={busy} onClick={() => void add(true)} type="button"><FolderOpen aria-hidden="true" size={15} />{t("ファイルを選ぶ")}</button><button onClick={() => setChooser(true)} type="button"><Globe aria-hidden="true" size={15} />{t("URLを指定")}</button></div>
-      {fileCandidates.length > 0 && <div className="preview-detected-files"><strong>{t("CLI出力から見つかったファイル")}</strong>{fileCandidates.map((file) => <button key={file.source} onClick={() => void add(false, file.source)} title={file.source} type="button"><FileText aria-hidden="true" size={13} />{file.label}</button>)}</div>}
+      <div className="preview-native-empty-actions"><button disabled={busy} onClick={() => void add(true)} type="button"><FolderOpen aria-hidden="true" size={15} />{t("ファイルを選ぶ")}</button><button onClick={() => setChooser(true)} type="button"><Globe aria-hidden="true" size={15} />{t("URLを指定")}</button><button disabled={busy} onClick={() => void add("site")} type="button"><Globe aria-hidden="true" size={15} />{t("サイトのフォルダーを開く")}</button></div>
+      <small>{t("index.htmlのあるフォルダーを選ぶと、公開せずにサイト全体を確認できます。")}</small>
+      {fileCandidates.length > 0 && <div className="preview-detected-files"><strong>{t("CLI出力から見つかったファイル")}</strong>{fileCandidates.map((file) => <button key={file.source} onClick={() => void add(false, file.source, file.siteRoot)} title={file.source} type="button"><FileText aria-hidden="true" size={13} />{file.label}</button>)}</div>}
       {unresolved && <p role="status">{t("場所を特定できない成果物があります。「ファイルを選ぶ」から開いてください。")}</p>}
       <small>{t("最初の成果物は自動表示します。閉じた後は自動で開きません。")}</small></div>
       : <>
@@ -315,9 +354,16 @@ export function NativePreviewPanel({ tabId, visible, sessionIds, autoOpen, onAut
           const next = { ...current }; if (value) next[selected.id] = value; else delete next[selected.id]; return next;
         })} scale={scale} value={viewport} />}
         {selected.kind !== "video" && <div className="preview-comparison-actions">
-          <button disabled={!ready || !canPresent || capturing || Boolean(selected.error)} onClick={() => void capture(false)} type="button">{t("基準を保存")}</button>
-          <button disabled={!ready || !canPresent || capturing || !baselines[selected.id] || Boolean(selected.error)} onClick={() => void capture(true)} type="button">{t("変更を比較")}</button>
+          <button disabled={!ready || !canPresent || capturing || exporting || Boolean(selected.error)} onClick={() => void capture(false)} type="button">{t("基準を保存")}</button>
+          <button disabled={!ready || !canPresent || capturing || exporting || !baselines[selected.id] || Boolean(selected.error)} onClick={() => void capture(true)} type="button">{t("変更を比較")}</button>
           <span role="status">{capturing ? autoSaving ? t("比較の基準を自動保存中…") : t("比較画像を準備中…") : baselines[selected.id]?.automatic ? t("基準を自動保存しました") : baselines[selected.id] ? t("基準を保存しました") : t("修正前の見た目を残して、変更後と比べる")}</span>
+        </div>}
+        {["web", "markdown"].includes(selected.kind) && <div aria-busy={exporting} className="preview-comparison-actions">
+          <button data-testid="preview-screenshot-copy" disabled={!ready || !canPresent || capturing || exporting || Boolean(selected.error)}
+            onClick={() => void exportPage("clipboard")} title={t("撮影してクリップボードにコピーします")} type="button"><Camera aria-hidden="true" size={13} />{t("ページ全体を撮影")}</button>
+          <button data-testid="preview-screenshot-save" disabled={!ready || !canPresent || capturing || exporting || Boolean(selected.error)}
+            onClick={() => void exportPage("file")} type="button"><Download aria-hidden="true" size={13} />{t("PNGを保存")}</button>
+          <span role="status" title={exportNotice}>{exporting ? t("ページ全体を撮影中…") : exportNotice ?? t("1クリックでクリップボードにコピーできます")}</span>
         </div>}
         {selected.updated && ["pdf", "video"].includes(selected.kind) && <div className="preview-update-banner" role="status"><span>{t("新しい版ができました")}</span><button onClick={() => void request({ action: "refresh", tabId, targetId: selected.id })} type="button"><RefreshCw aria-hidden="true" size={12} />{t("新しい版を表示")}</button></div>}
         {selected.error && <div className="preview-native-error" role="status">{t("接続先やファイルを確認して、再読み込みしてください。")}</div>}

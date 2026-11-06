@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.16 — Release candidate
+
+- **Restore each Windows tab's previous conversation.** Standard Claude Code and Codex launches retain their exact conversation IDs. Legacy tabs without an ID open history selection instead of silently starting a new conversation. The launcher distinguishes new sessions, history selection and the most recent session.
+- **Select Codex history with Enter even when Enter normally inserts a newline.** The composer keeps the configured newline behavior after selection.
+- **Make circled numbers readable in the Codex composer.** Adjacent numbers, mixed Japanese, line breaks, wrapping and moving the cursor to another row are covered. Unconfirmed IME text uses the same large circles without changing committed, canceled, selected or copied text. General terminal output keeps round glyphs across styling and adjacent whitespace. Extremely dense composer rows retain the previous rendering.
+- **Open delivered artifacts in Preview.** Recognize generated PDFs/images, explicit file labels, spaced Japanese paths, wrapped links, Claude's [image] path (size) and home prefixes. Delivered image links open another target tab while retaining the previous document. Incidental reads, explicit dismissal and other work tabs keep their existing behavior.
+- **Fix every detected candidate failing to open when stale tabs consume preview capacity.** Release previews belonging to closed work tabs while preserving current targets.
+- **Preview static sites before deployment.** Open a folder containing index.html and shared assets, then open directions in separate target tabs. Saved changes, responsive widths, baselines and comparisons work without a helper server or deployment. Applications requiring a development server still use localhost Preview.
+- **Reduce false differences from unedited animations.** Align animation phases during comparison capture and restore live playback afterward.
+- **Capture complete Web/Markdown pages and save PNGs.** Preserve viewport width, input and scroll position; retry temporary Windows replacement failures. Also fix the terminal composer falling outside the viewport after changing renderers.
+- **Start Codex from local inbox requests.** Set cli to codex; claude or omission keeps Claude Code. Arbitrary shell commands remain unavailable. Initial instructions no longer reach PowerShell before the CLI bootstrap is written.
+- **Preserve Claude's configured history/settings directory.** Keep CLAUDE_CONFIG_DIR when filtering parent-session metadata.
+- **Route right-click and Shift+right-click through image-aware paste.** Selected text still copies and mouse-aware CLIs retain their behavior. Clearing the launcher's folder field no longer restores the previous path.
+
+Automatic discovery requires recognizable CLI output; use the file picker for other forms. The Release page records the verified CPU/language packages and acceptance scope. Actual conversation restoration on Mac remains unverified.
+
 ## 0.2.15 — 2026-10-24
 
 - **Fixed automatic Preview opening for generated PDFs and images.** Completed generation/save messages and delivered artifact links are recognized. Reading existing material or startup documents such as AGENTS.md and README no longer opens them automatically.

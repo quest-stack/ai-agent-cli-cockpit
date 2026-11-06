@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   type CaptureKeydownTarget,
   getTerminalManualNewlineSequence,
+  getCodexHistoryPickerSubmitSequence,
   isPlausibleCharacterWidth,
   isTerminalLineFeedKey,
   rebindCaptureKeydown,
@@ -22,6 +23,23 @@ interface PendingFrame {
   callback: () => void;
   id: number;
 }
+
+test("Codex history uses Enter confirmation only with all live picker landmarks", () => {
+  const lines = ["Resume a previous session", "Filter: Cwd All  Status: Active Archived", "enter resume  esc start new  ctrl+c quit"];
+  const enter = keyEvent({ key: "Enter", code: "Enter", keyCode: 13 });
+  assert.equal(getCodexHistoryPickerSubmitSequence(enter, "codex resume", lines), "\r");
+  assert.equal(getCodexHistoryPickerSubmitSequence({ ...enter, shiftKey: true }, "codex", lines), "\r");
+  for (const partial of [lines.slice(0, 2), lines.slice(1), [lines[0], lines[2]], ["› Explain resume", "enter resume"]]) assert.equal(getCodexHistoryPickerSubmitSequence(enter, "codex", partial), undefined);
+  assert.equal(getCodexHistoryPickerSubmitSequence(enter, "claude", lines), undefined);
+});
+
+test("history confirmation never consumes IME commits, modified keys or ordinary typing", () => {
+  const lines = ["Resume a previous session", "Filter: Cwd All Status: Active", "enter resume  esc start new"];
+  const enter = keyEvent({ key: "Enter", code: "Enter", keyCode: 13 });
+  for (const overrides of [{ isComposing: true }, { keyCode: 229 }, { key: "Process" }, { ctrlKey: true }, { altKey: true }, { metaKey: true }, { key: "a", code: "KeyA" }]) {
+    assert.equal(getCodexHistoryPickerSubmitSequence({ ...enter, ...overrides }, "codex", lines), undefined);
+  }
+});
 
 function keyEvent(
   overrides: Partial<Parameters<typeof resolveTerminalKeyAction>[0]> = {},

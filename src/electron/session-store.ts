@@ -2,16 +2,19 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { persistedWorkspaceSchema } from "../shared/schema";
+import { providerConversationSchema } from "../shared/provider-conversation";
 
 import { createDefaultWorkspace } from "./defaults";
 
 import type { PersistedWorkspace } from "../shared/types";
+import type { ProviderConversation } from "../shared/provider-conversation";
 
 export class SessionStore {
   private current: PersistedWorkspace = createDefaultWorkspace();
   private readonly filePath: string;
   private writeCounter = 0;
   private writeQueue: Promise<void> = Promise.resolve();
+  private readonly conversations = new Map<string, ProviderConversation | null>();
 
   constructor(userDataPath: string) {
     this.filePath = join(userDataPath, "session.json");
@@ -22,6 +25,7 @@ export class SessionStore {
   }
 
   async load(): Promise<PersistedWorkspace> {
+    this.conversations.clear();
     try {
       const raw = await readFile(this.filePath, "utf8");
       const parsed = persistedWorkspaceSchema.safeParse(JSON.parse(raw));
@@ -33,6 +37,9 @@ export class SessionStore {
       }
 
       this.current = parsed.data;
+      for (const session of this.current.sessions) {
+        if (session.conversation !== undefined) this.conversations.set(session.id, session.conversation);
+      }
       return this.snapshot;
     } catch (error: unknown) {
       if (
@@ -54,7 +61,13 @@ export class SessionStore {
       throw new Error(`Invalid workspace payload: ${parsed.error.message}`);
     }
 
-    this.current = parsed.data;
+    this.current = {
+      ...parsed.data,
+      sessions: parsed.data.sessions.map(session => {
+        const conversation = this.conversations.get(session.id);
+        return conversation !== undefined ? { ...session, conversation } : session;
+      }),
+    };
 
     // 保存要求が重なっても壊れないように直列化する。並行して走ると、先行の
     // rename が一時ファイルを消した後に後続が rename して ENOENT になる。
@@ -64,6 +77,20 @@ export class SessionStore {
     );
     this.writeQueue = pending.catch(() => undefined);
     return pending;
+  }
+
+  /** Backend observations win over a stale renderer debounce, including before first save. */
+  async recordConversation(sessionId: string, value: ProviderConversation | null): Promise<void> {
+    const conversation = providerConversationSchema.nullable().parse(value);
+    if (!this.conversations.has(sessionId) && this.conversations.size >= 128) {
+      this.conversations.delete(this.conversations.keys().next().value!);
+    }
+    this.conversations.set(sessionId, conversation);
+    if (this.current.sessions.some(session => session.id === sessionId)) await this.save(this.current);
+  }
+
+  async flush(): Promise<void> {
+    await this.writeQueue;
   }
 
   private async writeSnapshot(): Promise<void> {

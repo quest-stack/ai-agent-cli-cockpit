@@ -11,8 +11,13 @@ import {
 
 import { createBootstrapCommand, isCodexRemoteControlEnabled } from "./cli-bootstrap";
 import { CliActivityBridge } from "./cli-activity-bridge";
+import { CodexConversationProxy } from "./codex-conversation-proxy";
 import { StatusDetector } from "./status-detector";
 import { getShellLaunch } from "./shell-launch";
+import { getCliKind, getRestoredCliCommand } from "../shared/cli-launch";
+import { providerConversationIdSchema } from "../shared/provider-conversation";
+
+import type { ProviderConversation } from "../shared/provider-conversation";
 
 import type {
   PtyDataEvent,
@@ -22,7 +27,11 @@ import type {
 } from "../shared/types";
 
 interface ManagedPty {
+  bootstrapWritten?: boolean;
   activity?: CliActivityBridge;
+  codexProxy?: CodexConversationProxy;
+  conversation?: ProviderConversation | null;
+  status: SessionState["status"];
   detector: StatusDetector;
   process: pty.IPty;
   /**
@@ -85,6 +94,7 @@ interface PtyManagerEvents {
   onData: (event: PtyDataEvent) => void;
   onDiagnostic: (category: string, message: string) => void;
   onStatus: (event: PtyStatusEvent) => void;
+  onConversation?: (sessionId: string, conversation: ProviderConversation) => void;
 }
 
 // Cockpit 自体が別の Claude Code / Codex CLI セッションの子プロセスとして
@@ -95,6 +105,9 @@ interface PtyManagerEvents {
 // セッション由来の変数は子に伝播させず、クリーンな通常セッションとして起動させる。
 export function isInheritedCliSessionVar(key: string): boolean {
   const upper = key.toUpperCase();
+  // A user-selected settings/history directory is not parent-session metadata.
+  // Dropping it makes continue/resume look in a different directory.
+  if (upper === "CLAUDE_CONFIG_DIR") return false;
   return (
     upper === "CLAUDECODE" ||
     upper === "AI_AGENT" ||
@@ -152,14 +165,23 @@ export class PtyManager {
     }
 
     const shell = getShellLaunch();
-    const terminalProcess = pty.spawn(
+    const cli = getCliKind(request.command);
+    const sharedCodex = cli === "codex" && isCodexRemoteControlEnabled();
+    const launchCommand = request.restoreConversation ? getRestoredCliCommand(request.command, request.conversation) : request.command;
+    const environment = { ...getPtyEnvironment(), PATH: shell.path };
+    const codexProxy = sharedCodex ? new CodexConversationProxy(
+      id => this.recordConversation(request.id, { cli: "codex", id }), environment,
+    ) : undefined;
+    let terminalProcess: pty.IPty;
+    try { terminalProcess = pty.spawn(
       shell.file,
       shell.args,
       {
         cols: request.cols,
         cwd: request.cwd,
         env: {
-          ...getPtyEnvironment(), PATH: shell.path,
+          ...environment,
+          ...codexProxy?.environment,
           ...(this.activityDirectory ? { COCKPIT_ACTIVITY_DIRECTORY: this.activityDirectory } : {}),
         },
         name: "xterm-256color",
@@ -168,7 +190,7 @@ export class PtyManager {
         // 転送することがあり、同期描画が崩れる。同梱版は出力順序を保つ。
         ...(process.platform === "win32" ? { useConptyDll: true } : {}),
       },
-    );
+    ); } catch (error: unknown) { codexProxy?.dispose(); throw error; }
     this.events.onDiagnostic(
       DIAGNOSTIC_CATEGORIES.ptySpawn,
       JSON.stringify({
@@ -182,6 +204,8 @@ export class PtyManager {
     );
 
     const detector = new StatusDetector((status) => {
+      const target = this.processes.get(request.id);
+      if (target) target.status = status;
       this.events.onStatus({
         sessionId: request.id,
         status,
@@ -191,18 +215,27 @@ export class PtyManager {
       new ExtendedKeyModeSequenceDetector();
 
     const managed: ManagedPty = {
+      codexProxy,
+      conversation: request.conversation,
+      status: "idle",
       detector,
       process: terminalProcess,
     };
     // The observational hook currently uses PowerShell. Shared Codex runs in
     // an existing daemon whose hook configuration belongs to that daemon.
     if (process.platform === "win32" && this.activityDirectory &&
-      (request.command === "claude" ||
-        (request.command === "codex" && !isCodexRemoteControlEnabled()))) {
+      (cli === "claude" || (cli === "codex" && !isCodexRemoteControlEnabled()))) {
       try {
         managed.activity = new CliActivityBridge(
           this.activityDirectory, request.id,
-          (event) => detector.handleActivityEvent(event),
+          (event) => {
+            detector.handleActivityEvent(event);
+            if ((event.event === "SessionStart" || event.event === "UserPromptSubmit") && !event.agentId &&
+              providerConversationIdSchema.safeParse(event.sessionId).success &&
+              (cli === "claude" || cli === "codex")) {
+              this.recordConversation(request.id, { cli, id: event.sessionId });
+            }
+          },
         );
       } catch {
         // Keep terminal-output detection when hooks are unavailable.
@@ -246,6 +279,7 @@ export class PtyManager {
         );
       }
       this.events.onData({
+        bootstrapWritten: managed.bootstrapWritten === true,
         data,
         sessionId: request.id,
       });
@@ -253,6 +287,7 @@ export class PtyManager {
 
     terminalProcess.onExit(({ exitCode }) => {
       managed.activity?.dispose();
+      managed.codexProxy?.dispose();
       detector.dispose();
       this.clearBootstrapTimers(managed);
       this.processes.delete(request.id);
@@ -266,7 +301,7 @@ export class PtyManager {
     // ここで書き込むと ConPTY 初期化中の誤ったサイズで claude が起動してしまう。
     // renderer からサイズが確定するまで保留する（詳細は定数のコメント）。
     managed.pendingBootstrap = {
-      command: request.command,
+      command: launchCommand,
       timeoutTimer: setTimeout(() => {
         this.flushBootstrap(request.id, "settle-timeout");
       }, BOOTSTRAP_SIZE_SETTLE_TIMEOUT_MS),
@@ -331,12 +366,27 @@ export class PtyManager {
       }),
     );
 
-    target.process.write(createBootstrapCommand(
-      pending.command,
-      pending.command === "codex" && isCodexRemoteControlEnabled(),
-      process.platform,
-      target.activity?.argumentsFor(pending.command),
-    ));
+    const write = (endpoint?: string): void => {
+      if (this.processes.get(sessionId) !== target) return;
+      target.process.write(createBootstrapCommand(
+        pending.command,
+        getCliKind(pending.command) === "codex" && isCodexRemoteControlEnabled(),
+        process.platform,
+        target.activity?.argumentsFor(getCliKind(pending.command) ?? pending.command),
+        endpoint,
+      ));
+      target.bootstrapWritten = true;
+    };
+    if (target.codexProxy) void target.codexProxy.ready.then(write, () => write());
+    else write();
+  }
+
+  private recordConversation(sessionId: string, conversation: ProviderConversation): void {
+    const target = this.processes.get(sessionId);
+    if (!target || target.conversation?.cli === conversation.cli && target.conversation.id === conversation.id) return;
+    target.conversation = conversation;
+    this.events.onConversation?.(sessionId, conversation);
+    this.events.onStatus({ sessionId, status: target.status, conversation });
   }
 
   /**
@@ -548,7 +598,9 @@ export class PtyManager {
       return;
     }
 
+    target.activity?.poll();
     target.activity?.dispose();
+    target.codexProxy?.dispose();
     target.detector.dispose();
     this.clearBootstrapTimers(target);
     target.process.kill();
