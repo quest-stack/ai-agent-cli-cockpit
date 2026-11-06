@@ -59,15 +59,23 @@ async function fixture(info: TestInfo, actual = false, delayBootstrap = false, d
     }
   }
   const entry = join(directory, "hidden-entry.cjs");
+  const executablePath = process.env.COCKPIT_PACKAGED_EXECUTABLE;
   await writeFile(entry, `const {app,net}=require('electron');
-    app.on('browser-window-created',(_e,w)=>{w.show=()=>{};w.showInactive=()=>{};w.webContents.setBackgroundThrottling(false)});
+    app.on('browser-window-created',(_e,w)=>{w.setOpacity(0);w.setSkipTaskbar(true);w.setPosition(-30000,-30000);w.show=()=>{};w.showInactive=()=>{};w.webContents.setBackgroundThrottling(false)});
     net.fetch=async()=>new Response('{}');
-    require(${JSON.stringify(resolve("dist/electron/main.js"))});`, "utf8");
-  const app = await electron.launch({ args: [entry, "--disable-gpu"], env: environment });
-  await app.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.hide(); });
+    ${executablePath ? "" : `require(${JSON.stringify(resolve("dist/electron/main.js"))});`}`, "utf8");
+  const app = await electron.launch({ ...(executablePath ? { executablePath } : {}),
+    args: [...(executablePath ? ["-r", entry] : [entry]), "--disable-gpu"], env: environment });
+  await app.evaluate(({ app, BrowserWindow }) => { const protectWindow = (window: Electron.BrowserWindow): void => {
+    const protect = (): void => { window.setOpacity(0); window.setFocusable(false); window.setSkipTaskbar(true); window.setPosition(-30000, -30000); };
+    window.on("show", protect); protect();
+    Object.getPrototypeOf(window).showInactive.call(window); window.show = () => {}; window.showInactive = () => {};
+    window.webContents.setBackgroundThrottling(false);
+  }; app.on("browser-window-created", (_event, window) => protectWindow(window));
+  for (const window of BrowserWindow.getAllWindows()) protectWindow(window); });
   if (delayBootstrap) {
-    await app.evaluate((_electron, requirePath) => {
-      const load = process.getBuiltinModule("module").createRequire(requirePath);
+    await app.evaluate(({ app }) => {
+      const load = process.getBuiltinModule("module").createRequire(`${app.getAppPath()}/package.json`);
       const module = load("./dist/electron/pty-manager.js") as { PtyManager: { prototype: {
         resize: (id: string, cols: number, rows: number, settled?: boolean) => void;
       } } };
@@ -76,7 +84,7 @@ async function fixture(info: TestInfo, actual = false, delayBootstrap = false, d
       module.PtyManager.prototype.resize = function (id, cols, rows): void {
         original.call(this, id, cols, rows, false);
       };
-    }, resolve("package.json"));
+    });
   }
   return { app, directory, inbox, result, project };
 }
@@ -137,7 +145,14 @@ for (const cli of [undefined, "claude", "codex"] as const) {
       await expect(page.getByTestId(`terminal-${sessionId}`)).toBeVisible();
       await expect.poll(() => hasExited(recorded.pid) && hasExited(recorded.parentPid)).toBe(true);
       await exitShell(page, sessionId);
-      expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(w => w.isVisible()))).toBe(false);
+      const windows = await app.evaluate(({ BrowserWindow, screen }) => BrowserWindow.getAllWindows().map(window => {
+        const bounds = window.getBounds();
+        const onDisplay = screen.getAllDisplays().some(({ bounds: display }) => bounds.x < display.x + display.width
+          && bounds.x + bounds.width > display.x && bounds.y < display.y + display.height && bounds.y + bounds.height > display.y);
+        return { bounds, visible: window.isVisible(), opacity: window.getOpacity(), focusable: window.isFocusable(), onDisplay };
+      }));
+      await writeFile(info.outputPath("window-safety.json"), JSON.stringify(windows), "utf8");
+      expect(windows.every(window => !window.focusable && !window.onDisplay)).toBe(true);
     } finally { await app.close(); }
   });
 }

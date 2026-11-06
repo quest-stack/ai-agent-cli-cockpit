@@ -35,11 +35,14 @@ test("new Codex tabs persist distinct conversations and restore both automatical
   const start = async (phase: string): Promise<ElectronApplication> => {
     const app = await electron.launch({ executablePath, args: ["-r", hiddenEntry, "--disable-gpu", "--disable-software-rasterizer", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows", "--disable-features=CalculateNativeWinOcclusion"], env: { ...process.env, COCKPIT_USER_DATA: directory } });
     await app.evaluate(({ app, BrowserWindow }, input) => {
-      for (const window of BrowserWindow.getAllWindows()) {
-        window.setOpacity(0); window.setSkipTaskbar(true); window.setPosition(-30000, -30000);
+      const protectWindow = (window: Electron.BrowserWindow): void => {
+        const protect = (): void => { window.setOpacity(0); window.setFocusable(false); window.setSkipTaskbar(true); window.setPosition(-30000, -30000); };
+        window.on("show", protect); protect();
         Object.getPrototypeOf(window).showInactive.call(window); window.webContents.setBackgroundThrottling(false);
         window.show = () => {}; window.showInactive = () => {};
-      }
+      };
+      app.on("browser-window-created", (_event, window) => protectWindow(window));
+      for (const window of BrowserWindow.getAllWindows()) protectWindow(window);
       const fs = process.getBuiltinModule("fs"), { createRequire } = process.getBuiltinModule("module");
       const requireApp = createRequire(`${app.getAppPath()}/package.json`);
       const module = requireApp("./dist/electron/pty-manager.js") as { PtyManager: { prototype: {
