@@ -107,8 +107,14 @@ for (const renderer of ["dom", "webgl"] as const) test.describe(renderer, () => 
     await input.send("\x1b[?1000h\x1b[?1006h");
     await input.page.mouse.click(last.x + last.width * 0.75, last.y + last.height / 2);
     await expect.poll(input.writes).toContain("\x1b[<0;4;3M");
-    await input.page.keyboard.down("Shift"); await input.page.mouse.move(first.x + 0.1, first.y + first.height / 2); await input.page.mouse.down();
-    await input.page.mouse.move(last.x + last.width + 0.1, last.y + last.height / 2); await input.page.mouse.up(); await input.page.keyboard.up("Shift");
+    // Xterm's Shift override is Windows/Linux-only. Mac tests normal selection
+    // after verifying mouse reports; do not pretend Shift overrides a Mac TUI.
+    if (process.platform === "darwin") {
+      await input.send("\x1b[?1000l\x1b[?1006l\x1b[5n"); await expect.poll(input.writes).toContain("\x1b[0n");
+    } else await input.page.keyboard.down("Shift");
+    await input.page.mouse.move(first.x + 0.1, first.y + first.height / 2); await input.page.mouse.down();
+    await input.page.mouse.move(last.x + last.width + 0.1, last.y + last.height / 2); await input.page.mouse.up();
+    if (process.platform !== "darwin") await input.page.keyboard.up("Shift");
     await input.terminal.locator(".xterm-helper-textarea").press(process.platform === "darwin" ? "Meta+c" : "Control+Shift+c"); await expect.poll(input.copies).toContain("①②");
     await input.send("\x1b[?1000l\x1b[?1006l\x1b[3;5H");
     const helper = input.terminal.locator(".xterm-helper-textarea"); await helper.focus();
@@ -147,8 +153,12 @@ for (const renderer of ["dom", "webgl"] as const) test.describe(renderer, () => 
     const [first, second] = boxes;
     await input.page.mouse.click(second.x + second.width * 0.75, second.y + second.height / 2);
     await expect.poll(input.writes).toContain("\x1b[<0;4;3M");
-    await input.page.keyboard.down("Shift"); await input.page.mouse.move(first.x + 0.1, first.y + first.height / 2); await input.page.mouse.down();
-    await input.page.mouse.move(second.x + second.width + 0.1, second.y + second.height / 2); await input.page.mouse.up(); await input.page.keyboard.up("Shift");
+    if (process.platform === "darwin") {
+      await input.send("\x1b[?1000l\x1b[?1006l\x1b[5n"); await expect.poll(input.writes).toContain("\x1b[0n");
+    } else await input.page.keyboard.down("Shift");
+    await input.page.mouse.move(first.x + 0.1, first.y + first.height / 2); await input.page.mouse.down();
+    await input.page.mouse.move(second.x + second.width + 0.1, second.y + second.height / 2); await input.page.mouse.up();
+    if (process.platform !== "darwin") await input.page.keyboard.up("Shift");
     await input.terminal.locator(".xterm-helper-textarea").press(process.platform === "darwin" ? "Meta+c" : "Control+Shift+c"); await expect.poll(input.copies).toContain("①②");
     await input.send("\x1b[?1000l\x1b[?1006l\x1b[3;5H");
     await expect(layer.locator(".cockpit-circled-input-caret")).toBeVisible();
