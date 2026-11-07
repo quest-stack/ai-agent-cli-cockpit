@@ -17,9 +17,9 @@ jobs:
     if: github.repository == 'quest-stack/ai-agent-cli-cockpit' && !github.event.repository.private
     name: Mac trial ${{ matrix.architecture }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 50
+    timeout-minutes: 65
     permissions:
-      contents: write # Job-scoped. Only the final step explicitly exports GH_TOKEN.
+      contents: write # Job-scoped. Only private upload/proof steps explicitly export GH_TOKEN.
     strategy:
       fail-fast: false
       matrix:
@@ -40,7 +40,7 @@ jobs:
       - name: Check out the exact reviewed application source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 369c04fb41e71c3943f0b70a78774c5421f43b05
+          ref: 12ab02d4ca50459abd9de6c7c22e826c8bc7d86b
           persist-credentials: false
       - name: Set up matching Node.js without Actions cache storage
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
@@ -50,7 +50,7 @@ jobs:
           package-manager-cache: false
       - name: Verify source, OS and native architecture
         run: |
-          test "$(git rev-parse HEAD)" = 369c04fb41e71c3943f0b70a78774c5421f43b05
+          test "$(git rev-parse HEAD)" = 12ab02d4ca50459abd9de6c7c22e826c8bc7d86b
           node -e 'if(process.platform!=="darwin"||process.arch!==process.env.TARGET_ARCH)process.exit(1);console.log(JSON.stringify({node:process.version,platform:process.platform,arch:process.arch}));'
           if [ "$(sysctl -in sysctl.proc_translated 2>/dev/null || true)" = 1 ]; then
             echo 'A translated process cannot stand in for the native architecture check.'
@@ -74,10 +74,10 @@ jobs:
         run: |
           if ! command -v ffmpeg >/dev/null 2>&1; then brew install ffmpeg; fi
           ffmpeg -version
-      - name: Verify source Mac shell, display and Preview
+      - name: Verify focused source Mac regressions
         run: |
-          npx --no-install playwright test tests/e2e/macos-trial.spec.ts tests/e2e/circled-numbers.spec.ts tests/e2e/preview-native.spec.ts tests/e2e/preview-site.spec.ts tests/e2e/preview-lifecycle.spec.ts --output test-results-source
-          npx --no-install playwright test tests/e2e/circled-input.spec.ts --grep 'unconfirmed IME' --output test-results-source-ime
+          npx --no-install playwright test tests/e2e/macos-trial.spec.ts tests/e2e/circled-numbers.spec.ts tests/e2e/preview-native.spec.ts tests/e2e/preview-site.spec.ts tests/e2e/preview-lifecycle.spec.ts --grep 'circled headings|Mac Codex launcher|full-page capture copies|a real shell file delivery' --output test-results-source
+          npx --no-install playwright test tests/e2e/circled-input.spec.ts --grep 'unconfirmed IME|bottom composer' --output test-results-source-ime
       - name: Build ad-hoc signed trial packages
         run: node scripts/build-macos-trial.mjs "$TARGET_ARCH"
       - name: Verify the packaged app and its signature
@@ -88,8 +88,7 @@ jobs:
           codesign --verify --deep --strict "$bundle"
           file "$bundle/Contents/MacOS/CLI Cockpit"
           export COCKPIT_PACKAGED_EXECUTABLE="$PWD/$bundle/Contents/MacOS/CLI Cockpit"
-          npx --no-install playwright test tests/e2e/macos-trial.spec.ts tests/e2e/circled-numbers.spec.ts tests/e2e/preview-native.spec.ts tests/e2e/preview-site.spec.ts tests/e2e/preview-lifecycle.spec.ts --output test-results-package
-          npx --no-install playwright test tests/e2e/circled-input.spec.ts --grep 'unconfirmed IME' --output test-results-package-ime
+          npx --no-install playwright test tests/e2e/macos-trial.spec.ts tests/e2e/circled-numbers.spec.ts tests/e2e/preview-native.spec.ts tests/e2e/preview-site.spec.ts tests/e2e/preview-lifecycle.spec.ts tests/e2e/circled-input.spec.ts --output test-results-package
       - name: Attach verified packages directly to the private draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -102,7 +101,7 @@ jobs:
           const { execFileSync } = require('node:child_process');
           
           (async () => {
-            const source = '369c04fb41e71c3943f0b70a78774c5421f43b05';
+            const source = '12ab02d4ca50459abd9de6c7c22e826c8bc7d86b';
             const repository = 'quest-stack/ai-agent-cli-cockpit';
             const releaseId = 436098969;
             const architecture = process.env.TARGET_ARCH;
@@ -192,7 +191,7 @@ jobs:
           node <<'NODE'
           const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process'),crypto=require('node:crypto');
           (async()=>{
-           const source='369c04fb41e71c3943f0b70a78774c5421f43b05',repository='quest-stack/ai-agent-cli-cockpit',id=436098969,arch=process.env.TARGET_ARCH;
+           const source='12ab02d4ca50459abd9de6c7c22e826c8bc7d86b',repository='quest-stack/ai-agent-cli-cockpit',id=436098969,arch=process.env.TARGET_ARCH;
            if(process.platform!=='darwin'||!['arm64','x64'].includes(arch)||process.arch!==arch||process.env.GITHUB_REPOSITORY!==repository||cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()!==source)throw Error('Native proof identity mismatch');
            const roots=['test-results-source','test-results-source-ime','test-results-package','test-results-package-ime','test-results-visual','test-results-visual-ime'];
            const directory=path.join(process.env.RUNNER_TEMP,'cockpit-proof-'+arch);fs.mkdirSync(directory,{recursive:true});const files=[];let bytes=0;
