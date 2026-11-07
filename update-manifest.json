@@ -1,18 +1,18 @@
 {
-  "version": "0.2.15",
-  "notes": "生成したPDF・画像の自動表示と新旧比較、完了後も黄色の作業中表示が残る問題を修正しました。読み込んだだけの資料は自動表示せず、段落追加による位置ずれを差分と誤認しません。対応範囲とMac試用版の注意点はReleaseページをご確認ください。",
   "downloadPage": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/latest",
-  "urls": {
-    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.15/CLI-Cockpit-0.2.15-win-arm64.exe",
-    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.15/CLI-Cockpit-0.2.15-win-x64.exe"
-  },
   "editions": {
     "en": {
-      "notes": "Fixed automatic artifact previews, before/after comparison, and the yellow busy indicator remaining after task completion. Merely referenced files no longer open automatically, and unchanged content displaced by insertions no longer produces false differences. See the Release page for scope and Mac trial limitations.",
+      "notes": "Improved per-tab conversation restoration, circled numbers during composition, and automatic artifact previews. Preview static site folders before deployment, and launch Codex from inbox requests. See the Release page for verification scope and Mac trial limitations.",
       "urls": {
-        "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.15/CLI-Cockpit-0.2.15-en-win-arm64.exe",
-        "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.15/CLI-Cockpit-0.2.15-en-win-x64.exe"
+        "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.16/CLI-Cockpit-0.2.16-en-win-arm64.exe",
+        "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.16/CLI-Cockpit-0.2.16-en-win-x64.exe"
       }
     }
-  }
+  },
+  "notes": "タブごとのClaude Code・Codex会話の自動再開、Codex入力中の丸数字、成果物の自動プレビューを改善しました。静的サイトはデプロイ前にフォルダーから確認できます。Codexの受付起動にも対応。対応範囲・検証結果・Mac試用版の注意点はReleaseページをご確認ください。",
+  "urls": {
+    "arm64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.16/CLI-Cockpit-0.2.16-win-arm64.exe",
+    "x64": "https://github.com/quest-stack/ai-agent-cli-cockpit/releases/download/v0.2.16/CLI-Cockpit-0.2.16-win-x64.exe"
+  },
+  "version": "0.2.16"
 }
