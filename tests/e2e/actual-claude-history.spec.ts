@@ -54,7 +54,7 @@ test(`Claude history resumes the selected conversation with Enter (newline=${new
     await launcher.getByRole("combobox", { name: "プロジェクト" }).press("Tab");
     await launcher.getByTestId("cli-option-claude").check(); await launcher.getByTestId(`launch-mode-${mode}`).check();
     await launcher.getByLabel("セッション名", { exact: true }).fill("Owned Claude history");
-    await launcher.getByRole("button", { name: /Start Session/u }).click();
+    await (mode === "resume" ? launcher.getByTestId("launch-history-picker") : launcher.getByRole("button", { name: /Start Session/u })).click();
     await expect.poll(async () => (await saved()).sessions.length).toBe(1);
     sessionId = (await saved()).sessions[0].id;
     await expect(terminal().locator(".xterm-rows")).toBeAttached();

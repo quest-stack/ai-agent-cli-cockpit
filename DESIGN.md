@@ -383,8 +383,20 @@ rules, video playback, isolated rendering and open implementation questions.
 
 ## Launcher preference and explicit input cancellation
 
-The resume picker is labelled "choose from history and resume"; it is not an
-exact recorded-conversation shortcut. In Codex's full-screen history picker,
+"Resume a conversation" followed by Start launches the selected recorded UUID
+directly (`claude --resume <id>` or `codex resume <id>`), without a second CLI
+history selection. Recent-session Resume uses that card's exact UUID as well.
+Records retain their originating Cockpit session ID and provider conversation
+when their tab closes; backend observations survive stale renderer saves and
+application restart. Only the originating Cockpit session ID binds a recent
+record to a live session; folder/title matches never establish that association.
+Saved sessions with known UUIDs independently appear in the Resume selector,
+including when old recent-folder cards have no originating session ID.
+Unknown identities disable direct Resume and explain the explicit "Open CLI
+history picker" alternative. An already-open exact conversation activates its
+existing pane, preserving unsent input and avoiding a second writer.
+
+The explicit CLI history action retains manual selection. In Codex's picker,
 Enter/Shift+Enter confirm a selection even when Enter inserts newlines in the
 composer. Detection uses three live-screen landmarks (header, filter/status,
 footer actions) from bounded first/last rows. It never reads scrollback/logs.
@@ -392,17 +404,17 @@ IME commit suppression runs first; Ctrl/Alt/Meta combinations retain their own
 behavior. Once the picker disappears, the configured composer mapping applies
 again. No conversation selection is automated and no latest thread is guessed.
 
-Claude Code and Codex launchers offer new, history-picker and latest modes.
-The selected provider owns the history: Claude uses `--resume` / `--continue`,
+Claude Code and Codex launchers offer new, recorded-conversation and latest modes.
+The selected provider owns the history: Claude uses `--resume <id>` / `--continue`,
 Codex uses `resume` / `resume --last`. The latter is scoped to the chosen cwd
 with explicit `--cd`, including when the existing opt-in shared daemon is used.
 Known invocation strings retain base-CLI labels, newline handling and independent
 Windows lifecycle hooks. No provider history is parsed, copied or converted by
 Cockpit. CLI choice remains persisted separately from the launcher's local mode.
-The launcher labels the options as a new session, resume from history, or
+The launcher labels the options as a new session, resume a conversation, or
 continuing the most recent session. All three descriptions remain visible, with
 accessible radio names and descriptions. Recent-folder cards separate starting
-a new session from opening the CLI's resume picker; a saved resume/continue
+a new session from directly resuming their original conversation; a saved resume/continue
 command cannot accidentally turn their new-session action into a history resume.
 Custom commands retain their exact invocation. Provider UUIDs are now stored per
 Cockpit session, separately from the command/cwd. Startup resumes that exact UUID;

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Resume a conversation followed by Start Session returns directly to the selected original Claude Code or Codex conversation.** Recent-session Resume uses the exact conversation too. Distinct conversations in one folder stay separate, already-open conversations reuse their existing tab, and identities remain available after a tab closes. Unknown identities offer an explicit Open CLI history picker action.
 - **Enter confirms Claude Code history even when Enter inserts conversation newlines.** Returning to the conversation preserves Enter for newlines and Shift+Enter for submission.
 
 ## 0.2.16 — 2026-11-07

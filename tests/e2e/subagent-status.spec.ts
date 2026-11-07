@@ -144,7 +144,7 @@ async function launchFixture(
   await page.getByTestId(`cli-option-${command}`).check();
   await page.getByTestId(`launch-mode-${mode}`).check();
   await page.getByLabel("セッション名").fill("Subagent signal test");
-  await page.getByRole("button", { name: /Start Session/u }).click();
+  await (mode === "resume" ? page.getByTestId("launch-history-picker") : page.getByRole("button", { name: /Start Session/u })).click();
   const terminal = page.getByTestId(/^terminal-/u);
   await expect(terminal.locator(".xterm-screen")).toContainText(
     direct ? "Both direct calls started" : "Both subagents started", { timeout: 25_000 },

@@ -33,8 +33,10 @@ const test = base.extend<{ cockpit: ClipboardFixture }>({
     workspace.settings.tourCompleted = true;
     workspace.settings.notificationsEnabled = false;
     workspace.recent = [
-      { command: "codex resume", cwd: "C:/work/project", projectName: "project", title: "Clipboard investigation", lastUsedAt: 2 },
-      { command: "claude --continue", cwd: "C:/work/project", projectName: "project", title: "入力操作の改善", lastUsedAt: 1 },
+      { command: "codex resume", sessionId: "previous-codex", conversation: { cli: "codex", id: "11111111-1111-4111-8111-111111111111" }, cwd: "C:/work/project", projectName: "project", title: "Clipboard investigation", lastUsedAt: 2 },
+      { command: "claude --continue", sessionId: "previous-claude", conversation: { cli: "claude", id: "22222222-2222-4222-8222-222222222222" }, cwd: "C:/work/project", projectName: "project", title: "入力操作の改善", lastUsedAt: 1 },
+      { command: "codex", sessionId: "older-codex", conversation: { cli: "codex", id: "33333333-3333-4333-8333-333333333333" }, cwd: "C:/work/project", projectName: "project", title: "Older conversation", lastUsedAt: 0 },
+      { command: "codex", cwd: "C:/unknown", projectName: "unknown", title: "No recorded identity", lastUsedAt: 0 },
     ];
     await mkdir(directory, { recursive: true });
     await writeFile(join(directory, "session.json"), JSON.stringify(workspace), "utf8");
@@ -167,9 +169,12 @@ for (const [cli, mode, expectedCommand] of [
   ["codex", "resume", "codex resume"], ["codex", "continue", "codex resume --last"],
 ] as const) {
   test(`${cli} ${mode} launches its own conversation history`, async ({ cockpit }) => {
-    await expect(cockpit.page.getByTestId(`launch-mode-${mode}`)).toHaveAccessibleName(ui(mode === "resume" ? "履歴から選んで再開" : "直近のセッションを再開"));
+    await expect(cockpit.page.getByTestId(`launch-mode-${mode}`)).toHaveAccessibleName(ui(mode === "resume" ? "会話を再開（resume）" : "直近のセッションを再開"));
     await cockpit.page.getByTestId(`launch-mode-${mode}`).check();
-    await cockpit.start(cli);
+    if (mode === "resume") {
+      await cockpit.page.getByTestId(`cli-option-${cli}`).check();
+      await cockpit.page.getByTestId("launch-history-picker").click();
+    } else await cockpit.start(cli);
     await expect.poll(async () => (await cockpit.spawned()).at(-1)?.command).toBe(expectedCommand);
     await expect.poll(async () => (await cockpit.saved()).settings.defaultCommand).toBe(cli);
   });
@@ -177,7 +182,12 @@ for (const [cli, mode, expectedCommand] of [
 
 test("resumed Codex keeps its newline binding", async ({ cockpit }) => {
   await cockpit.page.getByTestId("launch-mode-resume").check();
-  const id = await cockpit.start("codex");
+  await cockpit.page.getByTestId("cli-option-codex").check();
+  await cockpit.page.getByRole("button", { name: /Start Session/u }).click();
+  await expect.poll(async () => (await cockpit.spawned()).length).toBe(1);
+  const id = (await cockpit.spawned())[0].id;
+  await expect(cockpit.page.getByTestId(`terminal-${id}`).locator(".xterm-helper-textarea")).toBeAttached();
+  await cockpit.page.getByTestId(`terminal-${id}`).locator(".xterm-helper-textarea").focus();
   await cockpit.page.keyboard.press("Shift+Enter");
   await expect.poll(cockpit.calls).toEqual({ copied: [], reads: 0, written: [{ sessionId: id, data: "\x1b\r" }] });
 });
@@ -386,19 +396,80 @@ test("reopening a recent CLI makes it the next launch preference", async ({ cock
   await expect(cockpit.page.getByTestId("launcher").filter({ visible: true }).getByTestId("cli-option-codex")).toBeChecked();
 });
 
-for (const [index, cli, resume] of [[0, "codex", "codex resume"], [1, "claude", "claude --resume"]] as const) {
+for (const [index, cli, resume] of [[0, "codex", "codex resume 11111111-1111-4111-8111-111111111111"], [1, "claude", "claude --resume 22222222-2222-4222-8222-222222222222"]] as const) {
   test(`${cli}: recent folder new launch does not inherit a saved resume mode`, async ({ cockpit }) => {
     await cockpit.page.locator(".recent-item").nth(index).click();
     await expect.poll(async () => (await cockpit.spawned()).at(-1)?.command).toBe(cli);
     expect((await cockpit.spawned()).at(-1)?.cwd).toBe("C:/work/project");
   });
 
-  test(`${cli}: recent folder resume opens its CLI history picker`, async ({ cockpit }) => {
+  test(`${cli}: recent resume directly opens its original conversation`, async ({ cockpit }) => {
     await cockpit.page.getByTestId(`recent-resume-${index}`).click();
     await expect.poll(async () => (await cockpit.spawned()).at(-1)?.command).toBe(resume);
     expect((await cockpit.spawned()).at(-1)?.cwd).toBe("C:/work/project");
+    expect((await cockpit.spawned()).at(-1)).toMatchObject({ restoreConversation: true, conversation: { cli, id: resume.split(" ").at(-1) } });
+  });
+
+  test(`${cli}: resume then Start directly opens the selected conversation`, async ({ cockpit }, testInfo) => {
+    await cockpit.page.getByTestId(`cli-option-${cli}`).check();
+    await cockpit.page.getByTestId("launch-mode-resume").check();
+    await expect(cockpit.page.getByTestId("resume-conversation")).toHaveValue(resume.split(" ").at(-1)!);
+    await cockpit.page.screenshot({ path: testInfo.outputPath(`direct-resume-${cli}.png`) });
+    await cockpit.page.getByRole("button", { name: /Start Session/u }).click();
+    await expect.poll(async () => (await cockpit.spawned()).at(-1)?.command).toBe(resume);
+    expect((await cockpit.spawned()).at(-1)?.restoreConversation).toBe(true);
   });
 }
+
+test("resume selects an older same-folder conversation without substituting the latest", async ({ cockpit }) => {
+  await cockpit.page.getByTestId("cli-option-codex").check();
+  await cockpit.page.getByTestId("launch-mode-resume").check();
+  await cockpit.page.getByTestId("resume-conversation").selectOption("33333333-3333-4333-8333-333333333333");
+  await cockpit.page.getByRole("button", { name: /Start Session/u }).click();
+  await expect.poll(async () => (await cockpit.spawned()).at(-1)?.command).toBe("codex resume 33333333-3333-4333-8333-333333333333");
+});
+
+test("unknown conversation never silently opens a new session or the history picker", async ({ cockpit }) => {
+  await expect(cockpit.page.getByTestId("recent-resume-3")).toBeDisabled();
+  await cockpit.page.getByRole("combobox", { name: ui("プロジェクト") }).fill("C:/unknown");
+  await cockpit.page.getByTestId("cli-option-codex").check();
+  await cockpit.page.getByTestId("launch-mode-resume").check();
+  await expect(cockpit.page.getByRole("button", { name: /Start Session/u })).toBeDisabled();
+  expect(await cockpit.spawned()).toEqual([]);
+  await cockpit.page.getByTestId("launch-history-picker").click();
+  await expect.poll(async () => (await cockpit.spawned()).at(-1)?.command).toBe("codex resume");
+});
+
+test("resuming an open conversation reuses its tab and preserves unsent input", async ({ cockpit }) => {
+  await cockpit.page.getByTestId("recent-resume-0").click();
+  await expect.poll(async () => (await cockpit.spawned()).length).toBe(1);
+  const id = (await cockpit.spawned())[0].id;
+  await cockpit.send(id, "\x1b[2J\x1b[HUNSENT_DRAFT > keep this input");
+  await expect(cockpit.page.getByTestId(`terminal-${id}`)).toContainText("UNSENT_DRAFT");
+  await cockpit.page.getByRole("button", { name: ui("新規タブ"), exact: true }).click();
+  await cockpit.page.getByTestId("recent-resume-0").click();
+  await expect(cockpit.page.getByTestId(`terminal-${id}`)).toBeVisible();
+  await expect(cockpit.page.getByTestId(`terminal-${id}`)).toContainText("keep this input");
+  expect((await cockpit.spawned()).length).toBe(1);
+  expect((await cockpit.calls()).written).toEqual([]);
+});
+
+test("direct resume controls fit desktop and narrow windows", async ({ cockpit }, testInfo) => {
+  await cockpit.page.getByTestId("cli-option-codex").check();
+  await cockpit.page.getByTestId("launch-mode-resume").check();
+  for (const width of [1440, 390]) {
+    await cockpit.app.evaluate(({ BrowserWindow }, width) => {
+      const window = BrowserWindow.getAllWindows()[0]; window.setMinimumSize(0, 0); window.setContentSize(width, 1000);
+    }, width);
+    if (width === 390) await cockpit.page.getByRole("button", { name: ui("サイドバーを折りたたむ") }).click();
+    await cockpit.page.getByTestId("resume-conversation").scrollIntoViewIfNeeded();
+    await expect(cockpit.page.getByTestId("resume-conversation")).toBeVisible();
+    expect(await cockpit.page.locator(".launcher-card").evaluate(card => card.scrollWidth <= card.clientWidth)).toBe(true);
+    const png = await cockpit.app.evaluate(async ({ BrowserWindow }) =>
+      (await BrowserWindow.getAllWindows()[0].webContents.capturePage(undefined, { stayHidden: true, stayAwake: true })).toPNG().toString("base64"));
+    await writeFile(testInfo.outputPath(`resume-controls-${width}.png`), Buffer.from(png, "base64"));
+  }
+});
 
 test("recent cards prioritize session names at desktop and narrow widths", async ({ cockpit }, testInfo) => {
   const { page } = cockpit;

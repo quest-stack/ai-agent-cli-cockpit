@@ -302,6 +302,7 @@ export function PaneGrid(props: PaneGridProps) {
             onTogglePin={onTogglePin}
             projects={projects}
             recent={recent}
+            sessions={sessions}
             settings={settings}
           />
         </div>

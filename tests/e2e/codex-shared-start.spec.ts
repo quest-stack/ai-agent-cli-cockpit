@@ -121,7 +121,7 @@ async function verifySharedStart(testInfo: TestInfo, repeatPrompt = false, mode:
     await page.getByRole("combobox", { name: "プロジェクト" }).fill(project);
     await page.getByTestId(`cli-option-${"codex"}`).check();
     await page.getByTestId(`launch-mode-${mode}`).check();
-    await page.getByRole("button", { name: /Start Session/u }).click();
+    await (mode === "resume" ? page.getByTestId("launch-history-picker") : page.getByRole("button", { name: /Start Session/u })).click();
     console.info("[Shared Codex E2E] Session requested");
     await expect.poll(async () => {
       try {
