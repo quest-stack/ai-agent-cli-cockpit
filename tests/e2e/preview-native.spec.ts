@@ -1451,6 +1451,24 @@ test("a real shell file delivery opens wrapped unquoted Markdown with spaces", a
     const target = (await cockpit.snapshot()).targets[0];
     expect(target.source.replaceAll("\\", "/")).toBe(join(cockpit.directory, relative).replaceAll("\\", "/"));
     await expect.poll(() => guestText(cockpit, target.id)).toContain("実際のPTY出力から開いた文書です。");
+    await expect.poll(async () => (await cockpit.snapshot()).targets.find(item => item.id === target.id)?.error).toBeUndefined();
+    let guestPng = "";
+    await expect.poll(async () => {
+      const captured = await cockpit.app.evaluate(async ({ BrowserWindow }, id) => {
+        const view = BrowserWindow.getAllWindows()[0].contentView.children.find(view => "webContents" in view && (view as Electron.WebContentsView).webContents.getURL().includes(id)) as Electron.WebContentsView;
+        if (view.getBounds().width < 100 || view.getBounds().height < 100) return { png: "", painted: false };
+        const image = await view.webContents.capturePage(), pixels = image.toBitmap();
+        let paper = 0, ink = 0;
+        for (let offset = 0; offset < pixels.length; offset += 4) {
+          if (pixels[offset] > 240 && pixels[offset + 1] > 240 && pixels[offset + 2] > 240) paper++;
+          if (pixels[offset] < 80 && pixels[offset + 1] < 80 && pixels[offset + 2] < 80) ink++;
+        }
+        return { png: image.toPNG().toString("base64"), painted: paper > 3000 && ink > 30 };
+      }, target.id);
+      guestPng = captured.png;
+      return captured.painted;
+    }).toBe(true);
+    await writeFile(testInfo.outputPath("real-pty-delivered-markdown-guest.png"), Buffer.from(guestPng, "base64"));
     await expect(cockpit.page.getByText("場所を特定できない成果物があります。「ファイルを選ぶ」から開いてください。", { exact: true })).toHaveCount(0);
     const png = await cockpit.app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString("base64"));
     await writeFile(testInfo.outputPath("real-pty-delivered-markdown.png"), Buffer.from(png, "base64"));

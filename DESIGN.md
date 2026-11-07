@@ -594,6 +594,10 @@ passes before reporting PTY dimensions. WebGL can update cell height during the
 first resize; retaining the earlier row count would place the bottom composer
 outside its host. Actual-provider checks assert that input symbols are inside
 the visible host, rather than accepting only the presence of a mirror element.
+Terminal padding belongs to `.xterm`, not its `.terminal-host` parent:
+FitAddon subtracts the terminal's own padding from the parent's dimensions.
+Putting padding on the parent overestimates the usable row/column count and
+clips the bottom composer at particular font metrics.
 
 A circled number followed by an explicit ASCII/fullwidth blank can be drawn
 within its existing two/three cells. xterm 6.0.0 normally refuses to join across

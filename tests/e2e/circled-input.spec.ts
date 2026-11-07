@@ -154,16 +154,19 @@ for (const renderer of ["dom", "webgl"] as const) test.describe(renderer, () => 
     await layer.screenshot({ path: testInfo.outputPath("wrapped-draft.png") });
   });
 
-  test("the bottom composer remains inside the visible host after renderer metrics settle", async ({ input }) => {
+  test("the bottom composer remains inside the visible host after renderer metrics settle", async ({ input }, testInfo) => {
     await input.send("\x1b[2J\x1b[999;1H\x1b[48;2;40;42;44m› ①②\x1b[K\x1b[0m");
     const symbols = input.terminal.locator(".cockpit-circled-input:not([hidden]) .cockpit-circled-input-symbol");
     await expect(symbols).toHaveCount(2);
-    const host = (await input.terminal.boundingBox())!;
-    for (const symbol of await symbols.all()) {
-      const box = (await symbol.boundingBox())!;
-      expect(box.y).toBeGreaterThanOrEqual(host.y);
-      expect(box.y + box.height).toBeLessThanOrEqual(host.y + host.height);
-    }
+    // Font loading and xterm's fit/render notifications settle asynchronously.
+    // Keep the exact containment requirement and wait for the resulting geometry.
+    let geometry: unknown;
+    try { await expect.poll(async () => {
+      const host = (await input.terminal.boundingBox())!;
+      const boxes = await Promise.all((await symbols.all()).map(symbol => symbol.boundingBox()));
+      geometry = { host, boxes, layout: await input.terminal.evaluate(host => [...host.querySelectorAll('.xterm,.xterm-screen,.xterm-rows,.cockpit-circled-input')].map(element => ({ className: element.className, box: element.getBoundingClientRect().toJSON(), style: window.getComputedStyle(element).cssText }))) };
+      return boxes.length === 2 && boxes.every(box => box && box.y >= host.y && box.y + box.height <= host.y + host.height);
+    }).toBe(true); } finally { await writeFile(testInfo.outputPath('bottom-geometry.json'), JSON.stringify(geometry, null, 2), 'utf8'); }
   });
 
   test("unconfirmed IME circles are readable before commit and preserve exact text on commit or cancel", async ({ input }, testInfo) => {
@@ -180,15 +183,19 @@ for (const renderer of ["dom", "webgl"] as const) test.describe(renderer, () => 
     for (const circle of await circles.all()) {
       const png = await circle.screenshot();
       const cssWidth = (await circle.boundingBox())!.width;
+      // Locator screenshots round the clip edges to device pixels. Dividing
+      // their rounded width by a fractional CSS width invents a false scale.
+      const pixelRatio = await circle.evaluate(() => window.devicePixelRatio);
       const ink = await input.app.evaluate(({ nativeImage }, data) => {
-        const image = nativeImage.createFromBuffer(Buffer.from(data.png, "base64")), size = image.getSize(), pixels = image.toBitmap(), scale = size.width / data.cssWidth;
+        const image = nativeImage.createFromBuffer(Buffer.from(data.png, "base64")), size = image.getSize(), pixels = image.toBitmap(), scale = data.pixelRatio;
         let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
         for (let y = 0; y < size.height; y++) for (let x = 0; x < size.width; x++) {
           const offset = (y * size.width + x) * 4;
           if (pixels[offset] > 180 && pixels[offset + 1] > 180 && pixels[offset + 2] > 180) { left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y); }
         }
         return { width: (right - left + 1) / scale, height: (bottom - top + 1) / scale };
-      }, { png: png.toString("base64"), cssWidth });
+      }, { png: png.toString("base64"), pixelRatio });
+      console.log(JSON.stringify({ renderer, cssWidth, pixelRatio, ink }));
       expect(ink.width).toBeGreaterThanOrEqual(12); expect(ink.height).toBeGreaterThanOrEqual(12);
       expect(ink.width / ink.height).toBeGreaterThan(0.8); expect(ink.width / ink.height).toBeLessThan(1.25);
     }

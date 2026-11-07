@@ -1234,12 +1234,13 @@ select:focus-visible,
 .terminal-host {
   height: calc(100% - 32px);
   min-height: 0;
-  padding: 6px 5px 4px 8px;
   width: 100%;
 }
 
 .terminal-host .xterm {
   height: 100%;
+  /* FitAddon subtracts the terminal's padding, not its parent's padding. */
+  padding: 6px 5px 4px 8px;
 }
 
 /*
