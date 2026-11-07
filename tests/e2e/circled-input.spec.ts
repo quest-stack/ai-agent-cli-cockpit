@@ -39,7 +39,9 @@ const test = base.extend<{ input: Fixture; renderer: "dom" | "webgl" }>({
         ipcMain.handle("cockpit:pty-spawn", (_event, request: SpawnSessionRequest) => { state.columns = request.cols; return { session: { ...request, status: "idle", shouldRestore: true, startedAt: Date.now() } }; });
         ipcMain.on("cockpit:pty-write", (_event, request: PtyWriteRequest) => state.writes.push(request.data));
         ipcMain.on("cockpit:pty-resize", (_event, request: { cols: number }) => { state.columns = request.cols; });
-        ipcMain.removeHandler("cockpit:clipboard-write-text"); ipcMain.handle("cockpit:clipboard-write-text", (_event, text: string) => { state.copies.push(text); });
+        if (process.platform !== "darwin") {
+          ipcMain.removeHandler("cockpit:clipboard-write-text"); ipcMain.handle("cockpit:clipboard-write-text", (_event, text: string) => { state.copies.push(text); });
+        }
         return state;
       });
       const launcher = page.getByTestId("launcher");
@@ -51,7 +53,9 @@ const test = base.extend<{ input: Fixture; renderer: "dom" | "webgl" }>({
       await terminal.locator(".xterm-helper-textarea").focus();
       await provide({ app, page, terminal,
         send: data => app.evaluate(({ BrowserWindow }, payload) => BrowserWindow.getAllWindows()[0].webContents.send("cockpit:pty-data", payload), { sessionId, data }),
-        writes: () => state.evaluate(state => state.writes), copies: () => state.evaluate(state => state.copies), columns: () => state.evaluate(state => state.columns) });
+        writes: () => state.evaluate(state => state.writes),
+        copies: () => process.platform === "darwin" ? app.evaluate(({ clipboard }) => [clipboard.readText()]) : state.evaluate(state => state.copies),
+        columns: () => state.evaluate(state => state.columns) });
     } finally { await app.close(); }
   },
 });
@@ -105,7 +109,7 @@ for (const renderer of ["dom", "webgl"] as const) test.describe(renderer, () => 
     await expect.poll(input.writes).toContain("\x1b[<0;4;3M");
     await input.page.keyboard.down("Shift"); await input.page.mouse.move(first.x + 0.1, first.y + first.height / 2); await input.page.mouse.down();
     await input.page.mouse.move(last.x + last.width + 0.1, last.y + last.height / 2); await input.page.mouse.up(); await input.page.keyboard.up("Shift");
-    await input.terminal.locator(".xterm-helper-textarea").press("Control+Shift+c"); await expect.poll(input.copies).toContain("①②");
+    await input.terminal.locator(".xterm-helper-textarea").press(process.platform === "darwin" ? "Meta+c" : "Control+Shift+c"); await expect.poll(input.copies).toContain("①②");
     await input.send("\x1b[?1000l\x1b[?1006l\x1b[3;5H");
     const helper = input.terminal.locator(".xterm-helper-textarea"); await helper.focus();
     const cdp = await input.page.context().newCDPSession(input.page);
@@ -145,7 +149,7 @@ for (const renderer of ["dom", "webgl"] as const) test.describe(renderer, () => 
     await expect.poll(input.writes).toContain("\x1b[<0;4;3M");
     await input.page.keyboard.down("Shift"); await input.page.mouse.move(first.x + 0.1, first.y + first.height / 2); await input.page.mouse.down();
     await input.page.mouse.move(second.x + second.width + 0.1, second.y + second.height / 2); await input.page.mouse.up(); await input.page.keyboard.up("Shift");
-    await input.terminal.locator(".xterm-helper-textarea").press("Control+Shift+c"); await expect.poll(input.copies).toContain("①②");
+    await input.terminal.locator(".xterm-helper-textarea").press(process.platform === "darwin" ? "Meta+c" : "Control+Shift+c"); await expect.poll(input.copies).toContain("①②");
     await input.send("\x1b[?1000l\x1b[?1006l\x1b[3;5H");
     await expect(layer.locator(".cockpit-circled-input-caret")).toBeVisible();
     const helper = input.terminal.locator(".xterm-helper-textarea"); await helper.focus();
