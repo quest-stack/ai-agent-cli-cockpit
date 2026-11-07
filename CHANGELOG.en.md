@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Enter confirms Claude Code history even when Enter inserts conversation newlines.** Returning to the conversation preserves Enter for newlines and Shift+Enter for submission.
+
 ## 0.2.16 — 2026-11-07
 
 - **Restore each Windows tab's previous conversation.** Standard Claude Code and Codex launches retain their exact conversation IDs. Legacy tabs without an ID open history selection instead of silently starting a new conversation. The launcher distinguishes new sessions, history selection and the most recent session.

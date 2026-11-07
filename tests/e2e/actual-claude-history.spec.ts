@@ -33,11 +33,14 @@ test(`Claude history resumes the selected conversation with Enter (newline=${new
   const press = async (key: string): Promise<void> => terminal().locator(".xterm-helper-textarea").press(key);
   const start = async (): Promise<void> => {
     app = await electron.launch({ ...(executablePath ? { executablePath } : {}), args: [...(process.env.COCKPIT_QA_WINDOW_PRELOAD ? ["-r", process.env.COCKPIT_QA_WINDOW_PRELOAD] : []), ...(!executablePath ? [process.cwd()] : []), "--disable-gpu", "--disable-software-rasterizer", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows", "--disable-features=CalculateNativeWinOcclusion"], env: { ...process.env, COCKPIT_USER_DATA: profile } });
-    await app.evaluate(({ app, BrowserWindow }, cwd) => {
+    await app.evaluate(({ app, BrowserWindow, ipcMain }, cwd) => {
       if (process.env.COCKPIT_QA_WINDOW_PRELOAD && !(globalThis as typeof globalThis & { __cockpitOwnedWindowGuardLoaded?: boolean }).__cockpitOwnedWindowGuardLoaded) throw Error("Window guard did not load before the application");
       const hide = (w: Electron.BrowserWindow): void => { w.setOpacity(0); w.setFocusable(false); w.setSkipTaskbar(true); w.setPosition(-30000, -30000); Object.getPrototypeOf(w).showInactive.call(w); w.webContents.setBackgroundThrottling(false); w.show = () => {}; w.showInactive = () => {}; };
       for (const w of BrowserWindow.getAllWindows()) hide(w);
       app.on("browser-window-created", (_event, w) => hide(w));
+      const observed = globalThis as typeof globalThis & { historyQaWrites?: { sessionId: string; data: string }[] };
+      observed.historyQaWrites = [];
+      ipcMain.on("cockpit:pty-write", (_event, request: { sessionId: string; data: string }) => observed.historyQaWrites!.push({ ...request }));
       const { createRequire } = process.getBuiltinModule("module"), load = createRequire(`${app.getAppPath()}/package.json`);
       const proto = (load("./dist/electron/pty-manager.js") as { PtyManager: { prototype: { spawn: (r: { cwd: string }) => unknown } } }).PtyManager.prototype;
       const original = proto.spawn;
@@ -104,7 +107,17 @@ test(`Claude history resumes the selected conversation with Enter (newline=${new
     }
     await expect.poll(async () => (await saved()).sessions[0].conversation?.id, { timeout: 20_000 }).toBe(expectedId);
     await composer();
-    await send("What marker did I ask you to remember? Reply only the marker. Do not use tools.", newline ? "Shift+Enter" : "Enter");
+    const question = "What marker did I ask you to remember? Reply only the marker.";
+    if (newline) {
+      await page!.evaluate(input => window.cockpit!.writeSession(input), { sessionId, data: `\x1b[200~${question}\x1b[201~` });
+      await expect.poll(text).toContain(question);
+      await press("Enter");
+      await expect.poll(async () => app!.evaluate(() => (globalThis as typeof globalThis & { historyQaWrites: { data: string }[] }).historyQaWrites.at(-1)?.data)).toBe("\x1b[13;2u");
+      await page!.evaluate(input => window.cockpit!.writeSession(input), { sessionId, data: "\x1b[200~Do not use tools.\x1b[201~" });
+      await expect.poll(text).toContain("Do not use tools.");
+      await writeFile(testInfo.outputPath("conversation-newline-before-submit.txt"), await text(), "utf8");
+      await press("Shift+Enter"); turns += 1;
+    } else await send(`${question} Do not use tools.`, "Enter");
     await expect.poll(async () => (await text()).split("\n").some(line => line.trim().replace(/^[●•]\u0020*/u, "") === marker), { timeout: 90_000 }).toBe(true);
     await terminal().screenshot({ path: testInfo.outputPath("restored.png") });
     await writeFile(testInfo.outputPath("history-acceptance.json"), JSON.stringify({ plainEnterSelected, newline, rememberedMarkerRecalled: true, exactConversationId: expectedId, inferenceTurns: turns, packaged: Boolean(executablePath), ...(executablePath ? { asarSha256: createHash("sha256").update(await readFile(join(dirname(executablePath), "resources/app.asar"))).digest("hex") } : { sourceDirectory: process.cwd() }) }, null, 2), "utf8");
