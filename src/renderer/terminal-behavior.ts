@@ -234,6 +234,19 @@ export function getCodexHistoryPickerSubmitSequence(event: TerminalKeyEvent, com
   return header && filters && actions ? TERMINAL_SUBMIT_SEQUENCE : undefined;
 }
 
+/** Claude's compact selector can place its footer in the middle of the viewport. */
+export function getClaudeHistoryPickerSubmitSequence(event: TerminalKeyEvent, command: string | undefined, lines: readonly string[]): string | undefined {
+  if (getCliKind(command) !== "claude" || event.type !== "keydown" ||
+    !(event.key === "Enter" || TERMINAL_ENTER_CODES.has(event.code)) ||
+    event.altKey || event.ctrlKey || event.metaKey || isImeComposing(event)) return undefined;
+  const header = lines.some(line => /^\s*Resume session\s*$/iu.test(line));
+  const actions = lines.some(line => /Ctrl\+A to show all projects/iu.test(line)
+    && /Space to preview/iu.test(line) && /Ctrl\+R to rename/iu.test(line)
+    && /Type to search/iu.test(line) && /Esc to cancel/iu.test(line));
+  const conversationInput = lines.some(line => /auto mode on\s*\(shift\+tab to cycle\)|(?:^|\s)\? for shortcuts\s*$/iu.test(line));
+  return header && actions && !conversationInput ? TERMINAL_SUBMIT_SEQUENCE : undefined;
+}
+
 /**
  * IME 変換中の Shift+Enter に伴う 2 回の keydown を状態として追い、
  * それぞれをどう扱うかを決める。

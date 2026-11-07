@@ -431,6 +431,20 @@ Observation is bounded and independent of transport forwarding. Backend identity
 observations survive stale renderer saves; shutdown flushes them before exit.
 Actual provider acceptance is opt-in and uses owned temporary conversations.
 
+### History confirmation and conversation newlines
+
+Enter confirms a recognized Claude or Codex history picker even when the user's
+conversation setting maps Enter to a newline. Recognition uses provider-specific
+live-screen landmarks and never scrollback. Claude's compact `Resume session`
+selector places its action row immediately below the entries; it can fall
+between the old first/last ten-row samples. For Claude, read at most 200 live top
+rows plus the bottom ten, with 1024 characters per row; Codex retains its first
+and last ten-row sampling. The Claude header and complete
+project/preview/rename/search/cancel action row must agree, and the ordinary
+conversation footer must be absent. IME commits and Ctrl/Alt/Meta combinations
+retain their existing handling. This does not select a conversation on the
+user's behalf or change ordinary composer newline behavior.
+
 The PTY preserves `CLAUDE_CONFIG_DIR`: this user-selected settings/history root
 must not be treated as inherited parent-session metadata. The exact exception
 retains the existing filtering of session IDs and parent credentials. Real-PTY

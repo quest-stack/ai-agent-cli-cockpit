@@ -5,6 +5,7 @@ import {
   type CaptureKeydownTarget,
   getTerminalManualNewlineSequence,
   getCodexHistoryPickerSubmitSequence,
+  getClaudeHistoryPickerSubmitSequence,
   isCliInitialPromptReady,
   isPlausibleCharacterWidth,
   isTerminalLineFeedKey,
@@ -73,6 +74,23 @@ test("history confirmation never consumes IME commits, modified keys or ordinary
   const enter = keyEvent({ key: "Enter", code: "Enter", keyCode: 13 });
   for (const overrides of [{ isComposing: true }, { keyCode: 229 }, { key: "Process" }, { ctrlKey: true }, { altKey: true }, { metaKey: true }, { key: "a", code: "KeyA" }]) {
     assert.equal(getCodexHistoryPickerSubmitSequence({ ...enter, ...overrides }, "codex", lines), undefined);
+  }
+});
+
+test("Claude history confirms with Enter only while its complete selector is visible", () => {
+  const lines = ["Resume session", "│ ⌕ HISTORY_QA_123 │", "❯ HISTORY_QA_123 の記憶",
+    "Ctrl+A to show all projects · Ctrl+B to only show current branch · Space to preview · Ctrl+R to rename · Type to search · Esc to cancel"];
+  const enter = keyEvent({ key: "Enter", code: "Enter", keyCode: 13 });
+  for (const command of ["claude", "claude --resume", "claude -r", "claude --continue"]) {
+    assert.equal(getClaudeHistoryPickerSubmitSequence(enter, command, lines), "\r");
+    assert.equal(getClaudeHistoryPickerSubmitSequence({ ...enter, shiftKey: true }, command, lines), "\r");
+  }
+  for (const partial of [lines.slice(1), lines.slice(0, 3), ["Resume session", "Type to search · Esc to cancel"], [...lines, "⏵⏵ auto mode on (shift+tab to cycle)"]]) {
+    assert.equal(getClaudeHistoryPickerSubmitSequence(enter, "claude", partial), undefined);
+  }
+  assert.equal(getClaudeHistoryPickerSubmitSequence(enter, "codex resume", lines), undefined);
+  for (const overrides of [{ isComposing: true }, { keyCode: 229 }, { key: "Process" }, { ctrlKey: true }, { altKey: true }, { metaKey: true }, { key: "a", code: "KeyA" }, { type: "keyup" }]) {
+    assert.equal(getClaudeHistoryPickerSubmitSequence({ ...enter, ...overrides }, "claude", lines), undefined);
   }
 });
 
