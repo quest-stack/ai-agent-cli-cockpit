@@ -40,7 +40,7 @@ jobs:
       - name: Check out the exact reviewed application source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: d422676673d8ed5f52c1649e167a06bb0b94ceae
+          ref: ee4315ba5b0c15a1da3c994e696fd37a1f678fb2
           persist-credentials: false
       - name: Set up matching Node.js without Actions cache storage
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
@@ -50,7 +50,7 @@ jobs:
           package-manager-cache: false
       - name: Verify source, OS and native architecture
         run: |
-          test "$(git rev-parse HEAD)" = d422676673d8ed5f52c1649e167a06bb0b94ceae
+          test "$(git rev-parse HEAD)" = ee4315ba5b0c15a1da3c994e696fd37a1f678fb2
           node -e 'if(process.platform!=="darwin"||process.arch!==process.env.TARGET_ARCH)process.exit(1);console.log(JSON.stringify({node:process.version,platform:process.platform,arch:process.arch}));'
           if [ "$(sysctl -in sysctl.proc_translated 2>/dev/null || true)" = 1 ]; then
             echo 'A translated process cannot stand in for the native architecture check.'
@@ -87,7 +87,7 @@ jobs:
           const path = require('node:path');
           const cp = require('node:child_process');
           const crypto = require('node:crypto');
-          const source = 'd422676673d8ed5f52c1649e167a06bb0b94ceae';
+          const source = 'ee4315ba5b0c15a1da3c994e696fd37a1f678fb2';
           const arch = process.env.TARGET_ARCH;
           if (process.platform !== 'darwin' || !['arm64', 'x64'].includes(arch) || process.arch !== arch ||
               cp.execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() !== source) throw Error('Native archive identity mismatch');
@@ -160,7 +160,7 @@ jobs:
           const { execFileSync } = require('node:child_process');
           
           (async () => {
-            const source = 'd422676673d8ed5f52c1649e167a06bb0b94ceae';
+            const source = 'ee4315ba5b0c15a1da3c994e696fd37a1f678fb2';
             const repository = 'quest-stack/ai-agent-cli-cockpit';
             const releaseId = 436098969;
             const architecture = process.env.TARGET_ARCH;
@@ -258,7 +258,7 @@ jobs:
           node <<'NODE'
           const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process'),crypto=require('node:crypto');
           (async()=>{
-           const source='d422676673d8ed5f52c1649e167a06bb0b94ceae',repository='quest-stack/ai-agent-cli-cockpit',id=436098969,arch=process.env.TARGET_ARCH;
+           const source='ee4315ba5b0c15a1da3c994e696fd37a1f678fb2',repository='quest-stack/ai-agent-cli-cockpit',id=436098969,arch=process.env.TARGET_ARCH;
            if(process.platform!=='darwin'||!['arm64','x64'].includes(arch)||process.arch!==arch||process.env.GITHUB_REPOSITORY!==repository||cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()!==source)throw Error('Native proof identity mismatch');
            const roots=['test-results-source','test-results-source-ime','test-results-package','test-results-package-ime','test-results-visual','test-results-visual-ime'];
            const directory=path.join(process.env.RUNNER_TEMP,'cockpit-proof-'+arch);fs.mkdirSync(directory,{recursive:true});const files=[];let bytes=0;
