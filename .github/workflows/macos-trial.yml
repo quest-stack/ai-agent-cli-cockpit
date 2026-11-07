@@ -40,7 +40,7 @@ jobs:
       - name: Check out the exact reviewed application source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: f77c6638d3dc160897d925ee3e8e4a492b8e444c
+          ref: 7950900615037edc5a20e5674a0a716a5c4b2f6b
           persist-credentials: false
       - name: Set up matching Node.js without Actions cache storage
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
@@ -50,7 +50,7 @@ jobs:
           package-manager-cache: false
       - name: Verify source, OS and native architecture
         run: |
-          test "$(git rev-parse HEAD)" = f77c6638d3dc160897d925ee3e8e4a492b8e444c
+          test "$(git rev-parse HEAD)" = 7950900615037edc5a20e5674a0a716a5c4b2f6b
           node -e 'if(process.platform!=="darwin"||process.arch!==process.env.TARGET_ARCH)process.exit(1);console.log(JSON.stringify({node:process.version,platform:process.platform,arch:process.arch}));'
           if [ "$(sysctl -in sysctl.proc_translated 2>/dev/null || true)" = 1 ]; then
             echo 'A translated process cannot stand in for the native architecture check.'
@@ -80,6 +80,65 @@ jobs:
           npx --no-install playwright test tests/e2e/circled-input.spec.ts --output test-results-source-ime
       - name: Build ad-hoc signed trial packages
         run: node scripts/build-macos-trial.mjs "$TARGET_ARCH"
+      - name: Verify ZIP and read-only DMG match the tested signed app
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const cp = require('node:child_process');
+          const crypto = require('node:crypto');
+          const source = '7950900615037edc5a20e5674a0a716a5c4b2f6b';
+          const arch = process.env.TARGET_ARCH;
+          if (process.platform !== 'darwin' || !['arm64', 'x64'].includes(arch) || process.arch !== arch ||
+              cp.execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() !== source) throw Error('Native archive identity mismatch');
+          const directory = path.resolve('release', 'mac-trial', arch);
+          const original = path.join(directory, arch === 'arm64' ? 'mac-arm64' : 'mac', 'CLI Cockpit.app');
+          const temporary = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP, 'cockpit-archive-' + arch + '-'));
+          const extracted = path.join(temporary, 'zip'), mount = path.join(temporary, 'dmg');
+          fs.mkdirSync(extracted); fs.mkdirSync(mount);
+          const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+          function inventory(bundle) {
+            const root = fs.realpathSync(bundle), entries = [];
+            function walk(directory) {
+              for (const name of fs.readdirSync(directory).sort()) {
+                const file = path.join(directory, name), stat = fs.lstatSync(file), relative = path.relative(root, file);
+                if (stat.isSymbolicLink()) {
+                  if (!fs.realpathSync(file).startsWith(root + path.sep)) throw Error('Bundle link escapes its own root');
+                  entries.push({ file: relative, link: fs.readlinkSync(file) });
+                } else if (stat.isDirectory()) walk(file);
+                else if (stat.isFile()) entries.push({ file: relative, executable: Boolean(stat.mode & 0o111), sha256: digest(fs.readFileSync(file)) });
+                else throw Error('Unexpected bundle entry type');
+              }
+            }
+            walk(root);
+            if (entries.length < 100) throw Error('Incomplete Mac bundle');
+            cp.execFileSync('codesign', ['--verify', '--deep', '--strict', bundle], { stdio: 'inherit' });
+            const machine = cp.execFileSync('lipo', ['-archs', path.join(bundle, 'Contents', 'MacOS', 'CLI Cockpit')], { encoding: 'utf8' }).trim();
+            if (machine !== (arch === 'arm64' ? 'arm64' : 'x86_64')) throw Error('Wrong bundle architecture');
+            return { entries, sha256: digest(JSON.stringify(entries)) };
+          }
+          const expected = inventory(original);
+          cp.execFileSync('ditto', ['-x', '-k', path.join(directory, `CLI-Cockpit-0.2.16-mac-trial-${arch}.zip`), extracted]);
+          const zip = inventory(path.join(extracted, 'CLI Cockpit.app'));
+          if (zip.sha256 !== expected.sha256) throw Error('ZIP differs from the tested app');
+          const dmgFile = path.join(directory, `CLI-Cockpit-0.2.16-mac-trial-${arch}.dmg`);
+          cp.execFileSync('hdiutil', ['verify', dmgFile], { stdio: 'inherit' });
+          let attached = false;
+          try {
+            cp.execFileSync('hdiutil', ['attach', '-readonly', '-nobrowse', '-mountpoint', mount, dmgFile], { stdio: 'inherit' });
+            attached = true;
+            const dmg = inventory(path.join(mount, 'CLI Cockpit.app'));
+            if (dmg.sha256 !== expected.sha256) throw Error('DMG differs from the tested app');
+            const report = { sourceCommit: source, architecture: arch, bundleFiles: expected.entries.length,
+              bundleTreeSha256: expected.sha256, zipTreeSha256: zip.sha256, dmgTreeSha256: dmg.sha256,
+              codeSignVerified: true, dmgChecksumVerified: true, dmgMountedReadOnly: true };
+            fs.writeFileSync(path.join(directory, 'archive-verification.json'), JSON.stringify(report, null, 2), 'utf8');
+            console.log(JSON.stringify(report));
+          } finally {
+            if (attached) cp.execFileSync('hdiutil', ['detach', mount], { stdio: 'inherit' });
+          }
+          
+          NODE
       - name: Verify the packaged app and its signature
         run: |
           bundle_dir=mac
@@ -101,7 +160,7 @@ jobs:
           const { execFileSync } = require('node:child_process');
           
           (async () => {
-            const source = 'f77c6638d3dc160897d925ee3e8e4a492b8e444c';
+            const source = '7950900615037edc5a20e5674a0a716a5c4b2f6b';
             const repository = 'quest-stack/ai-agent-cli-cockpit';
             const releaseId = 436098969;
             const architecture = process.env.TARGET_ARCH;
@@ -116,6 +175,13 @@ jobs:
             const version = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
             if (version !== '0.2.16') throw Error('Unexpected release version');
             const directory = path.resolve('release', 'mac-trial', architecture);
+            const archiveVerification = JSON.parse(fs.readFileSync(path.join(directory, 'archive-verification.json'), 'utf8'));
+            if (archiveVerification.sourceCommit !== source || archiveVerification.architecture !== architecture ||
+                archiveVerification.bundleFiles < 100 || !/^[a-f0-9]{64}$/.test(archiveVerification.bundleTreeSha256) ||
+                archiveVerification.zipTreeSha256 !== archiveVerification.bundleTreeSha256 ||
+                archiveVerification.dmgTreeSha256 !== archiveVerification.bundleTreeSha256 ||
+                archiveVerification.codeSignVerified !== true || archiveVerification.dmgChecksumVerified !== true ||
+                archiveVerification.dmgMountedReadOnly !== true) throw Error('Archive verification is incomplete');
             const digest = content => crypto.createHash('sha256').update(content).digest('hex');
             const files = ['dmg', 'zip'].map(extension => {
               const name = `CLI-Cockpit-${version}-mac-trial-${architecture}.${extension}`;
@@ -132,6 +198,7 @@ jobs:
               workflowRun: `https://github.com/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`,
               version, platform: process.platform, architecture, nodeVersion: process.version,
               signing: 'ad-hoc; not Developer ID signed or notarized',
+              archiveVerification,
               installers: files.map(({ name, bytes, sha256 }) => ({ name, bytes, sha256 })),
             };
             const metadataName = `build-metadata-macos-${architecture}.json`;
@@ -191,7 +258,7 @@ jobs:
           node <<'NODE'
           const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process'),crypto=require('node:crypto');
           (async()=>{
-           const source='f77c6638d3dc160897d925ee3e8e4a492b8e444c',repository='quest-stack/ai-agent-cli-cockpit',id=436098969,arch=process.env.TARGET_ARCH;
+           const source='7950900615037edc5a20e5674a0a716a5c4b2f6b',repository='quest-stack/ai-agent-cli-cockpit',id=436098969,arch=process.env.TARGET_ARCH;
            if(process.platform!=='darwin'||!['arm64','x64'].includes(arch)||process.arch!==arch||process.env.GITHUB_REPOSITORY!==repository||cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()!==source)throw Error('Native proof identity mismatch');
            const roots=['test-results-source','test-results-source-ime','test-results-package','test-results-package-ime','test-results-visual','test-results-visual-ime'];
            const directory=path.join(process.env.RUNNER_TEMP,'cockpit-proof-'+arch);fs.mkdirSync(directory,{recursive:true});const files=[];let bytes=0;
