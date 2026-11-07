@@ -85,7 +85,11 @@ test("a site folder opens all four directions and shared assets inside Cockpit w
     await expect.poll(() => selectedGuest(site, "document.body.innerText")).toContain(`Direction ${n} before`);
     await expect.poll(() => selectedGuest(site, "document.querySelector('img')?.naturalWidth")).toBe(200);
     expect(await selectedGuest(site, "typeof window.cockpit")).toBe("undefined");
-    expect(await selectedGuest(site, "fetch('/.env.local').then(r=>r.status)")).not.toBe(200);
+    // Electron can reject a protected custom-protocol fetch before exposing an
+    // HTTP response. Both paths must deny access after the page and its image
+    // have positively loaded; an unrelated script error still fails this test.
+    const hiddenAccess = await selectedGuest(site, "fetch('/.env.local').then(r=>({status:r.status}), error => error instanceof TypeError ? {networkBlocked:true} : Promise.reject(error))") as { status?: number; networkBlocked?: boolean } | null;
+    expect([403, 404, "network-blocked"]).toContain(hiddenAccess?.status ?? (hiddenAccess?.networkBlocked ? "network-blocked" : null));
     await site.capture(`direction-${n}.png`);
   }
   expect((await site.snapshot()).targets).toHaveLength(5);
