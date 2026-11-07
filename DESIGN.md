@@ -17,6 +17,9 @@ the initial task. A quiet Codex loading interval is not readiness. This remains
 screen recognition rather than a provider readiness protocol; unrecognized
 screens time out visibly without sending the task. Other providers retain their
 existing output-settle heuristic, which is not proof of completed login/trust.
+A dismissed Codex update offer's known informational banner may remain above
+an idle composer. It does not block delivery; an active update-choice menu or
+an unrecognized update screen still does.
 No new network listener is created by inbox
 delivery. This selects the CLI only; it does not repair provider browser access.
 

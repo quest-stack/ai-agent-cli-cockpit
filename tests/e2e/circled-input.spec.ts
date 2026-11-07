@@ -18,7 +18,11 @@ const test = base.extend<{ input: Fixture; renderer: "dom" | "webgl" }>({
     const entry = join(directory, "entry.cjs"), executablePath = process.env.COCKPIT_PACKAGED_EXECUTABLE;
     await writeFile(entry, `const {app}=require('electron');if(process.env.COCKPIT_TEST_DEVICE_SCALE)app.commandLine.appendSwitch('force-device-scale-factor',process.env.COCKPIT_TEST_DEVICE_SCALE);app.on('browser-window-created',(_,w)=>{w.show=()=>{};w.showInactive=()=>{}});${executablePath ? "" : `require(${JSON.stringify(resolve("dist/electron/main.js"))});`}`, "utf8");
     const app = await electron.launch({ ...(executablePath ? { executablePath } : {}),
-      args: [...(executablePath ? ["-r", entry] : [entry]), "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows", "--disable-features=CalculateNativeWinOcclusion"],
+      // Match the existing output-glyph fixture on Intel Mac hosted VMs:
+      // exercise actual WebGL through SwiftShader only in this trusted CI app.
+      args: [...(renderer === "webgl" && process.platform === "darwin" && process.arch === "x64" && process.env.CI
+        ? ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] : []),
+      ...(executablePath ? ["-r", entry] : [entry]), "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows", "--disable-features=CalculateNativeWinOcclusion"],
       env: { ...process.env, COCKPIT_USER_DATA: directory } });
     try {
       const page = await app.firstWindow();

@@ -68,7 +68,11 @@ export const TERMINAL_SUBMIT_SEQUENCE = "\r";
 export function isCliInitialPromptReady(command: string | undefined, lines: readonly string[]): boolean {
   if (getCliKind(command) !== "codex") return true;
   const screen = lines.join("\n");
-  if (/Update available|Trust and continue|Do you trust|Resume (?:a previous )?session|Type to search/iu.test(screen)) return false;
+  // The dismissed update offer leaves an informational banner above the live
+  // composer. Only its known noninteractive form may coexist with readiness.
+  if (/Update available/iu.test(screen) && (!/Run npm install -g @openai\/codex to update\./iu.test(screen)
+    || /Update now|Skip until next version/iu.test(screen))) return false;
+  if (/Trust and continue|Do you trust|Resume (?:a previous )?session|Type to search/iu.test(screen)) return false;
   if (lines.some(line => /^\s*(?:loading|Resuming session)(?:\.{0,3}|…)?\s*$/iu.test(line)
     || /(?:^|\s[·|]\s)(?:Starting|Loading)(?:\s[·|]|\s*$)/iu.test(line))) return false;
   return lines.some(line => /^\s*[›❯]\s/u.test(line))

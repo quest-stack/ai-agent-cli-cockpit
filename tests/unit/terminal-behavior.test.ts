@@ -50,6 +50,15 @@ test("other CLI providers retain their existing output-settle behavior", () => {
   assert.equal(isCliInitialPromptReady(undefined, []), true);
 });
 
+test("a dismissed Codex update banner does not hide a ready composer", () => {
+  const banner = ["Update available! 0.166.0 -> 0.167.0", "Run npm install -g @openai/codex to update."];
+  const composer = ["› Ask Codex to do anything", "GPT-6.1 · Ready · Context 100% left"];
+  assert.equal(isCliInitialPromptReady("codex", [...banner, ...composer]), true);
+  assert.equal(isCliInitialPromptReady("codex", banner), false);
+  assert.equal(isCliInitialPromptReady("codex", [...banner, "› 1. Update now", "3. Skip until next version", ...composer]), false);
+  assert.equal(isCliInitialPromptReady("codex", [...banner, "Trust and continue", ...composer]), false);
+});
+
 test("Codex history uses Enter confirmation only with all live picker landmarks", () => {
   const lines = ["Resume a previous session", "Filter: Cwd All  Status: Active Archived", "enter resume  esc start new  ctrl+c quit"];
   const enter = keyEvent({ key: "Enter", code: "Enter", keyCode: 13 });

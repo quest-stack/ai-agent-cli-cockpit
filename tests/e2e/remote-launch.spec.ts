@@ -44,7 +44,7 @@ async function fixture(info: TestInfo, actual = false, delayBootstrap = false, d
       process.stdin.setEncoding('utf8');
       if(process.stdin.isTTY)process.stdin.setRawMode(true);
       let ready=${!delayClientReady};
-      const renderReady=()=>{console.log('REMOTE_FIXTURE_READY:'+cli);if(cli==='codex')console.log('› Ask Codex to do anything\\nGPT-6.1 · Ready · Context 100% left');};
+      const renderReady=()=>{console.log('REMOTE_FIXTURE_READY:'+cli);if(cli==='codex')console.log('Update available! 0.166.0 -> 0.167.0\\nRun npm install -g @openai/codex to update.\\n› Ask Codex to do anything\\nGPT-6.1 · Ready · Context 100% left');};
       if(ready)renderReady();else{console.log('OpenAI Codex loading');setTimeout(()=>{ready=true;renderReady();},3000);}
       let text='';
       process.stdin.on('data',chunk=>{
@@ -74,8 +74,8 @@ async function fixture(info: TestInfo, actual = false, delayBootstrap = false, d
   }; app.on("browser-window-created", (_event, window) => protectWindow(window));
   for (const window of BrowserWindow.getAllWindows()) protectWindow(window); });
   if (delayBootstrap) {
-    await app.evaluate(({ app }) => {
-      const load = process.getBuiltinModule("module").createRequire(`${app.getAppPath()}/package.json`);
+    await app.evaluate(({ app }, sourceRoot) => {
+      const load = process.getBuiltinModule("module").createRequire(`${app.isPackaged ? app.getAppPath() : sourceRoot}/package.json`);
       const module = load("./dist/electron/pty-manager.js") as { PtyManager: { prototype: {
         resize: (id: string, cols: number, rows: number, settled?: boolean) => void;
       } } };
@@ -84,7 +84,7 @@ async function fixture(info: TestInfo, actual = false, delayBootstrap = false, d
       module.PtyManager.prototype.resize = function (id, cols, rows): void {
         original.call(this, id, cols, rows, false);
       };
-    });
+    }, resolve(process.env.COCKPIT_TEST_APP_ROOT ?? process.cwd()));
   }
   return { app, directory, inbox, result, project };
 }
