@@ -40,7 +40,7 @@ jobs:
       - name: Check out the exact reviewed application source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 28e59f7dc147bc7487feb44816b5aa3cd788b30c
+          ref: 369c04fb41e71c3943f0b70a78774c5421f43b05
           persist-credentials: false
       - name: Set up matching Node.js without Actions cache storage
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
@@ -50,7 +50,7 @@ jobs:
           package-manager-cache: false
       - name: Verify source, OS and native architecture
         run: |
-          test "$(git rev-parse HEAD)" = 28e59f7dc147bc7487feb44816b5aa3cd788b30c
+          test "$(git rev-parse HEAD)" = 369c04fb41e71c3943f0b70a78774c5421f43b05
           node -e 'if(process.platform!=="darwin"||process.arch!==process.env.TARGET_ARCH)process.exit(1);console.log(JSON.stringify({node:process.version,platform:process.platform,arch:process.arch}));'
           if [ "$(sysctl -in sysctl.proc_translated 2>/dev/null || true)" = 1 ]; then
             echo 'A translated process cannot stand in for the native architecture check.'
@@ -102,7 +102,7 @@ jobs:
           const { execFileSync } = require('node:child_process');
           
           (async () => {
-            const source = '28e59f7dc147bc7487feb44816b5aa3cd788b30c';
+            const source = '369c04fb41e71c3943f0b70a78774c5421f43b05';
             const repository = 'quest-stack/ai-agent-cli-cockpit';
             const releaseId = 436098969;
             const architecture = process.env.TARGET_ARCH;
@@ -182,6 +182,28 @@ jobs:
             }
             if (!(await read(`/releases/${releaseId}`)).draft) throw Error('Release unexpectedly published');
           })().catch(error => { console.error(error.message); process.exitCode = 1; });
+          
+          NODE
+      - name: Save native drawing and failure proof in the private draft
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process'),crypto=require('node:crypto');
+          (async()=>{
+           const source='369c04fb41e71c3943f0b70a78774c5421f43b05',repository='quest-stack/ai-agent-cli-cockpit',id=436098969,arch=process.env.TARGET_ARCH;
+           if(process.platform!=='darwin'||!['arm64','x64'].includes(arch)||process.arch!==arch||process.env.GITHUB_REPOSITORY!==repository||cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()!==source)throw Error('Native proof identity mismatch');
+           const roots=['test-results-source','test-results-source-ime','test-results-package','test-results-package-ime','test-results-visual','test-results-visual-ime'];
+           const directory=path.join(process.env.RUNNER_TEMP,'cockpit-proof-'+arch);fs.mkdirSync(directory,{recursive:true});const files=[];let bytes=0;
+           function collect(root,dir=root){if(!fs.existsSync(dir))return;for(const entry of fs.readdirSync(dir,{withFileTypes:true})){const from=path.join(dir,entry.name);if(entry.isSymbolicLink())continue;if(entry.isDirectory()){if(!['profile','data','fixture','user-data','home'].includes(entry.name))collect(root,from);continue;}if(!entry.name.endsWith('.png')&&entry.name!=='error-context.md'&&!['.last-run.json','terminal-output.log','shell-diagnosis.json'].includes(entry.name))continue;const stat=fs.statSync(from);bytes+=stat.size;if(bytes>40*1024*1024||files.length>=250)throw Error('Proof size limit');const relative=path.join(root,path.relative(root,from));const to=path.join(directory,relative);fs.mkdirSync(path.dirname(to),{recursive:true});fs.copyFileSync(from,to);files.push({file:relative,bytes:stat.size});}}
+           for(const root of roots)collect(root);if(!files.length)throw Error('No native drawing proof produced');
+           fs.writeFileSync(path.join(directory,'SUMMARY.json'),JSON.stringify({sourceCommit:source,architecture:arch,run:process.env.GITHUB_RUN_ID,files},null,2));
+           const archive=path.join(process.env.RUNNER_TEMP,`qa-macos-${arch}.zip`);cp.execFileSync('ditto',['-c','-k','--norsrc',directory,archive]);const content=fs.readFileSync(archive),sha=crypto.createHash('sha256').update(content).digest('hex'),headers={Authorization:'Bearer '+process.env.GH_TOKEN,Accept:'application/vnd.github+json'};
+           const endpoint='https://api.github.com/repos/'+repository;const read=async suffix=>{const r=await fetch(endpoint+suffix,{headers});if(!r.ok)throw Error('Proof read '+r.status);return r.json();};const release=await read('/releases/'+id);if(!release.draft||release.target_commitish!==source)throw Error('Proof requires matching private draft');const name=path.basename(archive),existing=release.assets.find(a=>a.name===name);
+           if(existing){if(existing.state!=='uploaded')throw Error('Uncertain proof upload');const r=await fetch(endpoint+'/releases/assets/'+existing.id,{method:'DELETE',headers});if(r.status!==204)throw Error('Proof replacement '+r.status);}
+           const upload=new URL(release.upload_url.split('{')[0]);if(upload.hostname!=='uploads.github.com'||!upload.pathname.endsWith('/releases/'+id+'/assets'))throw Error('Unexpected proof endpoint');upload.searchParams.set('name',name);const r=await fetch(upload,{method:'POST',headers:{...headers,'Content-Type':'application/octet-stream','Content-Length':String(content.length)},body:content});if(!r.ok)throw Error('Proof upload '+r.status);const asset=await r.json();if(asset.digest!=='sha256:'+sha||asset.size!==content.length)throw Error('Proof digest mismatch');console.log(JSON.stringify({name,sha256:sha,bytes:content.length,files:files.length,sourceCommit:source}));
+          })().catch(e=>{console.error(e.message);process.exitCode=1;});
           
           NODE
 
