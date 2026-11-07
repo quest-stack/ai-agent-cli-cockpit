@@ -40,7 +40,7 @@ jobs:
       - name: Check out the exact reviewed application source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 12ab02d4ca50459abd9de6c7c22e826c8bc7d86b
+          ref: f77c6638d3dc160897d925ee3e8e4a492b8e444c
           persist-credentials: false
       - name: Set up matching Node.js without Actions cache storage
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
@@ -50,7 +50,7 @@ jobs:
           package-manager-cache: false
       - name: Verify source, OS and native architecture
         run: |
-          test "$(git rev-parse HEAD)" = 12ab02d4ca50459abd9de6c7c22e826c8bc7d86b
+          test "$(git rev-parse HEAD)" = f77c6638d3dc160897d925ee3e8e4a492b8e444c
           node -e 'if(process.platform!=="darwin"||process.arch!==process.env.TARGET_ARCH)process.exit(1);console.log(JSON.stringify({node:process.version,platform:process.platform,arch:process.arch}));'
           if [ "$(sysctl -in sysctl.proc_translated 2>/dev/null || true)" = 1 ]; then
             echo 'A translated process cannot stand in for the native architecture check.'
@@ -77,7 +77,7 @@ jobs:
       - name: Verify focused source Mac regressions
         run: |
           npx --no-install playwright test tests/e2e/macos-trial.spec.ts tests/e2e/circled-numbers.spec.ts tests/e2e/preview-native.spec.ts tests/e2e/preview-site.spec.ts tests/e2e/preview-lifecycle.spec.ts --grep 'circled headings|Mac Codex launcher|full-page capture copies|a real shell file delivery' --output test-results-source
-          npx --no-install playwright test tests/e2e/circled-input.spec.ts --grep 'unconfirmed IME|bottom composer' --output test-results-source-ime
+          npx --no-install playwright test tests/e2e/circled-input.spec.ts --output test-results-source-ime
       - name: Build ad-hoc signed trial packages
         run: node scripts/build-macos-trial.mjs "$TARGET_ARCH"
       - name: Verify the packaged app and its signature
@@ -101,7 +101,7 @@ jobs:
           const { execFileSync } = require('node:child_process');
           
           (async () => {
-            const source = '12ab02d4ca50459abd9de6c7c22e826c8bc7d86b';
+            const source = 'f77c6638d3dc160897d925ee3e8e4a492b8e444c';
             const repository = 'quest-stack/ai-agent-cli-cockpit';
             const releaseId = 436098969;
             const architecture = process.env.TARGET_ARCH;
@@ -191,11 +191,11 @@ jobs:
           node <<'NODE'
           const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process'),crypto=require('node:crypto');
           (async()=>{
-           const source='12ab02d4ca50459abd9de6c7c22e826c8bc7d86b',repository='quest-stack/ai-agent-cli-cockpit',id=436098969,arch=process.env.TARGET_ARCH;
+           const source='f77c6638d3dc160897d925ee3e8e4a492b8e444c',repository='quest-stack/ai-agent-cli-cockpit',id=436098969,arch=process.env.TARGET_ARCH;
            if(process.platform!=='darwin'||!['arm64','x64'].includes(arch)||process.arch!==arch||process.env.GITHUB_REPOSITORY!==repository||cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()!==source)throw Error('Native proof identity mismatch');
            const roots=['test-results-source','test-results-source-ime','test-results-package','test-results-package-ime','test-results-visual','test-results-visual-ime'];
            const directory=path.join(process.env.RUNNER_TEMP,'cockpit-proof-'+arch);fs.mkdirSync(directory,{recursive:true});const files=[];let bytes=0;
-           function collect(root,dir=root){if(!fs.existsSync(dir))return;for(const entry of fs.readdirSync(dir,{withFileTypes:true})){const from=path.join(dir,entry.name);if(entry.isSymbolicLink())continue;if(entry.isDirectory()){if(!['profile','data','fixture','user-data','home'].includes(entry.name))collect(root,from);continue;}if(!entry.name.endsWith('.png')&&entry.name!=='error-context.md'&&!['.last-run.json','terminal-output.log','shell-diagnosis.json'].includes(entry.name))continue;const stat=fs.statSync(from);bytes+=stat.size;if(bytes>40*1024*1024||files.length>=250)throw Error('Proof size limit');const relative=path.join(root,path.relative(root,from));const to=path.join(directory,relative);fs.mkdirSync(path.dirname(to),{recursive:true});fs.copyFileSync(from,to);files.push({file:relative,bytes:stat.size});}}
+           function collect(root,dir=root){if(!fs.existsSync(dir))return;for(const entry of fs.readdirSync(dir,{withFileTypes:true})){const from=path.join(dir,entry.name);if(entry.isSymbolicLink())continue;if(entry.isDirectory()){if(!['profile','data','fixture','user-data','home'].includes(entry.name))collect(root,from);continue;}if(!entry.name.endsWith('.png')&&entry.name!=='error-context.md'&&!['.last-run.json','terminal-output.log','shell-diagnosis.json','bottom-geometry.json','dom-geometry.json','dom-spans.json'].includes(entry.name))continue;const stat=fs.statSync(from);bytes+=stat.size;if(bytes>40*1024*1024||files.length>=250)throw Error('Proof size limit');const relative=path.join(root,path.relative(root,from));const to=path.join(directory,relative);fs.mkdirSync(path.dirname(to),{recursive:true});fs.copyFileSync(from,to);files.push({file:relative,bytes:stat.size});}}
            for(const root of roots)collect(root);if(!files.length)throw Error('No native drawing proof produced');
            fs.writeFileSync(path.join(directory,'SUMMARY.json'),JSON.stringify({sourceCommit:source,architecture:arch,run:process.env.GITHUB_RUN_ID,files},null,2));
            const archive=path.join(process.env.RUNNER_TEMP,`qa-macos-${arch}.zip`);cp.execFileSync('ditto',['-c','-k','--norsrc',directory,archive]);const content=fs.readFileSync(archive),sha=crypto.createHash('sha256').update(content).digest('hex'),headers={Authorization:'Bearer '+process.env.GH_TOKEN,Accept:'application/vnd.github+json'};
