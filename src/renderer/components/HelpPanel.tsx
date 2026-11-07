@@ -110,9 +110,10 @@ export function HelpPanel({ onClose, version }: HelpPanelProps) {
 
         <section>
           <h3>{t("外出先からセッションを立ち上げる")}</h3>
-          <p>{t("設定（歯車）で「受け取った依頼でセッションを起動する」を オンにすると、受付フォルダに置かれた JSON から Claude を 起動します。フォルダの場所は同じ設定画面に出ます。")}</p>
+          <p>{t("設定（歯車）で「受け取った依頼でセッションを起動する」をオンにすると、受付フォルダの JSON から Claude Code または Codex を起動します。cli は claude / codex のどちらかで、省略時は Claude Code です。フォルダの場所は同じ設定画面に出ます。")}</p>
           <pre className="help-code">
 {JSON.stringify({
+  cli: "codex",
   cwd: isMac ? "/Users/you/project" : "C:\\Users\\you\\project",
   title: t("見出し"),
   prompt: t("最初に伝えたいこと"),

@@ -19,6 +19,7 @@ interface ClipboardFixture {
   calls: () => Promise<{ copied: string[]; reads: number; written: PtyWriteRequest[] }>;
   send: (id: string, data: string) => Promise<void>;
   saved: () => Promise<PersistedWorkspace>;
+  spawned: () => Promise<SpawnSessionRequest[]>;
 }
 
 const language = process.env.COCKPIT_TEST_LANGUAGE === "en" ? "en" : "ja";
@@ -32,25 +33,35 @@ const test = base.extend<{ cockpit: ClipboardFixture }>({
     workspace.settings.tourCompleted = true;
     workspace.settings.notificationsEnabled = false;
     workspace.recent = [
-      { command: "codex", cwd: "C:/work/project", projectName: "project", title: "Clipboard investigation", lastUsedAt: 2 },
-      { command: "claude", cwd: "C:/work/project", projectName: "project", title: "入力操作の改善", lastUsedAt: 1 },
+      { command: "codex resume", cwd: "C:/work/project", projectName: "project", title: "Clipboard investigation", lastUsedAt: 2 },
+      { command: "claude --continue", cwd: "C:/work/project", projectName: "project", title: "入力操作の改善", lastUsedAt: 1 },
     ];
     await mkdir(directory, { recursive: true });
     await writeFile(join(directory, "session.json"), JSON.stringify(workspace), "utf8");
     const entry = join(directory, "hidden-entry.cjs");
+    const packagedExecutable = process.env.COCKPIT_PACKAGED_EXECUTABLE;
     await writeFile(entry, `
       const { app } = require('electron');
       app.on('browser-window-created', (_event, win) => {
         win.show = () => {};
         win.showInactive = () => {};
       });
-      require(${JSON.stringify(resolve(`${buildDirectory}/electron/main.js`))});
+      ${packagedExecutable ? "" : `require(${JSON.stringify(resolve(`${buildDirectory}/electron/main.js`))});`}
     `, "utf8");
     const app = await electron.launch({
-      args: [entry], env: { ...process.env, COCKPIT_LANGUAGE: language, COCKPIT_USER_DATA: directory },
+      args: packagedExecutable ? ["-r", entry] : [entry], ...(packagedExecutable ? { executablePath: packagedExecutable } : {}),
+      env: { ...process.env, COCKPIT_LANGUAGE: language, COCKPIT_USER_DATA: directory },
     });
     try {
+      await app.evaluate(({ app, BrowserWindow }) => {
+        const hide = (window: Electron.BrowserWindow): void => { window.show = () => {}; window.showInactive = () => {}; window.hide(); };
+        app.on("browser-window-created", (_event, window) => hide(window));
+        for (const window of BrowserWindow.getAllWindows()) hide(window);
+      });
       const page = await app.firstWindow();
+      await app.evaluate(({ BrowserWindow }) => {
+        for (const window of BrowserWindow.getAllWindows()) window.webContents.setBackgroundThrottling(false);
+      });
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       await expect(page.getByTestId("launcher")).toBeVisible();
@@ -61,12 +72,13 @@ const test = base.extend<{ cockpit: ClipboardFixture }>({
         const state = {
           value: { kind: "empty" } as ClipboardPasteResult,
           fail: false,
-          copied: [] as string[], reads: 0, written: [] as PtyWriteRequest[],
+          copied: [] as string[], reads: 0, written: [] as PtyWriteRequest[], spawned: [] as SpawnSessionRequest[],
         };
         ipcMain.removeHandler("cockpit:pty-spawn");
-        ipcMain.handle("cockpit:pty-spawn", (_event, request: SpawnSessionRequest) => ({
-          session: { ...request, status: "idle", startedAt: Date.now(), shouldRestore: true },
-        }));
+        ipcMain.handle("cockpit:pty-spawn", (_event, request: SpawnSessionRequest) => {
+          state.spawned.push(request);
+          return { session: { ...request, status: "idle", startedAt: Date.now(), shouldRestore: true } };
+        });
         ipcMain.removeHandler("cockpit:clipboard-read");
         ipcMain.handle("cockpit:clipboard-read", () => {
           state.reads += 1;
@@ -88,6 +100,7 @@ const test = base.extend<{ cockpit: ClipboardFixture }>({
         clipboard: async (value, fail = false) => { await state.evaluate((state, input) => { state.value = input.value; state.fail = input.fail; }, { value, fail }); },
         calls: () => state.evaluate(({ copied, reads, written }) => ({ copied, reads, written })),
         saved: async () => JSON.parse(await readFile(join(directory, "session.json"), "utf8")) as PersistedWorkspace,
+        spawned: () => state.evaluate((state) => state.spawned),
         start: async (command = "codex") => {
           const launcher = page.getByTestId("launcher").filter({ visible: true });
           await launcher.getByRole("combobox", { name: ui("プロジェクト") }).fill(resolve(process.cwd()));
@@ -111,6 +124,36 @@ const test = base.extend<{ cockpit: ClipboardFixture }>({
   },
 });
 
+for (const method of ["selection", "held-backspace"] as const) {
+  test(`clearing the launcher project path with ${method} does not restore a previous directory`, async ({ cockpit }, testInfo) => {
+    const width = method === "selection" ? 1280 : 390;
+    await cockpit.app.evaluate(({ BrowserWindow }, width) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      window.setMinimumSize(0, 0);
+      window.setSize(width, 760);
+    }, width);
+    const project = cockpit.page.getByTestId("launcher").getByRole("combobox");
+    await expect(project).toHaveValue("C:/work/project");
+    await project.focus();
+    if (method === "selection") {
+      await cockpit.page.keyboard.press("Control+a");
+      await cockpit.page.keyboard.press("Backspace");
+    } else {
+      await cockpit.page.keyboard.press("End");
+      const length = (await project.inputValue()).length;
+      for (let index = 0; index < length + 5; index++) {
+        await cockpit.page.keyboard.down("Backspace");
+      }
+      await cockpit.page.keyboard.up("Backspace");
+    }
+    await cockpit.page.getByTestId("cli-option-claude").check();
+    await cockpit.page.getByRole("button", { name: ui("プロジェクト候補を再スキャン") }).click();
+    await expect(cockpit.page.getByRole("button", { name: /Start Session/u })).toBeDisabled();
+    await expect(project).toHaveValue("");
+    await cockpit.page.screenshot({ path: testInfo.outputPath(`launcher-empty-${width}.png`) });
+  });
+}
+
 test("Codex image paste sends one path without a native Ctrl+V", async ({ cockpit }) => {
   const id = await cockpit.start();
   const path = "C:/Temp/cockpit-paste-test.png";
@@ -119,12 +162,73 @@ test("Codex image paste sends one path without a native Ctrl+V", async ({ cockpi
   await expect.poll(cockpit.calls).toEqual({ copied: [], reads: 1, written: [{ sessionId: id, data: path }] });
 });
 
+for (const [cli, mode, expectedCommand] of [
+  ["claude", "resume", "claude --resume"], ["claude", "continue", "claude --continue"],
+  ["codex", "resume", "codex resume"], ["codex", "continue", "codex resume --last"],
+] as const) {
+  test(`${cli} ${mode} launches its own conversation history`, async ({ cockpit }) => {
+    await expect(cockpit.page.getByTestId(`launch-mode-${mode}`)).toHaveAccessibleName(ui(mode === "resume" ? "履歴から選んで再開" : "直近のセッションを再開"));
+    await cockpit.page.getByTestId(`launch-mode-${mode}`).check();
+    await cockpit.start(cli);
+    await expect.poll(async () => (await cockpit.spawned()).at(-1)?.command).toBe(expectedCommand);
+    await expect.poll(async () => (await cockpit.saved()).settings.defaultCommand).toBe(cli);
+  });
+}
+
+test("resumed Codex keeps its newline binding", async ({ cockpit }) => {
+  await cockpit.page.getByTestId("launch-mode-resume").check();
+  const id = await cockpit.start("codex");
+  await cockpit.page.keyboard.press("Shift+Enter");
+  await expect.poll(cockpit.calls).toEqual({ copied: [], reads: 0, written: [{ sessionId: id, data: "\x1b\r" }] });
+});
+
 test("command paste sends only the command without a Ctrl+V prefix", async ({ cockpit }) => {
   const id = await cockpit.start("powershell");
   const command = "Write-Output 'clipboard-test'";
   await cockpit.clipboard({ kind: "text", text: command });
   await cockpit.page.keyboard.press("Control+v");
   await expect.poll(cockpit.calls).toEqual({ copied: [], reads: 1, written: [{ sessionId: id, data: command }] });
+});
+
+test("right-click pastes text through the same clipboard path once", async ({ cockpit }) => {
+  const id = await cockpit.start("powershell");
+  await cockpit.clipboard({ kind: "text", text: "right-click-text" });
+  await cockpit.page.getByTestId(`terminal-${id}`).locator(".xterm-screen").click({ button: "right", position: { x: 80, y: 40 } });
+  await expect.poll(cockpit.calls).toEqual({ copied: [], reads: 1, written: [{ sessionId: id, data: "right-click-text" }] });
+});
+
+test("right-click pastes an image path once after terminal reattachment", async ({ cockpit }) => {
+  const id = await cockpit.start();
+  await cockpit.page.keyboard.press("Control+Shift+D");
+  await cockpit.clipboard({ kind: "image", text: "C:/Temp/right-click-image.png" });
+  await cockpit.page.getByTestId(`terminal-${id}`).locator(".xterm-screen").click({ button: "right", position: { x: 80, y: 40 } });
+  await expect.poll(cockpit.calls).toEqual({ copied: [], reads: 1, written: [{ sessionId: id, data: "C:/Temp/right-click-image.png" }] });
+});
+
+test("right-click copies selected text without pasting or interrupting", async ({ cockpit }) => {
+  const id = await cockpit.start();
+  await selectWord(cockpit.page);
+  await cockpit.page.getByTestId(`terminal-${id}`).locator(".xterm-screen").click({ button: "right", position: { x: 10, y: 8 } });
+  await expect.poll(cockpit.calls).toEqual({ copied: ["COPY"], reads: 0, written: [] });
+});
+
+test("right-click preserves a TUI's SGR mouse reporting", async ({ cockpit }) => {
+  const id = await cockpit.start();
+  await cockpit.send(id, "\x1b[?1006h\x1b[?1000hMOUSE READY");
+  await expect(cockpit.page.locator(".xterm-rows")).toContainText("MOUSE READY");
+  await cockpit.clipboard({ kind: "text", text: "DO NOT PASTE" });
+  await cockpit.page.getByTestId(`terminal-${id}`).locator(".xterm-screen").click({ button: "right", position: { x: 80, y: 40 } });
+  await expect.poll(async () => (await cockpit.calls()).written.length).toBeGreaterThan(0);
+  expect((await cockpit.calls()).reads).toBe(0);
+});
+
+test("Shift plus right-click explicitly pastes while TUI mouse reporting is enabled", async ({ cockpit }) => {
+  const id = await cockpit.start();
+  await cockpit.send(id, "\x1b[?1000hMOUSE READY");
+  await expect(cockpit.page.locator(".xterm-rows")).toContainText("MOUSE READY");
+  await cockpit.clipboard({ kind: "text", text: "EXPLICIT PASTE" });
+  await cockpit.page.getByTestId(`terminal-${id}`).locator(".xterm-screen").click({ button: "right", modifiers: ["Shift"], position: { x: 80, y: 40 } });
+  await expect.poll(cockpit.calls).toEqual({ copied: [], reads: 1, written: [{ sessionId: id, data: "EXPLICIT PASTE" }] });
 });
 
 test("multiline paste preserves bracketed paste and normalizes Windows newlines", async ({ cockpit }) => {
@@ -270,7 +374,9 @@ test("CLI buttons remember every selection across reload, new tabs and splits", 
       return pane.scrollWidth <= pane.clientWidth;
     })).toBe(true);
   }
-  await page.screenshot({ path: testInfo.outputPath("split-cli-buttons-1024.png") });
+  const png = await cockpit.app.evaluate(async ({ BrowserWindow }) =>
+    (await BrowserWindow.getAllWindows()[0].webContents.capturePage(undefined, { stayHidden: true, stayAwake: true })).toPNG().toString("base64"));
+  await writeFile(testInfo.outputPath("split-cli-buttons-1024.png"), Buffer.from(png, "base64"));
 });
 
 test("reopening a recent CLI makes it the next launch preference", async ({ cockpit }) => {
@@ -280,13 +386,33 @@ test("reopening a recent CLI makes it the next launch preference", async ({ cock
   await expect(cockpit.page.getByTestId("launcher").filter({ visible: true }).getByTestId("cli-option-codex")).toBeChecked();
 });
 
+for (const [index, cli, resume] of [[0, "codex", "codex resume"], [1, "claude", "claude --resume"]] as const) {
+  test(`${cli}: recent folder new launch does not inherit a saved resume mode`, async ({ cockpit }) => {
+    await cockpit.page.locator(".recent-item").nth(index).click();
+    await expect.poll(async () => (await cockpit.spawned()).at(-1)?.command).toBe(cli);
+    expect((await cockpit.spawned()).at(-1)?.cwd).toBe("C:/work/project");
+  });
+
+  test(`${cli}: recent folder resume opens its CLI history picker`, async ({ cockpit }) => {
+    await cockpit.page.getByTestId(`recent-resume-${index}`).click();
+    await expect.poll(async () => (await cockpit.spawned()).at(-1)?.command).toBe(resume);
+    expect((await cockpit.spawned()).at(-1)?.cwd).toBe("C:/work/project");
+  });
+}
+
 test("recent cards prioritize session names at desktop and narrow widths", async ({ cockpit }, testInfo) => {
   const { page } = cockpit;
   const cards = page.locator(".recent-item");
   await expect(cards.first().locator("span")).toHaveText("Clipboard investigation");
   await expect(cards.first().locator("small")).toHaveText("project");
   for (const width of [1440, 390]) {
-    await page.setViewportSize({ width, height: 1000 });
+    await cockpit.app.evaluate(({ BrowserWindow }, width) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      // Only this QA instance bypasses the production 760px minimum.
+      window.setMinimumSize(0, 0);
+      window.setContentSize(width, 1000);
+    }, width);
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(width);
     if (width === 390) {
       await page.getByRole("button", { name: ui("サイドバーを折りたたむ") }).click();
     }
@@ -297,6 +423,10 @@ test("recent cards prioritize session names at desktop and narrow widths", async
     await page.getByTestId("cli-option-codex").check();
     await expect(page.getByTestId("cli-option-codex")).toBeChecked();
     expect(await page.locator(".empty-pane").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-    await page.screenshot({ path: testInfo.outputPath(`launcher-${width}.png`), fullPage: true });
+    // Native capture can paint a resized hidden Electron window without
+    // presenting it. The app scrolls inside the pane, so capture its viewport.
+    const png = await cockpit.app.evaluate(async ({ BrowserWindow }) =>
+      (await BrowserWindow.getAllWindows()[0].webContents.capturePage(undefined, { stayHidden: true, stayAwake: true })).toPNG().toString("base64"));
+    await writeFile(testInfo.outputPath(`launcher-${width}.png`), Buffer.from(png, "base64"));
   }
 });

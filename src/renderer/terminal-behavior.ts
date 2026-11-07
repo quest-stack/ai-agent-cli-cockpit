@@ -1,4 +1,5 @@
 import { isPrimaryShortcut } from "../shared/platform";
+import { getCliKind } from "../shared/cli-launch";
 
 interface TerminalKeyEvent {
   altKey: boolean;
@@ -50,7 +51,7 @@ export const TERMINAL_CODEX_NEWLINE_SEQUENCE = "\x1b\r";
 export function getNewlineSequenceForCommand(
   command: string | undefined,
 ): string {
-  return command === "codex"
+  return getCliKind(command) === "codex"
     ? TERMINAL_CODEX_NEWLINE_SEQUENCE
     : TERMINAL_MANUAL_NEWLINE_SEQUENCE;
 }
@@ -62,6 +63,21 @@ export function getNewlineSequenceForCommand(
  * 割り当てたときは、素通しでは送信できなくなるため、こちらから明示的に送る。
  */
 export const TERMINAL_SUBMIT_SEQUENCE = "\r";
+
+/** Codex can be silent during loading; that quiet interval is not an input prompt. */
+export function isCliInitialPromptReady(command: string | undefined, lines: readonly string[]): boolean {
+  if (getCliKind(command) !== "codex") return true;
+  const screen = lines.join("\n");
+  // The dismissed update offer leaves an informational banner above the live
+  // composer. Only its known noninteractive form may coexist with readiness.
+  if (/Update available/iu.test(screen) && (!/Run npm install -g @openai\/codex to update\./iu.test(screen)
+    || /Update now|Skip until next version/iu.test(screen))) return false;
+  if (/Trust and continue|Do you trust|Resume (?:a previous )?session|Type to search/iu.test(screen)) return false;
+  if (lines.some(line => /^\s*(?:loading|Resuming session)(?:\.{0,3}|…)?\s*$/iu.test(line)
+    || /(?:^|\s[·|]\s)(?:Starting|Loading)(?:\s[·|]|\s*$)/iu.test(line))) return false;
+  return lines.some(line => /^\s*[›❯]\s/u.test(line))
+    && /\bReady\b|context.{0,18}(?:left|remaining)|(?:left|remaining).{0,18}context/iu.test(screen);
+}
 
 /**
  * Enter と Shift+Enter の役割。
@@ -206,6 +222,17 @@ export type TerminalEnterDisposition =
   | "ime-second-keydown"
   | "manual-newline"
   | "delegate-to-xterm";
+
+/** A full-screen Codex history picker confirms choices, rather than inserting prompt text. */
+export function getCodexHistoryPickerSubmitSequence(event: TerminalKeyEvent, command: string | undefined, lines: readonly string[]): string | undefined {
+  if (getCliKind(command) !== "codex" || event.type !== "keydown" ||
+    !(event.key === "Enter" || TERMINAL_ENTER_CODES.has(event.code)) ||
+    event.altKey || event.ctrlKey || event.metaKey || isImeComposing(event)) return undefined;
+  const header = lines.some(line => /^\s*Resume (?:a previous )?session\s*$/iu.test(line));
+  const filters = lines.some(line => /^\s*Filter:\s+(?:Cwd|All)\b.*\bStatus:/iu.test(line));
+  const actions = lines.some(line => /\benter\s+resume\b/iu.test(line) && /\besc\s+start\s+new\b/iu.test(line));
+  return header && filters && actions ? TERMINAL_SUBMIT_SEQUENCE : undefined;
+}
 
 /**
  * IME 変換中の Shift+Enter に伴う 2 回の keydown を状態として追い、

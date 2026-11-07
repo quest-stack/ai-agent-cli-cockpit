@@ -121,8 +121,13 @@ Mac updates are manual replacements with a newer trial. The Mac app does not fet
 1. Choose **New Session**.
 2. Select a project folder with **Browse**, enter its path, or choose a recent folder. Pin folders you use often.
 3. Choose the **Claude Code**, **Codex**, or **PowerShell** button (Shell on Mac). Your selection is remembered for new tabs, panes and the next app launch.
-4. Optionally name the session after the task. The CLI name is used if you leave this blank.
-5. Choose **Start Session** or press Enter.
+4. For Claude Code or Codex, choose **Start a new session**, **Resume from history**, or **Continue the latest session** under **Session startup**. Each option explains what happens.
+5. Optionally name the session after the task. The CLI name is used if you leave this blank.
+6. Choose **Start Session** or press Enter.
+
+Resume from history opens the CLI's history picker after launch. Continue the latest session resumes the selected folder's most recent session directly. Claude history reopens in Claude, and Codex history reopens in Codex.
+
+Cards under Launch in a recent folder start a new session with the same folder and CLI. Their Resume from history button opens that folder's CLI history picker instead. Cockpit does not save the session ID selected in the picker. Custom-command history retains its original command.
 
 Every session has its own process and working directory. The sidebar, tabs, and recent-session cards show the task name first and the folder name underneath or beside it. Double-click a session name in the sidebar to rename it.
 
@@ -140,7 +145,9 @@ Review generated files beside the conversation in the same work tab. Preview is 
 
 1. The first localhost URL or existing output file found in CLI output opens automatically. Once you explicitly close Preview, it stays closed until you open it again.
 2. To open it yourself, choose **Preview** at the top right of the work tab.
-3. Use **Choose a file** or **Enter a URL**. Once a target is open, use **+** to add more and switch between their tabs. You can also drop a file onto Preview.
+3. Use **Choose a file**, **Open a site folder**, or **Enter a URL**. Once a target is open, use **+** to add more and switch between their tabs. You can also drop a file onto Preview.
+
+For a static site, choose **Open a site folder** and select a folder containing `index.html`. Review its pages and shared assets before deployment, without starting a server. Page links open separate Preview tabs with their own updates, viewport controls and comparisons. Explicitly delivered site folders and `index.html` artifacts also use automatic discovery; dismissed previews stay closed. Apps requiring a development server still use that server's localhost URL.
 
 | Target | Display and updates |
 | --- | --- |
@@ -151,6 +158,8 @@ Review generated files beside the conversation in the same work tab. Preview is 
 | MP4 | Play, pause, and seek; choose **Show new version** after an update. Codec support determines playback |
 
 For web targets, choose **Desktop**, **Tablet**, or **Phone**, or enter a width and height. These are viewport sizes, not device emulation; check device-specific behavior on a real device. At narrow window widths, use the **AI / Preview** switch. Hidden CLIs keep running.
+
+For Web and Markdown, **Capture full page** copies an image including content below the viewport to the clipboard. Paste it into a terminal, or choose **Save PNG** to select a file destination. Capture retains the responsive width, input and scroll position. Pages over 32 megapixels or 32768 pixels on either side cannot be captured.
 
 ### Compare changes
 
@@ -166,6 +175,7 @@ URL targets are limited to `localhost`, `127.0.0.1`, and `[::1]`. Only resources
 
 ## Copy, paste, and multiline input
 
+- Right-click a terminal to paste text or images. If text is selected, right-click copies it. Mouse-aware CLIs keep their clicks; use **Shift+right-click** for explicit paste. Right-clicking a link does not paste.
 - **Ctrl+V** or **Ctrl+Shift+V** on Windows, or **Command+V** on Mac, pastes text or a screenshot. Images are saved as temporary PNG files and their paths are inserted into the CLI. The selected CLI must support image input.
 - Dropping files onto a terminal inserts their paths.
 - By default, **Ctrl+C interrupts the CLI**. Enable **Ctrl+C copies selected text** under **Settings > KEYS** to change it. In Copy mode, Ctrl+C copies the selection; with nothing selected, it does nothing. This prevents accidental interruption, and your choice is saved.
@@ -218,17 +228,18 @@ GPU rendering falls back when needed. If an input or display problem persists, r
 
 ## Start sessions from incoming requests
 
-This optional feature is **off by default**. In Settings, enable **Start sessions from incoming requests** and copy the inbox folder path. A JSON file placed there can start a Claude session. The inbox is `%APPDATA%\claude-cli-cockpit\inbox` on Windows and `~/Library/Application Support/claude-cli-cockpit/inbox/` on Mac:
+This optional feature is **off by default**. In Settings, enable **Start sessions from incoming requests** and copy the inbox folder path. A JSON file placed there can start Claude Code or Codex. The inbox is `%APPDATA%\claude-cli-cockpit\inbox` on Windows and `~/Library/Application Support/claude-cli-cockpit/inbox/` on Mac:
 
 ```json
 {
   "cwd": "C:\\work\\project",
+  "cli": "codex",
   "title": "Review changes",
   "prompt": "Review the current changes and summarize your findings."
 }
 ```
 
-The folder must exist. The title and initial prompt are optional. Requests always launch Claude; they cannot supply an arbitrary executable. Use a `.json` filename. The request file is removed after processing.
+The folder must exist. Set `cli` to `claude` or `codex`; omitting it keeps the existing Claude Code default. Codex uses the same shared-server settings as a manual launch. The title and initial prompt are optional. Requests cannot supply an arbitrary executable or launch arguments. Use a `.json` filename. The request file is removed after processing.
 
 Anyone who can write to the inbox can cause work to start on this PC. Cockpit does not open a network port for this feature. Arrange delivery yourself, and only enable it when that access is appropriate.
 
@@ -251,7 +262,8 @@ service policies and local file retention.
 
 - Windows has Japanese and English editions; Mac has a Japanese-language trial. There is no Linux distribution. Use the package for your CPU architecture.
 - The Mac trial lacks Developer ID signing and notarization. Human testing with real Japanese IME and actual AI services is still outstanding.
-- Some circled numbers, such as ①②, can still look compressed depending on styling and surrounding spaces in 0.2.14.
+- Published versions through 0.2.15 retain compressed circled-number cases. The development fix uses bundled circular glyphs and shares sufficient trailing spaces to draw runs such as `①②　` at a larger size. Compact digit contours are also clearer. Terminal cells and copied text stay unchanged.
+- Windows conversation restoration covers standard Claude Code/Codex launches whose conversation identity Cockpit has recorded. Older/unrecorded tabs use the CLI history picker first; custom commands run as stored. Independent Codex recording requires trusting the session hooks in the CLI. Actual provider restoration on Mac remains unverified.
 - Display corruption can occur. Automatic redraw attempts recovery; it is not a guarantee. Use Ctrl+Shift+R on Windows or Command+Shift+R on Mac.
 - Preview comparison uses read-only snapshots. It does not compare Word / Excel documents, document meaning, or video changes.
 - The app's minimum supported window width is 760 px; it is not a mobile interface.

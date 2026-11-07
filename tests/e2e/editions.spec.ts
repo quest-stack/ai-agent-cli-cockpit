@@ -74,6 +74,15 @@ for (const language of ["ja", "en"] as const) {
       try {
         await expect(page.locator("html")).toHaveAttribute("lang", language);
         await expect(page.getByRole("heading", { name: ui("作業コンソールを起動") })).toBeVisible();
+        for (const [mode, label, description] of [
+          ["new", "新規セッションを開始", "選択したフォルダで、新しくCLIを起動します"],
+          ["resume", "履歴から選んで再開", "起動後、CLIの履歴からセッションを選びます"],
+          ["continue", "直近のセッションを再開", "選択したフォルダの直近の履歴を、そのまま再開します"],
+        ] as const) {
+          await expect(page.getByTestId(`launch-mode-${mode}`)).toHaveAccessibleName(ui(label));
+          await expect(page.getByTestId(`launch-mode-${mode}`)).toHaveAccessibleDescription(ui(description));
+          await expect(page.getByText(ui(description), { exact: true })).toBeVisible();
+        }
         await page.setViewportSize({ width: 1440, height: 900 });
         await page.screenshot({ path: testInfo.outputPath("launcher.png") });
         await page.getByRole("button", { name: ui("プロジェクトフォルダを参照") }).click();
@@ -102,6 +111,8 @@ for (const language of ["ja", "en"] as const) {
         await page.getByRole("button", { name: ui("閉じる"), exact: true }).click();
         await page.setViewportSize({ width: 760, height: 600 });
         await page.getByRole("button", { name: ui("サイドバーを折りたたむ") }).click();
+        await page.getByTestId("launch-mode-picker").scrollIntoViewIfNeeded();
+        expect(await page.getByTestId("launch-mode-picker").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
         await page.screenshot({ path: testInfo.outputPath("launcher-760.png") });
         await page.getByRole("button", { name: ui("設定"), exact: true }).click();
         const settingsBox = await page.locator(".settings-popover").boundingBox();

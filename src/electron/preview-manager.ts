@@ -1,15 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { readFile, rename, writeFile, rm } from "node:fs/promises";
-import { basename, extname, join } from "node:path";
+import { basename, dirname, extname, join, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { dialog, session, WebContentsView, webContents } from "electron";
+import { clipboard, dialog, session, WebContentsView, webContents } from "electron";
 
 import { localPreviewUrl, previewCaptureMetricsSchema, previewPdfMetricsSchema, previewSavedSchema, previewViewportSchema } from "../shared/preview";
 import { ContextPreviewInput } from "../shared/preview-context-input";
-import { cacheGrant, createGrant, createPreviewCache, escapeHtml, fileResponse, grantDocument, PREVIEW_SCHEME, previewKind, resolvePreviewAsset, resolvePreviewCandidates, signature } from "./preview-files";
+import { cacheGrant, createGrant, createPreviewCache, escapeHtml, fileResponse, grantDocument, PREVIEW_SCHEME, previewKind, resolvePreviewAsset, resolvePreviewCandidates, resolvePreviewSiteAsset, signature } from "./preview-files";
 import { PreviewPageReview } from "./preview-page-review";
 import { releasePreviewCache } from "./preview-cache";
+import { captureFullPage, MAX_PAGE_PNG_BYTES, replaceScreenshotFile } from "./preview-screenshot";
+import { freezePreviewAnimations } from "./preview-animation";
+import { t } from "../shared/i18n";
 
 import type { BrowserWindow, Rectangle } from "electron";
 import type { PreviewCapture, PreviewRequest, PreviewResult, PreviewSnapshot, PreviewTarget, PreviewVersionComparison, PreviewViewport } from "../shared/preview";
@@ -41,6 +44,7 @@ export class PreviewManager {
   private pageReview?: PreviewPageReview;
   private pollTimer?: ReturnType<typeof setInterval>;
   private polling = false;
+  private captureInProgress = false;
   private disposed = false;
   private saving: Promise<void> = Promise.resolve();
   private requestedOpening: Promise<void> = Promise.resolve();
@@ -70,13 +74,13 @@ export class PreviewManager {
       const discovery = await resolvePreviewCandidates(directory, paths, true);
       for (const file of discovery.files) {
         if (this.disposed || this.sessionDirectory(tabId, sessionId) !== directory) return;
-        const result = await this.request({ action: "add", tabId, source: file.source });
+        const result = await this.request({ action: "add", tabId, source: file.source, siteRoot: file.siteRoot });
         if (result.ok && !this.disposed) this.changed({ ...result.value, requestedOpen: true });
       }
     }).catch(() => undefined).finally(() => { this.pendingRequests--; });
   }
 
-  async initialize(): Promise<void> {
+  async initialize(workspaceTabIds?: readonly string[]): Promise<void> {
     this.cacheDirectory = await createPreviewCache();
     this.pageReview = new PreviewPageReview(this.cacheDirectory);
     const fullscreenAllowed = (wc: Electron.WebContents | null, permission: string): boolean => permission === "fullscreen"
@@ -118,11 +122,17 @@ export class PreviewManager {
     });
     try {
       const parsed = previewSavedSchema.safeParse(JSON.parse(await readFile(join(this.dataDirectory, "preview.json"), "utf8")));
-      if (parsed.success) for (const tab of parsed.data) for (const item of tab.targets) {
-        const kind = previewKind(item.source);
-        if (kind && !this.records.has(item.id)) this.records.set(item.id, { tabId: tab.tabId,
-          target: { ...item, name: localPreviewUrl(item.source) ? new URL(item.source).host : basename(item.source), kind, revision: 0, updated: false } });
+      const allowed = workspaceTabIds ? new Set(workspaceTabIds) : undefined;
+      let removed = false;
+      if (parsed.success) for (const tab of parsed.data) {
+        if (allowed && !allowed.has(tab.tabId)) { removed = true; continue; }
+        for (const item of tab.targets) {
+          const kind = previewKind(item.source);
+          if (kind && !this.records.has(item.id)) this.records.set(item.id, { tabId: tab.tabId,
+            target: { ...item, name: this.targetName(item.source, item.siteRoot), kind, revision: 0, updated: false } });
+        }
       }
+      if (removed) { this.save(); await this.saving; }
     } catch { /* First launch or invalid saved preview state. */ }
     this.pollTimer = setInterval(() => { void this.poll(); }, 750);
     this.pollTimer.unref();
@@ -140,10 +150,10 @@ export class PreviewManager {
   }
   private emit(record: TargetRecord): void { if (!this.disposed) this.changed(this.snapshot(record.tabId)); }
   private save(): void {
-    const tabs = new Map<string, Array<{ id: string; source: string }>>();
+    const tabs = new Map<string, Array<{ id: string; source: string; siteRoot?: string }>>();
     for (const record of this.records.values()) {
       const items = tabs.get(record.tabId) ?? [];
-      items.push({ id: record.target.id, source: record.target.source }); tabs.set(record.tabId, items);
+      items.push({ id: record.target.id, source: record.target.source, siteRoot: record.target.siteRoot }); tabs.set(record.tabId, items);
     }
     const contents = JSON.stringify([...tabs].map(([tabId, targets]) => ({ tabId, targets })));
     this.saving = this.saving.catch(() => undefined).then(async () => {
@@ -159,23 +169,26 @@ export class PreviewManager {
       if (request.action === "discover") {
         const discovery = await resolvePreviewCandidates(this.sessionDirectory(request.tabId, request.sessionId), request.paths);
         return { ok: true, value: this.snapshot(request.tabId), discovery };
-      } else if (request.action === "pick") {
+      } else if (request.action === "pick" || request.action === "pick-site") {
         if (!this.window) return { ok: false, error: "failed" };
-        const result = await dialog.showOpenDialog(this.window, { properties: ["openFile"], filters: [{ name: "Preview", extensions: ["html", "htm", "md", "png", "jpg", "jpeg", "gif", "webp", "svg", "pdf", "mp4"] }] });
+        const result = await dialog.showOpenDialog(this.window, request.action === "pick-site"
+          ? { title: t("サイトのフォルダーを開く"), properties: ["openDirectory"] }
+          : { properties: ["openFile"], filters: [{ name: "Preview", extensions: ["html", "htm", "md", "png", "jpg", "jpeg", "gif", "webp", "svg", "pdf", "mp4"] }] });
         if (!result.canceled && result.filePaths[0]) return this.request({ action: "add", tabId: request.tabId, source: result.filePaths[0] });
       } else if (request.action === "add") {
         const url = localPreviewUrl(request.source);
-        if (!url && !previewKind(request.source)) return { ok: false, error: "unsupported" };
         if (/^\w+:\/\//u.test(request.source) && !url) return { ok: false, error: "invalid" };
-        const grant = url ? undefined : await createGrant(randomUUID(), request.source);
+        if (url && request.siteRoot) return { ok: false, error: "invalid" };
+        const grant = url ? undefined : await createGrant(randomUUID(), request.source, request.siteRoot);
         const source = url ?? grant!.source;
-        const existing = [...this.records.values()].find((item) => item.tabId === request.tabId && (process.platform === "win32" ? item.target.source.toLowerCase() === source.toLowerCase() : item.target.source === source));
+        const key = (value?: string): string | undefined => process.platform === "win32" ? value?.toLowerCase() : value;
+        const existing = [...this.records.values()].find((item) => item.tabId === request.tabId && key(item.target.source) === key(source) && key(item.target.siteRoot) === key(grant?.siteRoot));
         let focusId = existing?.target.id;
         if (!existing) {
           if (this.snapshot(request.tabId).targets.length >= 20 || new Set([...this.records.values()].map((item) => item.tabId)).size >= 32 && ![...this.records.values()].some((item) => item.tabId === request.tabId)) return { ok: false, error: "failed" };
           const id = grant?.id ?? randomUUID();
           focusId = id;
-          const record: TargetRecord = { tabId: request.tabId, target: { id, kind: grant?.kind ?? "web", name: url ? new URL(url).host : basename(source), source, revision: 0, updated: false }, grant };
+          const record: TargetRecord = { tabId: request.tabId, target: { id, kind: grant?.kind ?? "web", name: this.targetName(source, grant?.siteRoot), source, ...(grant?.siteRoot ? { siteRoot: grant.siteRoot } : {}), revision: 0, updated: false }, grant };
           this.records.set(id, record);
           if (grant) await this.prepare(record);
           this.save(); this.emit(record);
@@ -206,8 +219,13 @@ export class PreviewManager {
           return shown ? { ok: true, value: this.snapshot(request.tabId) } : { ok: false, error: "failed" };
         } else if (request.action === "hide-review") {
           this.pageReview?.hide(record.target.id);
+        } else if (request.action === "screenshot") {
+          return this.screenshot(record, request.destination);
         } else if (request.action === "capture") {
+          if (this.captureInProgress) return { ok: false, error: "busy" };
           if (record.target.kind === "video" || this.active?.id !== record.target.id || !record.view || record.loading || record.target.error) return { ok: false, error: "invalid" };
+          this.captureInProgress = true;
+          try {
           const wc = record.view.webContents;
           if (request.viewport && record.target.kind === "web") {
             const current: unknown = await wc.executeJavaScript("({width:innerWidth,height:innerHeight})");
@@ -220,7 +238,9 @@ export class PreviewManager {
           const position = request.position;
           let timeout: ReturnType<typeof setTimeout> | undefined;
           let captureStyle: string | undefined;
+          let restoreAnimations: (() => Promise<void>) | undefined;
           try {
+            if (["web", "markdown"].includes(record.target.kind)) restoreAnimations = await freezePreviewAnimations(wc);
             // Viewer controls are not part of the image being compared. Keep
             // their layout space but omit hover/focus styling from both captures.
             if (record.target.kind === "image") captureStyle = await wc.insertCSS("#fit{visibility:hidden!important}");
@@ -272,8 +292,10 @@ export class PreviewManager {
             return { ok: true, value: this.snapshot(request.tabId), capture, comparison, versions: this.pageReview?.list(record.target.id) };
           } finally {
             if (timeout) clearTimeout(timeout);
+            await restoreAnimations?.();
             if (captureStyle && !wc.isDestroyed()) await wc.removeInsertedCSS(captureStyle).catch(() => undefined);
           }
+          } finally { this.captureInProgress = false; }
         } else if (request.action === "remove") {
           this.pageReview?.remove(record.target.id);
           if (this.active?.id === request.targetId) this.hide();
@@ -302,9 +324,53 @@ export class PreviewManager {
     } catch { return { ok: false, error: "missing" }; }
   }
 
+  private async screenshot(record: TargetRecord, destination: "clipboard" | "file"): Promise<PreviewResult> {
+    if (this.captureInProgress) return { ok: false, error: "busy" };
+    if (!["web", "markdown"].includes(record.target.kind)) return { ok: false, error: "unsupported" };
+    if (!this.window || !record.view || record.loading || record.target.error || this.active?.id !== record.target.id) return { ok: false, error: "invalid" };
+    const wc = record.view.webContents, revision = record.target.revision;
+    const current = (): boolean => !this.disposed && this.active?.id === record.target.id && this.active.tabId === record.tabId
+      && this.records.get(record.target.id) === record && record.target.revision === revision && !record.loading && !wc.isDestroyed();
+    this.captureInProgress = true;
+    let temporary: string | undefined;
+    try {
+      const captured = await captureFullPage(wc, current, () => {
+        record.emulation = undefined;
+        if (!wc.isDestroyed() && this.active?.id === record.target.id && this.window && !this.window.isDestroyed()) this.clampBounds();
+      });
+      if (!captured.ok) return captured;
+      if (!current()) return { ok: false, error: "invalid" };
+      const size = captured.image.getSize();
+      if (destination === "clipboard") {
+        clipboard.writeImage(captured.image);
+      } else {
+        const name = Array.from(record.target.name, (character) => character.codePointAt(0)! < 32 ? "_" : character)
+          .join("").replace(/[<>:"/\\|?*]/gu, "_").slice(0, 120).replace(/[. ]+$/u, "") || "preview";
+        const picked = await dialog.showSaveDialog(this.window!, {
+          title: t("ページ全体をPNGで保存"), defaultPath: `${name}-page.png`,
+          filters: [{ name: "PNG", extensions: ["png"] }], properties: ["showOverwriteConfirmation"],
+        });
+        if (picked.canceled) return { ok: true, value: this.snapshot(record.tabId), screenshot: { ...size, destination, canceled: true } };
+        if (!picked.filePath || !current()) return { ok: false, error: "invalid" };
+        const png = captured.image.toPNG();
+        if (png.length > MAX_PAGE_PNG_BYTES) return { ok: false, error: "too-large" };
+        temporary = join(dirname(picked.filePath), `.cockpit-capture-${randomUUID()}.tmp`);
+        await writeFile(temporary, png, { flag: "wx" });
+        if (!current()) return { ok: false, error: "invalid" };
+        if (!await replaceScreenshotFile(temporary, picked.filePath, current)) return { ok: false, error: "invalid" };
+        temporary = undefined;
+      }
+      return { ok: true, value: this.snapshot(record.tabId), screenshot: { ...size, destination } };
+    } catch { return { ok: false, error: "failed" }; }
+    finally {
+      if (temporary) await rm(temporary, { force: true }).catch(() => undefined);
+      this.captureInProgress = false;
+    }
+  }
+
   private async prepare(record: TargetRecord): Promise<void> {
     try {
-      if (!record.grant) record.grant = await createGrant(record.target.id, record.target.source);
+      if (!record.grant) record.grant = await createGrant(record.target.id, record.target.source, record.target.siteRoot);
       await cacheGrant(record.grant, this.cacheDirectory);
       if (record.grant.cached) {
         this.generatedCaches.add(record.grant.cached);
@@ -317,6 +383,26 @@ export class PreviewManager {
       record.target.updated = false; record.target.error = undefined;
     } catch { record.target.error = "missing"; }
     this.emit(record);
+  }
+  private targetName(source: string, siteRoot?: string): string {
+    const url = localPreviewUrl(source);
+    if (url) { const parsed = new URL(url); return `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`; }
+    return siteRoot ? `${basename(siteRoot)} · /${relative(siteRoot, source).split(sep).join("/").replace(/index\.html$/iu, "")}` : basename(source);
+  }
+  private sitePath(grant: PreviewGrant): string {
+    return `/${relative(grant.root, grant.source).split(sep).map(encodeURIComponent).join("/").replace(/index\.html$/iu, "")}`;
+  }
+  private async openSitePage(record: TargetRecord, value: string): Promise<void> {
+    const grant = record.grant;
+    if (!grant?.siteRoot || this.disposed) return;
+    try {
+      const url = new URL(value);
+      if (url.protocol !== `${PREVIEW_SCHEME}:` || url.hostname !== record.target.id) return;
+      const source = await resolvePreviewSiteAsset(grant, url.pathname);
+      if (!source || ![".html", ".htm"].includes(extname(source).toLowerCase()) || this.disposed || !this.records.has(record.target.id)) return;
+      const result = await this.request({ action: "add", tabId: record.tabId, source, siteRoot: grant.siteRoot });
+      if (result.ok && !this.disposed) this.changed({ ...result.value, requestedOpen: true });
+    } catch { /* A missing or escaped page never opens another application. */ }
   }
   private clampBounds(): void {
     if (!this.active || !this.window) return;
@@ -381,7 +467,7 @@ export class PreviewManager {
         const view = new WebContentsView({ webPreferences: { session: record.target.kind === "pdf" ? this.pdfSession : this.previewSession, nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, plugins: true, devTools: false, backgroundThrottling: true, navigateOnDragDrop: false } });
         record.view = view; view.setVisible(false);
         this.window.contentView.addChildView(view);
-        view.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+        view.webContents.setWindowOpenHandler(({ url }) => { void this.openSitePage(record, url); return { action: "deny" }; });
         const navigationAllowed = (url: string): boolean => {
           try {
             const candidate = new URL(url);
@@ -395,7 +481,12 @@ export class PreviewManager {
             return candidate.protocol === `${PREVIEW_SCHEME}:` && candidate.hostname === record.target.id;
           } catch { return false; }
         };
-        view.webContents.on("will-navigate", (event, url) => { if (!navigationAllowed(url)) event.preventDefault(); });
+        view.webContents.on("will-navigate", (event, url) => {
+          if (!navigationAllowed(url)) event.preventDefault();
+          else if (record.grant?.siteRoot && new URL(url).pathname !== new URL(view.webContents.getURL()).pathname) {
+            event.preventDefault(); void this.openSitePage(record, url);
+          }
+        });
         view.webContents.on("will-frame-navigate", (event) => { if (!navigationAllowed(event.url) && !event.url.startsWith("about:")) event.preventDefault(); });
         view.webContents.on("will-redirect", (event, url) => { if (!navigationAllowed(url)) event.preventDefault(); });
         view.webContents.on("will-attach-webview", (event) => event.preventDefault());
@@ -427,7 +518,7 @@ export class PreviewManager {
       // Chromium's PDF extension does not reliably inject into a custom-scheme
       // document. Grant exactly this immutable PDF cache URL in the isolated session.
       const url = record.target.kind === "pdf" && record.grant?.cached ? `${pathToFileURL(record.grant.cached).href}#view=FitH&navpanes=0`
-        : localPreviewUrl(record.target.source) ?? `${PREVIEW_SCHEME}://${record.target.id}/${encodeURIComponent(basename(record.target.source))}?v=${record.target.revision}`;
+        : localPreviewUrl(record.target.source) ?? `${PREVIEW_SCHEME}://${record.target.id}${record.grant?.siteRoot ? this.sitePath(record.grant) : `/${encodeURIComponent(basename(record.target.source))}`}?v=${record.target.revision}`;
       const focusedBeforeLoad = webContents.getFocusedWebContents();
       await record.view.webContents.loadURL(url);
       if (record.target.kind === "image") await record.view.webContents.executeJavaScript(`new Promise((resolve,reject)=>{
@@ -448,6 +539,18 @@ export class PreviewManager {
       const record = this.records.get(url.hostname);
       const grant = record?.grant;
       if (!grant || !grant.cached || !["GET", "HEAD"].includes(request.method)) return new globalThis.Response(null, { status: 403 });
+      if (grant.siteRoot) {
+        const asset = await resolvePreviewSiteAsset(grant, url.pathname);
+        if (!asset) return new globalThis.Response(null, { status: 404 });
+        if (!url.pathname.endsWith("/") && !extname(url.pathname) && basename(asset) === "index.html") {
+          return new globalThis.Response(null, { status: 302, headers: { Location: `${url.pathname}/${url.search}` } });
+        }
+        if (grant.dependencies.size < 200) grant.dependencies.set(asset, await signature(asset));
+        const response = await fileResponse(asset === grant.source ? grant.cached : asset, request);
+        if ([".html", ".htm"].includes(extname(asset).toLowerCase())) response.headers.set("Content-Security-Policy", "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'; frame-src 'none'; form-action 'none'");
+        if (extname(asset).toLowerCase() === ".svg") response.headers.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
+        return response;
+      }
       const mainPath = `/${encodeURIComponent(basename(grant.source))}`;
       const isMain = url.pathname === mainPath;
       if (isMain && !url.searchParams.has("asset")) {

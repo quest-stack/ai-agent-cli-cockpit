@@ -2,6 +2,7 @@ import type {
   ClipboardPasteResult,
   ProjectDirectoryPickResult,
 } from "./ipc";
+import type { ProviderConversation } from "./provider-conversation";
 
 export const SESSION_STATUSES = [
   "busy",
@@ -49,6 +50,7 @@ export interface TabState {
 
 export interface PersistedSession {
   command: string;
+  conversation?: ProviderConversation | null;
   cwd: string;
   id: string;
   projectName: string;
@@ -118,10 +120,11 @@ export interface AppSettings {
 /**
  * 受付フォルダに置く依頼ファイルの中身。
  *
- * 起動するコマンドは受け取らない。`claude` に固定することで、
- * 「ファイルを置ければ任意のコマンドを実行できる」状態を避ける。
+ * 起動先は Claude Code / Codex のみ。任意のコマンドや引数は受け取らない。
  */
 export interface RemoteLaunchRequest {
+  /** 起動するCLI。省略時は既存の依頼と同じClaude Code。 */
+  cli?: "claude" | "codex";
   /** 作業ディレクトリ。実在するディレクトリのみ受理する。 */
   cwd: string;
   /** 起動直後に流し込む最初の指示。省略時は起動のみ。 */
@@ -179,6 +182,8 @@ export interface UpdateNotice {
 export interface SpawnSessionRequest {
   cols: number;
   command: string;
+  conversation?: ProviderConversation | null;
+  restoreConversation?: boolean;
   cwd: string;
   id: string;
   projectName: string;
@@ -191,11 +196,14 @@ export interface SpawnSessionResult {
 }
 
 export interface PtyDataEvent {
+  /** この出力の前にCLIの起動コマンドを送信済みか。 */
+  bootstrapWritten?: boolean;
   data: string;
   sessionId: string;
 }
 
 export interface PtyStatusEvent {
+  conversation?: ProviderConversation | null;
   exitCode?: number;
   sessionId: string;
   status: SessionStatus;

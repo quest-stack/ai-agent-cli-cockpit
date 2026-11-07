@@ -2,6 +2,7 @@ import { createReadStream } from "node:fs";
 import { copyFile, readFile, realpath, rm, stat } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 import { Readable } from "node:stream";
 
 import { localPreviewUrl } from "../shared/preview";
@@ -35,16 +36,35 @@ export async function resolvePreviewCandidates(directory: string | undefined, pa
   try { if (directory && localFilePath(directory)) root = await realpath(directory); } catch { /* No fallback to Cockpit's own working directory. */ }
   for (const label of paths.slice(0, 12)) {
     const kind = previewKind(label);
-    if (!kind || localPreviewUrl(label) || !requestedContext && isPreviewContextFile(label)) continue;
+    const possibleSite = !extname(label.replace(/[\\/]+$/u, "")) || /[\\/]$/u.test(label);
+    if ((!kind && !possibleSite) || localPreviewUrl(label) || !requestedContext && isPreviewContextFile(label)) continue;
     if (!root) { unresolved = true; continue; }
     try {
-      const candidate = isAbsolute(label) ? label : resolve(root, label);
+      const expanded = /^~[\\/]/u.test(label) ? join(homedir(), ...label.slice(2).split(/[\\/]/u)) : label;
+      const candidate = isAbsolute(expanded) ? expanded : resolve(root, expanded);
       if (!localFilePath(candidate) || label.split(/[\\/]/u).some((part) => part.startsWith(".") && part !== "." && part !== "..")) { unresolved = true; continue; }
       const source = await realpath(candidate); const inside = relative(root, source);
       if (!requestedContext && isPreviewContextFile(source)) continue;
-      if (inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside) || previewKind(source) !== kind
-        || inside.split(sep).some((part) => part.startsWith(".")) || !(await stat(source)).isFile()) { unresolved = true; continue; }
-      if (!files.some((file) => file.source === source)) files.push({ source, label, kind });
+      if (inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside)
+        || inside.split(sep).some((part) => part.startsWith("."))) { unresolved = true; continue; }
+      const info = await stat(source);
+      let grant = info.isDirectory() ? await createGrant("discovery", source) : undefined;
+      if (!grant && kind === "web" && basename(source).toLowerCase() === "index.html") {
+        let siteRoot = dirname(source);
+        const parent = dirname(siteRoot), parentRelative = relative(root, parent);
+        if (parent !== siteRoot && parentRelative !== ".." && !parentRelative.startsWith(`..${sep}`) && !isAbsolute(parentRelative)) {
+          try {
+            const index = await realpath(join(parent, "index.html"));
+            if (dirname(index) === parent && (await stat(index)).isFile()) siteRoot = parent;
+          } catch { /* Standalone index: keep its own folder as the site boundary. */ }
+        }
+        grant = await createGrant("discovery", source, siteRoot);
+      }
+      if (!grant && (!info.isFile() || !kind || previewKind(source) !== kind)) { unresolved = true; continue; }
+      const fileSource = grant?.source ?? source;
+      const existing = files.find((file) => file.source === fileSource && file.siteRoot === grant?.siteRoot);
+      if (!existing) files.push({ source: fileSource, label, kind: grant?.kind ?? kind!, ...(grant ? { siteRoot: grant.siteRoot } : {}) });
+      else if (!(existing.labels ?? [existing.label]).includes(label)) (existing.labels ??= [existing.label]).push(label);
     } catch { unresolved = true; }
   }
   return { files, unresolved };
@@ -100,6 +120,7 @@ export interface PreviewGrant {
   kind: PreviewKind;
   source: string;
   root: string;
+  siteRoot?: string;
   cached?: string;
   revision: number;
   dependencies: Map<string, string>;
@@ -109,14 +130,26 @@ export async function signature(path: string): Promise<string> {
   if (!info.isFile() || info.size === 0 || info.size > MAX_PREVIEW_FILE) throw new Error("Invalid preview file.");
   return `${info.size}:${info.mtimeMs}:${info.ctimeMs}:${info.ino}`;
 }
-export async function createGrant(id: string, source: string): Promise<PreviewGrant> {
+export async function createGrant(id: string, source: string, siteRoot?: string): Promise<PreviewGrant> {
   if (!localFilePath(source)) throw new Error("Invalid local file.");
-  const canonical = await realpath(source);
+  let canonical = await realpath(source);
+  if ((await stat(canonical)).isDirectory()) {
+    siteRoot = canonical;
+    canonical = await realpath(join(canonical, "index.html"));
+  }
   if (!localFilePath(canonical)) throw new Error("Invalid local file.");
   const kind = previewKind(canonical);
   if (!kind || basename(canonical).startsWith(".")) throw new Error("Unsupported preview file.");
   const stamp = await signature(canonical);
-  return { id, kind, source: canonical, root: dirname(canonical), revision: 0, dependencies: new Map([[canonical, stamp]]) };
+  let root = dirname(canonical);
+  if (siteRoot) {
+    if (!localFilePath(siteRoot) || kind !== "web") throw new Error("Invalid site root.");
+    root = await realpath(siteRoot);
+    const inside = relative(root, canonical);
+    if (!(await stat(root)).isDirectory() || basename(root).startsWith(".") || inside === ".." || inside.startsWith(`..${sep}`)
+      || isAbsolute(inside) || inside.split(sep).some((part) => part.startsWith("."))) throw new Error("Invalid site entry.");
+  }
+  return { id, kind, source: canonical, root, ...(siteRoot ? { siteRoot: root } : {}), revision: 0, dependencies: new Map([[canonical, stamp]]) };
 }
 export async function cacheGrant(grant: PreviewGrant, directory: string): Promise<void> {
   const before = await signature(grant.source);
@@ -148,10 +181,20 @@ export async function resolvePreviewAsset(grant: PreviewGrant, encodedPath: stri
     const lexical = resolve(grant.root, decoded);
     const candidate = await realpath(lexical);
     const inside = relative(grant.root, candidate);
-    if (inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside) || !mime[extname(candidate).toLowerCase()]) return null;
+    if (inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside)
+      || inside.split(sep).some((part) => part.startsWith(".")) || !mime[extname(candidate).toLowerCase()]) return null;
     await signature(candidate);
     return candidate;
   } catch { return null; }
+}
+/** Resolve static directory routes without a server, commands, or a filesystem scan. */
+export async function resolvePreviewSiteAsset(grant: PreviewGrant, encodedPath: string): Promise<string | null> {
+  if (!grant.siteRoot) return resolvePreviewAsset(grant, encodedPath);
+  if (encodedPath.endsWith("/")) return resolvePreviewAsset(grant, `${encodedPath}index.html`);
+  const file = await resolvePreviewAsset(grant, encodedPath);
+  if (file) return file;
+  if (!extname(encodedPath)) return await resolvePreviewAsset(grant, `${encodedPath}/index.html`) ?? resolvePreviewAsset(grant, `${encodedPath}.html`);
+  return null;
 }
 export function previewRange(value: string | null, size: number): { start: number; end: number } | null | false {
   if (!value) return null;

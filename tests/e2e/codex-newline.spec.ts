@@ -1,8 +1,9 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
+import { isCliInitialPromptReady } from "../../src/renderer/terminal-behavior";
 
 /**
  * Codex ペインで Shift+Enter が改行になることを実機で確かめる。
@@ -23,7 +24,9 @@ test("Codex ペインの Shift+Enter で入力欄が改行される", async ({},
   await mkdir(projectRoot, { recursive: true });
 
   const app = await electron.launch({
-    args: ["."],
+    args: process.env.COCKPIT_PACKAGED_EXECUTABLE ? [] : ["."],
+    ...(process.env.COCKPIT_PACKAGED_EXECUTABLE
+      ? { executablePath: process.env.COCKPIT_PACKAGED_EXECUTABLE } : {}),
     cwd: appRoot,
     env: {
       ...process.env,
@@ -34,6 +37,8 @@ test("Codex ペインの Shift+Enter で入力欄が改行される", async ({},
   try {
     const page = await app.firstWindow();
     await expect(page.getByTestId("launcher")).toBeVisible();
+    // This test reads DOM rows. Keep its renderer stable for the whole CLI run.
+    await page.evaluate(() => window.localStorage.setItem("cockpit.disableWebgl", "1"));
 
     // 初回起動のツアーが操作を遮るので閉じる。
     const tour = page.getByTestId("tour-overlay");
@@ -53,6 +58,8 @@ test("Codex ペインの Shift+Enter で入力欄が改行される", async ({},
     // Codex の入力欄が出るまで待つ。信頼ダイアログが挟まることがある。
     const terminal = page.locator(".xterm-screen").first();
     await expect(terminal).toBeVisible({ timeout: 30_000 });
+    const helper = page.locator(".xterm-helper-textarea").first();
+    await helper.focus();
 
     const readScreen = async (): Promise<string> =>
       page.evaluate(() => {
@@ -60,21 +67,23 @@ test("Codex ペインの Shift+Enter で入力欄が改行される", async ({},
         return rows?.textContent ?? "";
       });
 
-    // 起動完了（"Ask Codex" などの入力欄）まで待つ。
+    // A composer placeholder may paint before the startup trust screen.
+    // Handle prompts as they arrive and wait for the actual idle composer.
     const trustPrompt = /trust (?:the contents|this folder)/iu;
-    await expect
-      .poll(async () => await readScreen(), { timeout: 90_000 })
-      .toMatch(/Ask Codex|trust (?:the contents|this folder)/iu);
-
-    // 信頼ダイアログが出ていれば通過させる（既定が Yes）。
-    if (trustPrompt.test(await readScreen())) {
-      await page.keyboard.press("Enter");
-      await expect
-        .poll(async () => await readScreen(), { timeout: 60_000 })
-        .toMatch(/Ask Codex/u);
-    }
+    let skippedUpdate = false, trusted = false;
+    await expect.poll(async () => {
+      const text = await readScreen();
+      if (/Update available/iu.test(text) && !skippedUpdate) {
+        skippedUpdate = true; await helper.press("Escape"); return false;
+      }
+      if (trustPrompt.test(text) && !trusted) {
+        trusted = true; await helper.press("Enter"); return false;
+      }
+      return isCliInitialPromptReady("codex", await page.locator(".xterm-rows > div").allTextContents());
+    }, { timeout: 90_000 }).toBe(true);
 
     await terminal.click();
+    await page.locator(".xterm-helper-textarea").first().focus();
 
     // 目印 → Shift+Enter → 目印。改行されていれば別の行に分かれる。
     await page.keyboard.type("AAA");
@@ -104,6 +113,8 @@ test("Codex ペインの Shift+Enter で入力欄が改行される", async ({},
     // 同じ行に並んでいたら改行されていない＝不具合の再現。
     expect(await sameRow()).toBe(false);
   } finally {
+    const page = await app.firstWindow();
+    await writeFile(testInfo.outputPath("terminal-screen.txt"), await page.evaluate(() => document.querySelector(".xterm-rows")?.textContent ?? "No DOM rows"), "utf8");
     await app.close();
   }
 });

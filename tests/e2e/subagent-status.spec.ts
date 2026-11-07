@@ -10,7 +10,7 @@ import type { TestInfo } from "@playwright/test";
 test.skip(process.platform !== "win32", "Activity hooks currently require PowerShell.");
 
 async function launchFixture(
-  command: "claude" | "codex", testInfo: TestInfo, direct = false,
+  command: "claude" | "codex", testInfo: TestInfo, direct = false, mode: "new" | "resume" | "continue" = "new",
 ) {
   const userData = testInfo.outputPath("user-data");
   const bin = join(userData, "bin");
@@ -129,6 +129,11 @@ async function launchFixture(
     ...(packagedExecutable ? { executablePath: packagedExecutable } : {}),
     env: environment,
   });
+  await app.evaluate(({ app, BrowserWindow }) => {
+    const hide = (window: Electron.BrowserWindow): void => { window.show = () => {}; window.showInactive = () => {}; window.hide(); };
+    app.on("browser-window-created", (_event, window) => hide(window));
+    for (const window of BrowserWindow.getAllWindows()) hide(window);
+  });
   const page = await app.firstWindow();
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((window) => window.isVisible()))).toBe(false);
   await expect(page.getByTestId("launcher")).toBeVisible();
@@ -137,6 +142,7 @@ async function launchFixture(
   await page.evaluate(() => window.localStorage.setItem("cockpit.disableWebgl", "1"));
   await page.getByRole("combobox", { name: "プロジェクト" }).fill(process.cwd());
   await page.getByTestId(`cli-option-${command}`).check();
+  await page.getByTestId(`launch-mode-${mode}`).check();
   await page.getByLabel("セッション名").fill("Subagent signal test");
   await page.getByRole("button", { name: /Start Session/u }).click();
   const terminal = page.getByTestId(/^terminal-/u);
@@ -155,6 +161,16 @@ async function launchFixture(
 }
 
 for (const command of ["claude", "codex"] as const) {
+  test(`${command}: resumed conversations retain real lifecycle hooks and clear completed work`, async ({}, testInfo) => {
+    const { app, signal, input } = await launchFixture(command, testInfo, false, "resume");
+    try {
+      await expect(signal).toHaveAttribute("data-status", "busy");
+      await input("finish-turn-a");
+      await input("finish-b");
+      await expect(signal).toHaveAttribute("data-status", "idle");
+    } finally { await app.close(); }
+  });
+
   test(`${command}: a completed child turn clears yellow without a separate SubagentStop`, async ({}, testInfo) => {
     const { app, signal, input } = await launchFixture(command, testInfo);
     try {

@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
 import { access, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative as relativePath, resolve } from "node:path";
+import { homedir } from "node:os";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
@@ -37,22 +38,34 @@ const test = base.extend<{ cockpit: NativeFixture }>({ cockpit: async ({}, provi
   const packagedExecutable = process.env.COCKPIT_PACKAGED_EXECUTABLE;
   const entry = join(directory, "hidden-entry.cjs");
   const loadSource = packagedExecutable ? "" : `require(${JSON.stringify(resolve("dist/electron/main.js"))});`;
-  await writeFile(entry, `const {app}=require('electron');app.on('web-contents-created',(_e,c)=>c.setBackgroundThrottling(false));if(process.platform!=='darwin')app.on('browser-window-created',(_e,w)=>{w.show=()=>{};w.showInactive=()=>{}});${loadSource}`, "utf8");
+  await writeFile(entry, `const {app}=require('electron');if(process.env.COCKPIT_TEST_DEVICE_SCALE)app.commandLine.appendSwitch('force-device-scale-factor',process.env.COCKPIT_TEST_DEVICE_SCALE);app.on('web-contents-created',(_e,c)=>c.setBackgroundThrottling(false));if(process.platform!=='darwin')app.on('browser-window-created',(_e,w)=>{w.show=()=>{};w.showInactive=()=>{}});${loadSource}`, "utf8");
   const app = await electron.launch({
-    args: packagedExecutable ? ["-r", entry] : [entry],
+    args: packagedExecutable ? ["--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows", "--disable-features=CalculateNativeWinOcclusion", "-r", entry] : [entry],
     ...(packagedExecutable ? { executablePath: packagedExecutable } : {}),
     env: { ...process.env, COCKPIT_USER_DATA: directory },
   });
   try {
-    await app.evaluate(({ app: electronApp, webContents }) => {
+    const page = await app.firstWindow();
+    await app.evaluate(({ app: electronApp, webContents, BrowserWindow }) => {
+      if (process.platform !== "darwin") {
+        const hide = (window: Electron.BrowserWindow): void => {
+          if (process.env.COCKPIT_PACKAGED_EXECUTABLE) {
+            // Packaged CDP capture needs a presented compositor surface. Keep
+            // this isolated QA window transparent, off-screen and off the taskbar.
+            window.setOpacity(0); window.setSkipTaskbar(true); window.setPosition(-30000, -30000); window.showInactive();
+          } else window.hide();
+          window.show = () => {}; window.showInactive = () => {};
+        };
+        electronApp.on("browser-window-created", (_event, window) => hide(window));
+        for (const window of BrowserWindow.getAllWindows()) hide(window);
+      }
       for (const contents of webContents.getAllWebContents()) contents.setBackgroundThrottling(false);
       electronApp.on("web-contents-created", (_event, contents) => contents.setBackgroundThrottling(false));
     });
-    const page = await app.firstWindow();
     if (packagedExecutable) {
       expect(await app.evaluate(({ app: electronApp }) => electronApp.isPackaged && electronApp.getAppPath().endsWith("app.asar"))).toBe(true);
     }
-    if (process.platform !== "darwin") expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((window) => window.isVisible()))).toBe(false);
+    if (process.platform !== "darwin") expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((window) => window.isVisible() && window.getOpacity() !== 0))).toBe(false);
     await expect(page.getByTestId("launcher")).toBeVisible();
     await expect(page.getByTestId("preview-toggle")).toHaveAttribute("aria-expanded", "false");
     const tabId = await page.locator("[data-active-tab-panel]").getAttribute("data-tab-panel-id");
@@ -77,6 +90,10 @@ const test = base.extend<{ cockpit: NativeFixture }>({ cockpit: async ({}, provi
       guest: async (id, script) => app.evaluate(async ({ webContents }, input) => {
         const guest = webContents.getAllWebContents().find((contents) => contents.getURL().includes(input.id));
         if (!guest) throw new Error("No guest view");
+        // The view constructor can apply its production throttling preference
+        // after web-contents-created. Hidden QA windows need it disabled once
+        // the guest exists as well, including in the packaged executable.
+        guest.setBackgroundThrottling(false);
         return guest.executeJavaScript(input.script);
       }, { id, script }),
     });
@@ -86,6 +103,279 @@ const test = base.extend<{ cockpit: NativeFixture }>({ cockpit: async ({}, provi
 async function guestText(cockpit: NativeFixture, id: string): Promise<string> {
   try { return String(await cockpit.guest(id, "document.body.innerText")); } catch { return ""; }
 }
+
+async function screenshotSink(cockpit: NativeFixture, filePath?: string, canceled = false) {
+  return cockpit.app.evaluateHandle(({ clipboard, dialog }, input) => {
+    const state = { writes: 0, saveDialogs: 0, width: 0, height: 0, bottomPixel: [] as number[] };
+    clipboard.writeImage = (image) => {
+      state.writes++;
+      const size = image.getSize(); state.width = size.width; state.height = size.height;
+      const offset = ((size.height - 4) * size.width + Math.floor(size.width / 2)) * 4;
+      state.bottomPixel = Array.from(image.toBitmap().subarray(offset, offset + 4));
+    };
+    dialog.showSaveDialog = async () => { state.saveDialogs++; return { canceled: input.canceled, filePath: input.filePath ?? "" }; };
+    return state;
+  }, { filePath, canceled });
+}
+
+async function fullPageFixture(cockpit: NativeFixture, height = 2600): Promise<string> {
+  const file = join(cockpit.directory, "full-page.html");
+  await writeFile(file, `<style>html,body{margin:0;height:${height}px}body{background:white}.bottom{position:absolute;top:${height - 32}px;height:32px;width:100%;background:#f00}</style><h1>FULL PAGE READY</h1><input id="draft" value="keep draft"><div class="bottom"></div>`, "utf8");
+  const id = await cockpit.add(file);
+  await expect.poll(() => guestText(cockpit, id)).toContain("FULL PAGE READY");
+  await expect(cockpit.page.getByTestId("preview-screenshot-copy")).toBeEnabled();
+  return id;
+}
+
+test("full-page capture copies pixels beyond the viewport and preserves the current page", async ({ cockpit }) => {
+  const sink = await screenshotSink(cockpit);
+  const id = await fullPageFixture(cockpit);
+  const windowState = () => cockpit.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(window => ({ visible: window.isVisible(), opacity: window.getOpacity() })));
+  const windowBefore = await windowState();
+  const viewState = `({width:innerWidth,height:innerHeight,x:scrollX,y:scrollY,contentWidth:document.documentElement.scrollWidth,contentHeight:document.documentElement.scrollHeight,input:document.querySelector('#draft').value})`;
+  await cockpit.guest(id, "scrollTo(0,400)");
+  const before = await cockpit.guest(id, `new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(${viewState}))))`) as { contentWidth: number; contentHeight: number };
+  await cockpit.page.getByTestId("preview-screenshot-copy").click();
+  await expect.poll(() => sink.evaluate((state) => state.writes)).toBe(1);
+  expect(await sink.evaluate(({ width, height, bottomPixel }) => ({ width, height, bottomPixel })))
+    .toEqual({ width: before.contentWidth, height: before.contentHeight, bottomPixel: [0, 0, 255, 255] });
+  await expect.poll(() => cockpit.guest(id, viewState)).toEqual(before);
+  expect(await windowState()).toEqual(windowBefore);
+});
+
+test("full-page PNG save retries a transient Windows replacement lock without deleting the old file", async ({ cockpit }) => {
+  test.skip(process.platform !== "win32", "Windows atomic replacement retry.");
+  const file = join(cockpit.directory, "locked-full-page.png");
+  await writeFile(file, "approved old file", "utf8");
+  const sink = await screenshotSink(cockpit, file);
+  await fullPageFixture(cockpit);
+  const replacement = await cockpit.app.evaluateHandle(({ }, file) => {
+    const fs = process.getBuiltinModule("fs/promises"), rename = fs.rename;
+    const state = { attempts: 0, oldFilePreserved: true };
+    fs.rename = async (...args: Parameters<typeof rename>): Promise<void> => {
+      if (String(args[1]) === file) {
+        state.attempts++;
+        if (state.attempts <= 2) {
+          state.oldFilePreserved &&= await fs.readFile(file, "utf8") === "approved old file";
+          throw Object.assign(new Error("Owned transient Windows replacement lock"), { code: "EPERM" });
+        }
+      }
+      await rename(...args);
+    };
+    return state;
+  }, file);
+  await cockpit.page.getByTestId("preview-screenshot-save").click();
+  await expect.poll(async () => { try { return (await readFile(file)).subarray(1, 4).toString(); } catch { return ""; } }).toBe("PNG");
+  expect(await replacement.evaluate(state => state.oldFilePreserved)).toBe(true);
+  expect(await replacement.evaluate(state => state.attempts)).toBeGreaterThanOrEqual(3);
+  expect(await replacement.evaluate(state => state.attempts)).toBeLessThanOrEqual(6);
+  expect(await sink.evaluate(state => state.writes)).toBe(0);
+  expect((await readdir(cockpit.directory)).filter(file => file.startsWith(".cockpit-capture-"))).toEqual([]);
+});
+
+test("full-page PNG save preserves the old file and removes only its temporary file after persistent Windows locks", async ({ cockpit }) => {
+  test.skip(process.platform !== "win32", "Windows atomic replacement retry.");
+  const file = join(cockpit.directory, "locked-existing.png");
+  await writeFile(file, "approved old file", "utf8");
+  await screenshotSink(cockpit, file);
+  await fullPageFixture(cockpit);
+  await cockpit.app.evaluate(({ }, file) => {
+    const fs = process.getBuiltinModule("fs/promises"), rename = fs.rename;
+    fs.rename = async (...args: Parameters<typeof rename>): Promise<void> => {
+      if (String(args[1]) === file) throw Object.assign(new Error("Owned persistent lock"), { code: "EPERM" });
+      await rename(...args);
+    };
+  }, file);
+  await cockpit.page.getByTestId("preview-screenshot-save").click();
+  await expect(cockpit.page.getByText("ページ全体を撮影できませんでした。表示後にもう一度お試しください。", { exact: true })).toBeVisible();
+  expect(await readFile(file, "utf8")).toBe("approved old file");
+  expect((await readdir(cockpit.directory)).filter(file => file.startsWith(".cockpit-capture-"))).toEqual([]);
+});
+
+test("full-page capture uses the phone CSS width without changing responsive layout", async ({ cockpit }, testInfo) => {
+  const file = join(cockpit.directory, "phone-full-page.png");
+  const sink = await screenshotSink(cockpit, file);
+  const id = await fullPageFixture(cockpit);
+  await cockpit.page.getByRole("button", { name: "スマホ", exact: true }).click();
+  await expect.poll(() => cockpit.guest(id, "[innerWidth,innerHeight]")).toEqual([390, 844]);
+  await cockpit.guest(id, "document.querySelector('#draft').value='changed draft';scrollTo(0,700)");
+  const state = "[innerWidth,innerHeight,scrollY,devicePixelRatio,document.querySelector('#draft').value,document.documentElement.scrollWidth]";
+  const before = await cockpit.guest(id, state);
+  await cockpit.page.getByTestId("preview-screenshot-save").click();
+  await expect(cockpit.page.getByRole("status").filter({ hasText: "ページ全体をPNGで保存しました" })).toBeVisible();
+  const image = await cockpit.app.evaluate(({ nativeImage }, path) => {
+    const image = nativeImage.createFromPath(path), size = image.getSize();
+    const offset = ((size.height - 4) * size.width + Math.floor(size.width / 2)) * 4;
+    return { ...size, bottomPixel: Array.from(image.toBitmap().subarray(offset, offset + 4)) };
+  }, file);
+  expect(image).toEqual({ width: (before as unknown[])[5], height: 2600, bottomPixel: [0, 0, 255, 255] });
+  expect(await cockpit.guest(id, state)).toEqual(before);
+  expect(await sink.evaluate((state) => state.writes)).toBe(0);
+  await cockpit.page.screenshot({ path: testInfo.outputPath("capture-toolbar.png") });
+});
+
+test("full-page capture releases its debugging connection after failure and permits retry", async ({ cockpit }) => {
+  const sink = await screenshotSink(cockpit);
+  const id = await fullPageFixture(cockpit);
+  await cockpit.app.evaluate(({ webContents }, id) => {
+    const wc = webContents.getAllWebContents().find((wc) => wc.getURL().includes(id))!;
+    const send = wc.debugger.sendCommand.bind(wc.debugger);
+    wc.debugger.sendCommand = async (method, params, sessionId) => {
+      if (method === "Page.captureScreenshot") {
+        wc.debugger.sendCommand = send;
+        throw new Error("Injected capture failure");
+      }
+      return send(method, params, sessionId);
+    };
+  }, id);
+  await cockpit.page.getByTestId("preview-screenshot-copy").click();
+  await expect(cockpit.page.getByText("ページ全体を撮影できませんでした。表示後にもう一度お試しください。", { exact: true })).toBeVisible();
+  expect(await cockpit.app.evaluate(({ webContents }, id) => webContents.getAllWebContents().find((wc) => wc.getURL().includes(id))!.debugger.isAttached(), id)).toBe(false);
+  expect(await sink.evaluate((state) => state.writes)).toBe(0);
+  await cockpit.page.getByTestId("preview-screenshot-copy").click();
+  await expect.poll(() => sink.evaluate((state) => state.writes)).toBe(1);
+});
+
+test("full-page capture rejects a page hidden while capture is pending", async ({ cockpit }) => {
+  const sink = await screenshotSink(cockpit);
+  const id = await fullPageFixture(cockpit);
+  const held = await cockpit.app.evaluateHandle(({ webContents }, id) => {
+    const wc = webContents.getAllWebContents().find((wc) => wc.getURL().includes(id))!;
+    const send = wc.debugger.sendCommand.bind(wc.debugger);
+    const state = { started: false, release: () => {} };
+    const pending = new Promise<void>((resolve) => { state.release = resolve; });
+    wc.debugger.sendCommand = async (method, params, sessionId) => {
+      if (method === "Page.captureScreenshot") {
+        state.started = true;
+        await pending;
+        wc.debugger.sendCommand = send;
+      }
+      return send(method, params, sessionId);
+    };
+    return state;
+  }, id);
+  const result = cockpit.page.evaluate(({ tabId, id }) => window.cockpit!.preview!.request({ action: "screenshot", tabId, targetId: id, destination: "clipboard" }), { tabId: (await cockpit.snapshot()).tabId, id });
+  try {
+    await expect.poll(() => held.evaluate((state) => state.started)).toBe(true);
+    const competing = await cockpit.page.evaluate(({ tabId, id }) => window.cockpit!.preview!.request({ action: "capture", tabId, targetId: id }), { tabId: (await cockpit.snapshot()).tabId, id });
+    expect(competing).toEqual({ ok: false, error: "busy" });
+    await cockpit.page.getByTestId("preview-toggle").click();
+    await expect.poll(() => cockpit.page.getByTestId("preview-toggle").getAttribute("aria-expanded")).toBe("false");
+    await held.evaluate((state) => state.release());
+    expect(await result).toEqual({ ok: false, error: "invalid" });
+    expect(await sink.evaluate((state) => state.writes)).toBe(0);
+  } finally { await held.evaluate((state) => state.release()); }
+});
+
+test("full-page PNG save writes only the file selected by the dialog", async ({ cockpit }, testInfo) => {
+  const observed = await cockpit.app.evaluateHandle(({ app }, sourceRoot) => {
+    const { createRequire } = process.getBuiltinModule("module");
+    const requireApp = createRequire(`${app.isPackaged ? app.getAppPath() : sourceRoot}/package.json`);
+    const module = requireApp("./dist/electron/preview-screenshot.js") as { captureFullPage: (...args: unknown[]) => Promise<{ ok: boolean; error?: string }> };
+    const fs = process.getBuiltinModule("fs/promises");
+    const state = { captures: [] as { ok: boolean; error?: string; elapsedMs: number; invalidGuard: boolean }[], renameErrors: [] as string[],
+      presentations: [] as { before: unknown; after: unknown; result: unknown }[] };
+    const capture = module.captureFullPage, rename = fs.rename;
+    module.captureFullPage = async (...args) => {
+      let invalidGuard = false;
+      const guard = args[1] as () => boolean;
+      args[1] = () => { const valid = guard(); invalidGuard ||= !valid; return valid; };
+      const start = Date.now(), result = await capture(...args);
+      state.captures.push({ ok: result.ok, error: result.error, elapsedMs: Date.now() - start, invalidGuard });
+      return result;
+    };
+    type CaptureRecord = { target: { revision: number }; loadedRevision?: number; loading?: boolean };
+    const manager = requireApp("./dist/electron/preview-manager.js") as { PreviewManager: { prototype: {
+      screenshot: (record: CaptureRecord, destination: string) => Promise<{ ok: boolean; error?: string }>;
+    } } };
+    const prototype = manager.PreviewManager.prototype, screenshot = prototype.screenshot;
+    prototype.screenshot = async function(record, destination) {
+      const snapshot = (): unknown => ({ revision: record.target.revision, loadedRevision: record.loadedRevision, loading: record.loading });
+      const before = snapshot(), result = await screenshot.call(this, record, destination);
+      state.presentations.push({ before, after: snapshot(), result: { ok: result.ok, error: result.error } });
+      return result;
+    };
+    fs.rename = async (...args: Parameters<typeof rename>): Promise<void> => {
+      try { await rename(...args); }
+      catch (error) {
+        state.renameErrors.push(error && typeof error === "object" && "code" in error ? String(error.code) : "unknown");
+        throw error;
+      }
+    };
+    return state;
+  }, resolve(process.cwd()));
+  try {
+    const file = join(cockpit.directory, "saved-full-page.png");
+    await writeFile(file, "replace this fixture file", "utf8");
+    const sink = await screenshotSink(cockpit, file);
+    await fullPageFixture(cockpit);
+    await cockpit.page.getByTestId("preview-screenshot-save").click();
+    await expect.poll(async () => { try { return (await readFile(file)).subarray(1, 4).toString(); } catch { return ""; } }).toBe("PNG");
+    expect(await sink.evaluate(({ writes, saveDialogs }) => ({ writes, saveDialogs }))).toEqual({ writes: 0, saveDialogs: 1 });
+    const size = await cockpit.app.evaluate(({ nativeImage }, file) => nativeImage.createFromPath(file).getSize(), file);
+    expect(size.height).toBe(2600);
+    expect((await readdir(cockpit.directory)).filter((file) => file.startsWith(".cockpit-capture-"))).toEqual([]);
+  } finally {
+    await writeFile(testInfo.outputPath("save-operation-metadata.json"), JSON.stringify(await observed.jsonValue()), "utf8");
+  }
+});
+
+test("full-page capture includes the bottom of rendered Markdown", async ({ cockpit }) => {
+  const file = join(cockpit.directory, "long-document.md");
+  await writeFile(file, `# Full document\n\n${Array.from({ length: 90 }, (_, i) => `Paragraph ${i}: retained content.`).join("\n\n")}\n\nEND OF DOCUMENT`, "utf8");
+  const id = await cockpit.add(file);
+  await expect.poll(() => guestText(cockpit, id)).toContain("END OF DOCUMENT");
+  const size = await cockpit.guest(id, "({width:document.documentElement.scrollWidth,height:document.documentElement.scrollHeight,viewport:innerHeight})") as { width: number; height: number; viewport: number };
+  const sink = await screenshotSink(cockpit);
+  await cockpit.page.getByTestId("preview-screenshot-copy").click();
+  await expect.poll(() => sink.evaluate((state) => state.writes)).toBe(1);
+  expect(await sink.evaluate(({ width, height }) => ({ width, height }))).toEqual({ width: size.width, height: size.height });
+  expect(size.height).toBeGreaterThan(size.viewport * 2);
+});
+
+test("canceling full-page save preserves existing files and the clipboard", async ({ cockpit }) => {
+  const file = join(cockpit.directory, "keep-existing.png");
+  await writeFile(file, "existing file", "utf8");
+  const sink = await screenshotSink(cockpit, file, true);
+  await fullPageFixture(cockpit);
+  await cockpit.page.getByTestId("preview-screenshot-save").click();
+  await expect(cockpit.page.getByRole("status").filter({ hasText: "PNGの保存をキャンセルしました" })).toBeVisible();
+  expect(await readFile(file, "utf8")).toBe("existing file");
+  expect(await sink.evaluate((state) => state.writes)).toBe(0);
+});
+
+test("oversized full-page capture is rejected and can be retried after the page shrinks", async ({ cockpit }) => {
+  const sink = await screenshotSink(cockpit);
+  const id = await fullPageFixture(cockpit, 40000);
+  await cockpit.page.getByTestId("preview-screenshot-copy").click();
+  await expect(cockpit.page.getByText("ページが大きすぎます。表示幅を変更して、もう一度お試しください。", { exact: true })).toBeVisible();
+  expect(await sink.evaluate((state) => state.writes)).toBe(0);
+  await cockpit.guest(id, "document.documentElement.style.height='1200px';document.body.style.height='1200px';document.querySelector('.bottom').style.top='1168px'");
+  await cockpit.page.getByTestId("preview-screenshot-copy").click();
+  await expect.poll(() => sink.evaluate((state) => state.writes)).toBe(1);
+});
+
+test("full-page capture does not detach an existing debugging connection", async ({ cockpit }) => {
+  const sink = await screenshotSink(cockpit);
+  const id = await fullPageFixture(cockpit);
+  await cockpit.app.evaluate(({ webContents }, id) => webContents.getAllWebContents().find((wc) => wc.getURL().includes(id))!.debugger.attach("1.3"), id);
+  try {
+    const result = await cockpit.page.evaluate(({ tabId, id }) => window.cockpit!.preview!.request({ action: "screenshot", tabId, targetId: id, destination: "clipboard" }), { tabId: (await cockpit.snapshot()).tabId, id });
+    expect(result).toEqual({ ok: false, error: "busy" });
+    expect(await cockpit.app.evaluate(({ webContents }, id) => webContents.getAllWebContents().find((wc) => wc.getURL().includes(id))!.debugger.isAttached(), id)).toBe(true);
+    expect(await sink.evaluate((state) => state.writes)).toBe(0);
+  } finally {
+    await cockpit.app.evaluate(({ webContents }, id) => webContents.getAllWebContents().find((wc) => wc.getURL().includes(id))!.debugger.detach(), id);
+  }
+});
+
+test("full-page capture cannot read a target belonging to another work tab", async ({ cockpit }) => {
+  const sink = await screenshotSink(cockpit);
+  const id = await fullPageFixture(cockpit);
+  const result = await cockpit.page.evaluate((id) => window.cockpit!.preview!.request({ action: "screenshot", tabId: "other-tab", targetId: id, destination: "clipboard" }), id);
+  expect(result).toEqual({ ok: false, error: "invalid" });
+  expect(await sink.evaluate((state) => state.writes)).toBe(0);
+});
 
 test("preview chrome preserves the launcher's primary button in enabled, hovered and disabled states", async ({ cockpit }, testInfo) => {
   const launcher = cockpit.page.getByTestId("launcher");
@@ -383,6 +673,139 @@ test("an image link with a spaced path opens automatically after startup documen
   expect((await cockpit.snapshot()).targets.map((target) => target.name)).toEqual(["cover image.svg"]);
 });
 
+for (const wrapped of [false, true]) test(`explicit file delivery opens spaced Japanese Markdown${wrapped ? " across streamed wrapped lines" : " without quotes"}`, async ({ cockpit }, testInfo) => {
+  await cockpit.app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler("cockpit:pty-spawn");
+    ipcMain.handle("cockpit:pty-spawn", (_event, request: SpawnSessionRequest) => ({ session: { ...request, status: "idle", startedAt: Date.now(), shouldRestore: true } }));
+  });
+  const relative = "clients/20261029_Sample Leaf Japan/01_編集元/記事取込/確認依頼_20261029.md";
+  const file = join(cockpit.directory, relative);
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(file, "# 記事の確認依頼\n\n生成した文書をここで確認できます。", "utf8");
+  const launcher = cockpit.page.getByTestId("launcher");
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).fill(cockpit.directory);
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).press("Escape");
+  await launcher.getByRole("button", { name: /Start Session/u }).click();
+  const terminal = cockpit.page.getByTestId(/^terminal-/u); await expect(terminal).toBeVisible();
+  const sessionId = (await terminal.getAttribute("data-testid"))!.slice("terminal-".length);
+  await expect.poll(() => cockpit.page.evaluate(async (id) => (await window.cockpit!.getBootstrap()).workspace.sessions.some((session) => session.id === id), sessionId)).toBe(true);
+  const send = async (data: string): Promise<void> => cockpit.app.evaluate(({ BrowserWindow }, payload) => BrowserWindow.getAllWindows()[0].webContents.send("cockpit:pty-data", payload), { sessionId, data });
+  await send("記事の確認内容をまとめました。\r\n\r\n");
+  if (wrapped) {
+    await send("ファイル: \u001b[36mclients/20261029_Sample Leaf\u001b[0m\r\n");
+    expect((await cockpit.snapshot()).targets).toEqual([]);
+    await send(" Japan/01_編集元/記事取込/確認依頼_");
+    expect((await cockpit.snapshot()).targets).toEqual([]);
+    await send("20261029.md\r\n\r\nあなた待ち\r\n");
+  } else await send(`ファイル: ${relative}\r\n`);
+  await expect(cockpit.page.getByTestId("preview-toggle")).toHaveAttribute("aria-expanded", "true");
+  await expect(cockpit.page.getByRole("tab", { name: "確認依頼_20261029.md", exact: true })).toHaveAttribute("aria-selected", "true");
+  const target = (await cockpit.snapshot()).targets[0];
+  expect(target.source.replaceAll("\\", "/")).toBe(file.replaceAll("\\", "/"));
+  await expect.poll(() => guestText(cockpit, target.id)).toContain("生成した文書をここで確認できます。");
+  await expect(cockpit.page.getByText("場所を特定できない成果物があります。「ファイルを選ぶ」から開いてください。", { exact: true })).toHaveCount(0);
+  const png = await cockpit.app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString("base64"));
+  await writeFile(testInfo.outputPath("delivered-markdown.png"), Buffer.from(png, "base64"));
+});
+
+for (const format of ["markdown", "rendered", "osc-wrapped", "dismissed", "claude-image", "claude-image-home"] as const) test(`delivered image opens beside a manually selected document: ${format}`, async ({ cockpit }, testInfo) => {
+  await cockpit.app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler("cockpit:pty-spawn");
+    ipcMain.handle("cockpit:pty-spawn", (_event, request: SpawnSessionRequest) => ({ session: { ...request, status: "idle", startedAt: Date.now(), shouldRestore: true } }));
+  });
+  await mkdir(join(cockpit.directory, "proof"));
+  const relative = "proof/reported-file-preview.png", file = join(cockpit.directory, relative);
+  await writeFile(file, await pngFixture(cockpit.app));
+  const context = join(cockpit.directory, "AGENTS.md");
+  await writeFile(context, "# Currently selected instructions", "utf8");
+  const launcher = cockpit.page.getByTestId("launcher");
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).fill(cockpit.directory);
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).press("Escape");
+  await launcher.getByRole("button", { name: /Start Session/u }).click();
+  const terminal = cockpit.page.getByTestId(/^terminal-/u); await expect(terminal).toBeVisible();
+  const sessionId = (await terminal.getAttribute("data-testid"))!.slice("terminal-".length);
+  await expect.poll(() => cockpit.page.evaluate(async (id) => (await window.cockpit!.getBootstrap()).workspace.sessions.some((session) => session.id === id), sessionId)).toBe(true);
+  const send = async (data: string): Promise<void> => cockpit.app.evaluate(({ BrowserWindow }, payload) => BrowserWindow.getAllWindows()[0].webContents.send("cockpit:pty-data", payload), { sessionId, data });
+  await cockpit.add(context);
+  await expect(cockpit.page.getByText("基準を自動保存しました", { exact: true })).toBeVisible();
+  await send(`Reading ${relative}\r\n`);
+  await cockpit.page.getByRole("button", { name: "プレビュー対象を追加", exact: true }).click();
+  await expect(cockpit.page.getByRole("button", { name: relative, exact: true })).toBeVisible();
+  await expect(cockpit.page.getByRole("tab", { name: "AGENTS.md", exact: true })).toHaveAttribute("aria-selected", "true");
+  await cockpit.page.getByRole("button", { name: "プレビュー対象を追加", exact: true }).click();
+  const escape = String.fromCharCode(27), bell = String.fromCharCode(7);
+  const output = format === "markdown" ? `[目視した表示画像](${relative})\r\n`
+    : format === "claude-image" || format === "claude-image-home" ? `› [image] ${format === "claude-image-home" ? `~/${relativePath(homedir(), file).replaceAll("\\", "/")}` : relative} (258.1KB)\r\n`
+    : format === "osc-wrapped" ? `${escape}]8;;file:///${file.replaceAll("\\", "/").replace(/^\//u, "")}${bell}目視した表示画像\r\n (${relative})${escape}]8;;${bell}\r\n`
+    : "  目視した表示画像 (proof/reported-file-\r\n  preview.png)\r\n";
+  if (format === "dismissed") {
+    await cockpit.page.getByRole("button", { name: "AGENTS.mdを閉じる", exact: true }).click();
+    await expect.poll(async () => (await cockpit.snapshot()).targets.length).toBe(0);
+    await cockpit.page.getByTestId("preview-toggle").click();
+  }
+  await send(output.slice(0, 20));
+  await send(output.slice(20) + (format === "dismissed" ? "proof/missing.png\r\n" : ""));
+  if (format === "dismissed") {
+    await expect(cockpit.page.getByText("場所を特定できない成果物があります。「ファイルを選ぶ」から開いてください。", { exact: true })).toHaveCount(1);
+    await expect(cockpit.page.getByTestId("preview-toggle")).toHaveAttribute("aria-expanded", "false");
+    expect((await cockpit.snapshot()).targets).toEqual([]);
+    return;
+  }
+  await expect(cockpit.page.getByRole("tab", { name: "reported-file-preview.png", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(cockpit.page.getByRole("tab", { name: "AGENTS.md", exact: true })).toHaveAttribute("aria-selected", "false");
+  await expect(cockpit.page.getByRole("button", { name: "基準を保存", exact: true })).toBeEnabled();
+  const target = (await cockpit.snapshot()).targets.find((target) => target.name === "reported-file-preview.png")!;
+  await expect.poll(async () => {
+    try { return await cockpit.guest(target.id, "[document.querySelector('img')?.naturalWidth,document.querySelector('img')?.naturalHeight]"); }
+    catch { return null; }
+  }).toEqual([320, 200]);
+  const png = await cockpit.app.evaluate(async ({ BrowserWindow }, id) => {
+    const view = BrowserWindow.getAllWindows()[0].contentView.children.find((view) => "webContents" in view && (view as Electron.WebContentsView).webContents.getURL().includes(id)) as Electron.WebContentsView;
+    if (view.getBounds().width < 100) throw new Error("Native preview is not presented");
+    return (await view.webContents.capturePage()).toPNG().toString("base64");
+  }, target.id);
+  await writeFile(testInfo.outputPath("delivered-image.png"), Buffer.from(png, "base64"));
+});
+
+test("reported Claude image delivery opens the original image without deploying", async ({ cockpit }, testInfo) => {
+  const file = process.env.COCKPIT_DELIVERED_IMAGE_FILE, directory = process.env.COCKPIT_DELIVERED_IMAGE_CWD;
+  test.skip(!file || !directory, "Requires an explicitly supplied read-only reported image");
+  await cockpit.app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler("cockpit:pty-spawn");
+    ipcMain.handle("cockpit:pty-spawn", (_event, request: SpawnSessionRequest) => ({ session: { ...request, status: "idle", startedAt: Date.now(), shouldRestore: true } }));
+  });
+  const launcher = cockpit.page.getByTestId("launcher");
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).fill(directory!);
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).press("Escape");
+  await launcher.getByRole("button", { name: /Start Session/u }).click();
+  const terminal = cockpit.page.getByTestId(/^terminal-/u); await expect(terminal).toBeVisible();
+  const sessionId = (await terminal.getAttribute("data-testid"))!.slice("terminal-".length);
+  await expect.poll(() => cockpit.page.evaluate(async id => (await window.cockpit!.getBootstrap()).workspace.sessions.some(session => session.id === id), sessionId)).toBe(true);
+  const source = `~\\${relativePath(homedir(), file!).replaceAll("/", "\\")}`;
+  await cockpit.app.evaluate(({ BrowserWindow }, payload) => BrowserWindow.getAllWindows()[0].webContents.send("cockpit:pty-data", payload), { sessionId, data: `› [image] ${source} (258.1KB)\r\n` });
+  await expect(cockpit.page.getByRole("tab", { name: basename(file!), exact: true })).toHaveAttribute("aria-selected", "true");
+  const target = (await cockpit.snapshot()).targets.find(target => target.name === basename(file!))!;
+  const size = await cockpit.app.evaluate(({ nativeImage }, file) => nativeImage.createFromPath(file).getSize(), file!);
+  await expect.poll(async () => { try { return await cockpit.guest(target.id, "[document.querySelector('img')?.naturalWidth, document.querySelector('img')?.naturalHeight]"); } catch { return null; } }).toEqual([size.width, size.height]);
+  let png = "";
+  await expect.poll(async () => {
+    const capture = await cockpit.app.evaluate(async ({ BrowserWindow }, id) => {
+    const view = BrowserWindow.getAllWindows()[0].contentView.children.find(view => "webContents" in view && (view as Electron.WebContentsView).webContents.getURL().includes(id)) as Electron.WebContentsView;
+    if (view.getBounds().width < 100) throw Error("Reported image is not presented");
+    const image = await view.webContents.capturePage(), pixels = image.toBitmap();
+    let colorfulPixels = 0;
+    for (let offset = 0; offset < pixels.length; offset += 4) {
+      const channels = [pixels[offset], pixels[offset + 1], pixels[offset + 2]];
+      if (Math.max(...channels) > 80 && Math.max(...channels) - Math.min(...channels) > 35) colorfulPixels++;
+    }
+    return { png: image.toPNG().toString("base64"), colorfulPixels };
+    }, target.id);
+    png = capture.png;
+    return capture.colorfulPixels;
+  }).toBeGreaterThan(1000);
+  await writeFile(testInfo.outputPath("reported-original-image.png"), Buffer.from(png, "base64"));
+});
+
 test("generated PDF and image output follow automatically while manual selection stays selected", async ({ cockpit }) => {
   test.setTimeout(45_000);
   await cockpit.app.evaluate(({ ipcMain }) => {
@@ -553,14 +976,15 @@ test("relative artifacts automatically open from each CLI directory and never re
     await send("Created: preview/in"); await send("dex.html\r\noutput/report.pdf\r\nsrc/electron/preview-files.ts\r\n");
     const active = cockpit.page.locator("[data-active-tab-panel]");
     await expect(active.getByTestId("preview-toggle")).toHaveAttribute("aria-expanded", "true");
-    await expect(active.getByRole("tab", { name: "index.html", exact: true })).toBeVisible();
+    await expect(active.getByRole("tab", { name: "preview · /", exact: true })).toBeVisible();
     const tabId = (await active.getAttribute("data-tab-panel-id"))!;
     const result = await cockpit.page.evaluate((tabId) => window.cockpit!.preview!.request({ action: "list", tabId }), tabId);
     expect(result.ok && result.value.targets[0].source).toBe(join(root, "preview", "index.html"));
+    expect(result.ok && result.value.targets[0].siteRoot).toBe(join(root, "preview"));
     await send("Next file: output/report.pdf\r\nMissing: output/missing.pdf\r\n");
     await active.getByRole("button", { name: "プレビュー対象を追加", exact: true }).click();
     await expect(active.getByText("場所を特定できない成果物があります。「ファイルを選ぶ」から開いてください。", { exact: true })).toBeVisible();
-    await expect(active.getByRole("tab", { name: "index.html", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(active.getByRole("tab", { name: "preview · /", exact: true })).toHaveAttribute("aria-selected", "true");
     const wrongTab = await cockpit.page.evaluate((sessionId) => window.cockpit!.preview!.request({ action: "discover", tabId: "other-tab", sessionId, paths: ["preview/index.html"] }), sessionId);
     expect(wrongTab.ok && wrongTab.discovery?.files).toEqual([]);
     await active.getByRole("button", { name: "閉じる", exact: true }).click();
@@ -1000,6 +1424,59 @@ test("real shell output opens a native preview without preview actions on deskto
   expect(await cockpit.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   const png = await cockpit.app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString("base64"));
   await writeFile(testInfo.outputPath("automatic-preview-phone.png"), Buffer.from(png, "base64"));
+});
+
+test("a real shell file delivery opens wrapped unquoted Markdown with spaces", async ({ cockpit }, testInfo) => {
+  test.setTimeout(45_000);
+  const relative = "clients/20261029_Sample Leaf Japan/01_編集元/記事取込/確認依頼_20261029.md";
+  const script = join(cockpit.directory, "deliver-markdown.cjs");
+  const received = await cockpit.page.evaluateHandle(() => {
+    const state = { text: "" }; window.cockpit!.onPtyData(event => { state.text = (state.text + event.data).slice(-65536); }); return state;
+  });
+  const output = `ファイル: clients/20261029_Sample Leaf\r\n Japan/01_編集元/記事取込/確認依頼_20261029.md\r\n`;
+  await writeFile(script, `const fs=require('node:fs'),path=require('node:path');const file=path.join(__dirname,${JSON.stringify(relative)});fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,${JSON.stringify("# 文書の確認\n\n実際のPTY出力から開いた文書です。")},'utf8');process.stdout.write(${JSON.stringify(output)});`, "utf8");
+  const launcher = cockpit.page.getByTestId("launcher");
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).fill(cockpit.directory);
+  await launcher.getByRole("combobox", { name: "プロジェクト" }).press("Escape");
+  await launcher.getByTestId(`cli-option-${process.platform === "darwin" ? "shell" : "powershell"}`).focus();
+  await cockpit.page.keyboard.press("Space");
+  await launcher.getByRole("button", { name: /Start Session/u }).click();
+  const terminal = cockpit.page.getByTestId(/^terminal-/u); await expect(terminal).toBeVisible();
+  const sessionId = (await terminal.getAttribute("data-testid"))!.slice("terminal-".length);
+  await expect.poll(async () => (await readFile(join(cockpit.directory, "diagnostic.log"), "utf8")).includes('"bootstrapWritten":true')).toBe(true);
+  const quoted = process.platform === "win32" ? `'${script.replaceAll("'", "''")}'` : `'${script.replaceAll("'", "'\\''")}'`;
+  await cockpit.page.evaluate((input) => window.cockpit!.writeSession(input), { sessionId, data: `node ${quoted}\r` });
+  try {
+    await expect(cockpit.page.getByRole("tab", { name: "確認依頼_20261029.md", exact: true })).toHaveAttribute("aria-selected", "true");
+    const target = (await cockpit.snapshot()).targets[0];
+    expect(target.source.replaceAll("\\", "/")).toBe(join(cockpit.directory, relative).replaceAll("\\", "/"));
+    await expect.poll(() => guestText(cockpit, target.id)).toContain("実際のPTY出力から開いた文書です。");
+    await expect.poll(async () => (await cockpit.snapshot()).targets.find(item => item.id === target.id)?.error).toBeUndefined();
+    let guestPng = "";
+    await expect.poll(async () => {
+      const captured = await cockpit.app.evaluate(async ({ BrowserWindow }, id) => {
+        const view = BrowserWindow.getAllWindows()[0].contentView.children.find(view => "webContents" in view && (view as Electron.WebContentsView).webContents.getURL().includes(id)) as Electron.WebContentsView;
+        if (view.getBounds().width < 100 || view.getBounds().height < 100) return { png: "", painted: false };
+        const image = await view.webContents.capturePage(), pixels = image.toBitmap();
+        let paper = 0, ink = 0;
+        for (let offset = 0; offset < pixels.length; offset += 4) {
+          if (pixels[offset] > 240 && pixels[offset + 1] > 240 && pixels[offset + 2] > 240) paper++;
+          if (pixels[offset] < 80 && pixels[offset + 1] < 80 && pixels[offset + 2] < 80) ink++;
+        }
+        return { png: image.toPNG().toString("base64"), painted: paper > 3000 && ink > 30 };
+      }, target.id);
+      guestPng = captured.png;
+      return captured.painted;
+    }).toBe(true);
+    await writeFile(testInfo.outputPath("real-pty-delivered-markdown-guest.png"), Buffer.from(guestPng, "base64"));
+    await expect(cockpit.page.getByText("場所を特定できない成果物があります。「ファイルを選ぶ」から開いてください。", { exact: true })).toHaveCount(0);
+    const png = await cockpit.app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString("base64"));
+    await writeFile(testInfo.outputPath("real-pty-delivered-markdown.png"), Buffer.from(png, "base64"));
+  } finally {
+    await writeFile(testInfo.outputPath("terminal-output.log"), (await received.jsonValue()).text, "utf8");
+    await writeFile(testInfo.outputPath("shell-diagnosis.json"), JSON.stringify({ artifactExists: await access(join(cockpit.directory, relative)).then(() => true, () => false) }), "utf8");
+    await received.dispose();
+  }
 });
 
 test("a real shell generates PDF and PNG files and opens them from Japanese completion output", async ({ cockpit }) => {

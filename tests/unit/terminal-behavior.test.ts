@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   type CaptureKeydownTarget,
   getTerminalManualNewlineSequence,
+  getCodexHistoryPickerSubmitSequence,
+  isCliInitialPromptReady,
   isPlausibleCharacterWidth,
   isTerminalLineFeedKey,
   rebindCaptureKeydown,
@@ -22,6 +24,57 @@ interface PendingFrame {
   callback: () => void;
   id: number;
 }
+
+test("Codex initial directives require a live composer and an idle status", () => {
+  assert.equal(isCliInitialPromptReady("codex", ["› Ask Codex to do anything", "GPT-6.1 · Ready · weekly 80% left"]), true);
+  assert.equal(isCliInitialPromptReady("codex", ["❯ ", "gpt-5.2-codex · 100% context left"]), true);
+  assert.equal(isCliInitialPromptReady("codex", ["GPT-6.1 · Ready"]), false);
+  assert.equal(isCliInitialPromptReady("codex", ["› Ask Codex to do anything"]), false);
+});
+
+test("Codex loading and bootstrap echoes cannot accept an inbox directive", () => {
+  for (const lines of [[], ["PS C:\\project> codex.cmd"], ["OpenAI Codex", "loading"],
+    ["› Ask Codex to do anything", "GPT-6.1 · Starting · Context 100% left"]]) {
+    assert.equal(isCliInitialPromptReady("codex", lines), false);
+  }
+});
+
+test("Codex provider dialogs never receive a task as an automatic answer", () => {
+  for (const dialog of ["Update available", "Trust and continue", "Do you trust this directory?", "Resume a previous session", "Type to search"]) {
+    assert.equal(isCliInitialPromptReady("codex", [dialog, "› 1. Continue", "GPT-6.1 · Ready · Context 100% left"]), false);
+  }
+});
+
+test("other CLI providers retain their existing output-settle behavior", () => {
+  assert.equal(isCliInitialPromptReady("claude", []), true);
+  assert.equal(isCliInitialPromptReady(undefined, []), true);
+});
+
+test("a dismissed Codex update banner does not hide a ready composer", () => {
+  const banner = ["Update available! 0.166.0 -> 0.167.0", "Run npm install -g @openai/codex to update."];
+  const composer = ["› Ask Codex to do anything", "GPT-6.1 · Ready · Context 100% left"];
+  assert.equal(isCliInitialPromptReady("codex", [...banner, ...composer]), true);
+  assert.equal(isCliInitialPromptReady("codex", banner), false);
+  assert.equal(isCliInitialPromptReady("codex", [...banner, "› 1. Update now", "3. Skip until next version", ...composer]), false);
+  assert.equal(isCliInitialPromptReady("codex", [...banner, "Trust and continue", ...composer]), false);
+});
+
+test("Codex history uses Enter confirmation only with all live picker landmarks", () => {
+  const lines = ["Resume a previous session", "Filter: Cwd All  Status: Active Archived", "enter resume  esc start new  ctrl+c quit"];
+  const enter = keyEvent({ key: "Enter", code: "Enter", keyCode: 13 });
+  assert.equal(getCodexHistoryPickerSubmitSequence(enter, "codex resume", lines), "\r");
+  assert.equal(getCodexHistoryPickerSubmitSequence({ ...enter, shiftKey: true }, "codex", lines), "\r");
+  for (const partial of [lines.slice(0, 2), lines.slice(1), [lines[0], lines[2]], ["› Explain resume", "enter resume"]]) assert.equal(getCodexHistoryPickerSubmitSequence(enter, "codex", partial), undefined);
+  assert.equal(getCodexHistoryPickerSubmitSequence(enter, "claude", lines), undefined);
+});
+
+test("history confirmation never consumes IME commits, modified keys or ordinary typing", () => {
+  const lines = ["Resume a previous session", "Filter: Cwd All Status: Active", "enter resume  esc start new"];
+  const enter = keyEvent({ key: "Enter", code: "Enter", keyCode: 13 });
+  for (const overrides of [{ isComposing: true }, { keyCode: 229 }, { key: "Process" }, { ctrlKey: true }, { altKey: true }, { metaKey: true }, { key: "a", code: "KeyA" }]) {
+    assert.equal(getCodexHistoryPickerSubmitSequence({ ...enter, ...overrides }, "codex", lines), undefined);
+  }
+});
 
 function keyEvent(
   overrides: Partial<Parameters<typeof resolveTerminalKeyAction>[0]> = {},

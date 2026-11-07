@@ -35,7 +35,7 @@ Apple Silicon・IntelでCLIの起動やプレビューなどの自動テスト�
 - 表示が崩れたら：Command + Shift + R。作業への入力を送らず再描画します。
 - 使い方を見る：右上の「?」かF1。Macの設定によってはfn + F1です。
 
-終了時にはCLIも終了します。再起動時はタブとペインの配置を復元しますが、前の会話の続きは各CLIの再開機能で開いてください。セッション状態はMacの`~/Library/Application Support/claude-cli-cockpit/`に保存します。CLIの設定ファイルや認証情報をCockpitが書き換えることはありません。
+終了時にはCLIも終了します。再起動時はタブとペインの配置を復元し、会話IDを記録できたClaude Code・Codexのタブでは、その会話の再開を試みます。会話IDのない旧タブは履歴一覧から会話を選んでください。Mac上の実AIサービスを使った会話再開の受け入れ確認は未完了です。セッション状態はMacの`~/Library/Application Support/claude-cli-cockpit/`に保存します。CockpitはCLIの履歴・設定を参照しますが、認証情報を書き換えません。CLI自身が保存する信頼済みフォルダーなどの設定は、各CLIの動作に従います。
 
 ## プレビュー
 

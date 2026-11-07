@@ -7,6 +7,7 @@ import { session, WebContentsView } from "electron";
 import { z } from "zod";
 
 import { archiveFingerprint, historyVictims, PREVIEW_HISTORY_BYTES } from "./preview-history";
+import { freezePreviewAnimations } from "./preview-animation";
 
 import type { BrowserWindow, Rectangle, WebContents } from "electron";
 import type { PreviewCapture, PreviewVersion, PreviewVersionComparison } from "../shared/preview";
@@ -248,6 +249,7 @@ export class PreviewPageReview {
         view.setBounds({ x: Math.min(box.x, windowWidth - 1), y: Math.min(box.y, windowHeight - 1), width: Math.max(1, Math.min(box.width, windowWidth - box.x)), height: Math.max(1, Math.min(box.height, windowHeight - box.y)) });
         view.webContents.enableDeviceEmulation({ screenPosition: "desktop", screenSize: { width, height }, deviceScaleFactor: 0, viewPosition: { x: 0, y: 0 }, viewSize: { width, height }, scale: Math.min(1, box.width / width, box.height / height) });
         view.setVisible(true);
+        await freezePreviewAnimations(view.webContents, false);
       }
       if (pair.highlighted !== highlight) {
         pair.css ??= ["", ""];
