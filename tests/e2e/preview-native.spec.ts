@@ -130,6 +130,8 @@ async function fullPageFixture(cockpit: NativeFixture, height = 2600): Promise<s
 test("full-page capture copies pixels beyond the viewport and preserves the current page", async ({ cockpit }) => {
   const sink = await screenshotSink(cockpit);
   const id = await fullPageFixture(cockpit);
+  const windowState = () => cockpit.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(window => ({ visible: window.isVisible(), opacity: window.getOpacity() })));
+  const windowBefore = await windowState();
   const viewState = `({width:innerWidth,height:innerHeight,x:scrollX,y:scrollY,contentWidth:document.documentElement.scrollWidth,contentHeight:document.documentElement.scrollHeight,input:document.querySelector('#draft').value})`;
   await cockpit.guest(id, "scrollTo(0,400)");
   const before = await cockpit.guest(id, `new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(${viewState}))))`) as { contentWidth: number; contentHeight: number };
@@ -138,7 +140,7 @@ test("full-page capture copies pixels beyond the viewport and preserves the curr
   expect(await sink.evaluate(({ width, height, bottomPixel }) => ({ width, height, bottomPixel })))
     .toEqual({ width: before.contentWidth, height: before.contentHeight, bottomPixel: [0, 0, 255, 255] });
   await expect.poll(() => cockpit.guest(id, viewState)).toEqual(before);
-  expect(await cockpit.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((window) => window.isVisible() && window.getOpacity() !== 0))).toBe(false);
+  expect(await windowState()).toEqual(windowBefore);
 });
 
 test("full-page PNG save retries a transient Windows replacement lock without deleting the old file", async ({ cockpit }) => {
@@ -1428,6 +1430,9 @@ test("a real shell file delivery opens wrapped unquoted Markdown with spaces", a
   test.setTimeout(45_000);
   const relative = "clients/20261029_Sample Leaf Japan/01_編集元/記事取込/確認依頼_20261029.md";
   const script = join(cockpit.directory, "deliver-markdown.cjs");
+  const received = await cockpit.page.evaluateHandle(() => {
+    const state = { text: "" }; window.cockpit!.onPtyData(event => { state.text = (state.text + event.data).slice(-65536); }); return state;
+  });
   const output = `ファイル: clients/20261029_Sample Leaf\r\n Japan/01_編集元/記事取込/確認依頼_20261029.md\r\n`;
   await writeFile(script, `const fs=require('node:fs'),path=require('node:path');const file=path.join(__dirname,${JSON.stringify(relative)});fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,${JSON.stringify("# 文書の確認\n\n実際のPTY出力から開いた文書です。")},'utf8');process.stdout.write(${JSON.stringify(output)});`, "utf8");
   const launcher = cockpit.page.getByTestId("launcher");
@@ -1441,13 +1446,19 @@ test("a real shell file delivery opens wrapped unquoted Markdown with spaces", a
   await expect.poll(async () => (await readFile(join(cockpit.directory, "diagnostic.log"), "utf8")).includes('"bootstrapWritten":true')).toBe(true);
   const quoted = process.platform === "win32" ? `'${script.replaceAll("'", "''")}'` : `'${script.replaceAll("'", "'\\''")}'`;
   await cockpit.page.evaluate((input) => window.cockpit!.writeSession(input), { sessionId, data: `node ${quoted}\r` });
-  await expect(cockpit.page.getByRole("tab", { name: "確認依頼_20261029.md", exact: true })).toHaveAttribute("aria-selected", "true");
-  const target = (await cockpit.snapshot()).targets[0];
-  expect(target.source.replaceAll("\\", "/")).toBe(join(cockpit.directory, relative).replaceAll("\\", "/"));
-  await expect.poll(() => guestText(cockpit, target.id)).toContain("実際のPTY出力から開いた文書です。");
-  await expect(cockpit.page.getByText("場所を特定できない成果物があります。「ファイルを選ぶ」から開いてください。", { exact: true })).toHaveCount(0);
-  const png = await cockpit.app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString("base64"));
-  await writeFile(testInfo.outputPath("real-pty-delivered-markdown.png"), Buffer.from(png, "base64"));
+  try {
+    await expect(cockpit.page.getByRole("tab", { name: "確認依頼_20261029.md", exact: true })).toHaveAttribute("aria-selected", "true");
+    const target = (await cockpit.snapshot()).targets[0];
+    expect(target.source.replaceAll("\\", "/")).toBe(join(cockpit.directory, relative).replaceAll("\\", "/"));
+    await expect.poll(() => guestText(cockpit, target.id)).toContain("実際のPTY出力から開いた文書です。");
+    await expect(cockpit.page.getByText("場所を特定できない成果物があります。「ファイルを選ぶ」から開いてください。", { exact: true })).toHaveCount(0);
+    const png = await cockpit.app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString("base64"));
+    await writeFile(testInfo.outputPath("real-pty-delivered-markdown.png"), Buffer.from(png, "base64"));
+  } finally {
+    await writeFile(testInfo.outputPath("terminal-output.log"), (await received.jsonValue()).text, "utf8");
+    await writeFile(testInfo.outputPath("shell-diagnosis.json"), JSON.stringify({ artifactExists: await access(join(cockpit.directory, relative)).then(() => true, () => false) }), "utf8");
+    await received.dispose();
+  }
 });
 
 test("a real shell generates PDF and PNG files and opens them from Japanese completion output", async ({ cockpit }) => {

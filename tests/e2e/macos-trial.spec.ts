@@ -168,7 +168,8 @@ test("Mac Codex launcher attaches only after starting the opted-in daemon", asyn
   await start("codex");
   await expect.poll(() => readJsonLines(join(root, "cli-calls.jsonl"))).toEqual([
     { command: "codex", args: ["app-server", "daemon", "start"], cwd: project },
-    { command: "codex", args: ["--remote", "unix://", "--cd", project, "-c", "tui.whimsy=false"], cwd: project },
+    { command: "codex", args: ["--remote", expect.stringMatching(/^ws:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/u),
+      "--remote-auth-token-env", "COCKPIT_CODEX_OBSERVER_TOKEN", "--cd", project, "-c", "tui.whimsy=false"], cwd: project },
   ]);
 });
 

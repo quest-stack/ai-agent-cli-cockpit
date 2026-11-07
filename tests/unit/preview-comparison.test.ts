@@ -4,6 +4,17 @@ import test from "node:test";
 import { previewRequestSchema } from "../../src/shared/preview";
 import { previewArtifactPaths, previewDeliveredPaths, previewPaths, previewUrls } from "../../src/shared/preview-paths";
 
+test("PTY newline expansion preserves wrapped delivered paths without crossing blank lines", () => {
+  const path = "clients/Sample Leaf Japan/01_編集元/確認依頼.md";
+  const output = "ファイル: clients/Sample Leaf\r\r\n Japan/01_編集元/確認依頼.md\r\r\n";
+  assert.deepEqual(previewPaths(output), [path]);
+  assert.deepEqual(previewDeliveredPaths(output), [path]);
+  assert.deepEqual(previewArtifactPaths(output), [path]);
+  assert.deepEqual(previewDeliveredPaths(output.replace("Leaf\r\r\n", "Leaf\r\r\n\r\r\n")), []);
+  assert.deepEqual(previewArtifactPaths("Reading clients/report.md\r\r\n"), []);
+  assert.deepEqual(previewDeliveredPaths("ファイル: clients/partial\r Japan/report.md\n"), []);
+});
+
 test("Claude image delivery labels with a byte size are explicit artifacts", () => {
   for (const path of ["proof/icon sample.png", "~\\my-project\\proof\\icon.png", "~/my-project/proof/icon.png"]) {
     const output = `› [image] ${path} (258.1KB)\r\n`;

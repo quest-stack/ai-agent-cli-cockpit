@@ -4,6 +4,9 @@ const artifactExtension = /\.(?:html?|md|png|jpe?g|gif|webp|svg|pdf|mp4)(?::\d+(
 
 function cliText(output: string): string {
   const text = output.slice(-16384)
+    // A cooked POSIX PTY can expand a CLI's CRLF into CRCRLF via ONLCR.
+    // Collapse only CR runs followed by LF; lone repaint CRs stay unchanged.
+    .replace(/\r+(?=\n)/gu, "\r")
     // eslint-disable-next-line no-control-regex -- Preserve the destination of a completed OSC 8 terminal hyperlink.
     .replace(/\x1b\]8;[^\x07\x1b;]*;([^\x07\x1b]+)(?:\x07|\x1b\\)([\s\S]*?)\x1b\]8;[^\x07\x1b;]*;(?:\x07|\x1b\\)/gu,
       (_match, url: string, label: string) => `[${label.replace(/\r?\n[\t ]*/gu, " ")}](<${url}>)`)

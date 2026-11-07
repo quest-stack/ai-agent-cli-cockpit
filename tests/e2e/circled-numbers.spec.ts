@@ -59,10 +59,13 @@ for (const renderer of ["dom", "webgl"] as const) {
         }));
         ipcMain.on("cockpit:pty-write", (_event, request: PtyWriteRequest) => state.written.push(request));
         ipcMain.on("cockpit:pty-resize", (_event, request: PtyResizeRequest) => state.resized.push(request));
-        ipcMain.removeHandler("cockpit:clipboard-write-text");
-        ipcMain.handle("cockpit:clipboard-write-text", (_event, text: string) => {
-          state.copied.push(text);
-        });
+        // Mac verifies the real native clipboard; do not replace its write handler.
+        if (process.platform !== "darwin") {
+          ipcMain.removeHandler("cockpit:clipboard-write-text");
+          ipcMain.handle("cockpit:clipboard-write-text", (_event, text: string) => {
+            state.copied.push(text);
+          });
+        }
         return state;
       });
       const launcher = page.getByTestId("launcher").filter({ visible: true });
