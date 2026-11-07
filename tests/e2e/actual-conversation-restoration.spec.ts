@@ -72,15 +72,21 @@ test(metadataOnly ? "actual providers publish four distinct conversation identit
       const requireApp = createRequire(`${root}/package.json`);
       const module = requireApp("./dist/electron/pty-manager.js") as { PtyManager: { prototype: {
         recordConversation: (sessionId: string, conversation: ProviderConversation) => void;
+        spawn: (request: { cwd: string; command: string }) => unknown;
       } } };
       const proto = module.PtyManager.prototype;
+      const originalSpawn = proto.spawn;
+      proto.spawn = function(request): unknown {
+        if (request.cwd.replaceAll("\\", "/").toLowerCase() !== input.cwd.replaceAll("\\", "/").toLowerCase()) throw new Error("Actual-provider fixture escaped its owned project");
+        return originalSpawn.call(this, request);
+      };
       const original = proto.recordConversation;
       if (typeof original !== "function") throw new Error("Candidate has no conversation observation");
       proto.recordConversation = function(sessionId, conversation): void {
         fs.appendFileSync(input.trace, `${JSON.stringify({ sessionId, conversation, time: Date.now() })}\n`);
         original.call(this, sessionId, conversation);
       };
-    }, { appRoot, trace });
+    }, { appRoot, trace, cwd });
     return application;
   };
   const saved = async (): Promise<PersistedWorkspace> => JSON.parse(await readFile(workspacePath, "utf8")) as PersistedWorkspace;
@@ -92,11 +98,28 @@ test(metadataOnly ? "actual providers publish four distinct conversation identit
     await expect(page.getByTestId(`terminal-${item.sessionId}`).locator(".xterm-rows")).toBeAttached();
     let trusted = false;
     let trustSelectionAdvanced = false;
+    let declinedMcp = false;
+    let declinedExternalImports = false;
     await expect.poll(async () => {
       const text = (await lines(page, item.sessionId)).join("\n");
+      if (text.includes("Allow external CLAUDE.md file imports?")) {
+        if (!declinedExternalImports && /[❯›>]\s*No, disable external imports/u.test(text)) {
+          declinedExternalImports = true;
+          await page.getByTestId(`terminal-${item.sessionId}`).locator(".xterm-helper-textarea").press("Enter");
+        }
+        return false;
+      }
+      if (/new MCP servers found in this project|Select any you wish to enable/iu.test(text)) {
+        if (!declinedMcp) {
+          declinedMcp = true;
+          await page.getByTestId(`terminal-${item.sessionId}`).locator(".xterm-helper-textarea").press("Escape");
+        }
+        return false;
+      }
       const claudeTrust = text.includes("Yes, I trust this folder") && text.includes("No, exit");
       const codexTrust = /(?:trust|Trust).*(?:folder|directory)|(?:folder|directory).*(?:trust|Trust)/u.test(text) && /1\.\s*(?:Yes|Trust and continue)/u.test(text);
       const trustPrompt = claudeTrust || codexTrust;
+      if (trustPrompt && !text.includes(cwd.split(/[\\/]/u).at(-1)!)) throw new Error("Trust prompt does not identify the owned fixture folder");
       await writeFile(testInfo.outputPath(`startup-observation-${item.name}.json`), JSON.stringify({ text, claudeTrust, codexTrust, trusted, trustSelectionAdvanced }), "utf8");
       if (!trusted && claudeTrust && /[❯›>]\s*No, exit/u.test(text)) {
         trustSelectionAdvanced = true;
@@ -106,7 +129,8 @@ test(metadataOnly ? "actual providers publish four distinct conversation identit
         trusted = true;
         await page.getByTestId(`terminal-${item.sessionId}`).locator(".xterm-helper-textarea").press("Enter");
       }
-      return /[❯›]/u.test(text) && !trustPrompt && !/(?:1\.\s*Yes|Sign in to)/u.test(text);
+      const idleFooter = item.command !== "codex" || /context.{0,18}(?:left|remaining)|(?:left|remaining).{0,18}context|·\s*Ready\s*·/iu.test(text);
+      return idleFooter && /[❯›]/u.test(text) && !trustPrompt && !/(?:1\.\s*Yes|Sign in to)/u.test(text);
     }, { timeout: 90_000, intervals: [300, 600, 1000] }).toBe(true);
   };
   const sendPrompt = async (page: Page, item: typeof cases[number], prompt: string, fragment: string): Promise<void> => {
@@ -127,6 +151,7 @@ test(metadataOnly ? "actual providers publish four distinct conversation identit
       if (item !== cases[0]) await page.getByRole("button", { name: "新規タブ", exact: true }).click();
       const launcher = page.getByTestId("launcher").filter({ visible: true });
       await launcher.getByRole("combobox", { name: "プロジェクト" }).fill(cwd);
+      await launcher.getByRole("combobox", { name: "プロジェクト" }).press("Tab");
       await launcher.getByTestId(`cli-option-${item.command}`).check(); await launcher.getByTestId("launch-mode-new").check();
       await launcher.getByLabel("セッション名", { exact: true }).fill(item.name);
       await launcher.getByRole("button", { name: /Start Session/u }).click();
