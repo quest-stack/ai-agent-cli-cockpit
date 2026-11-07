@@ -76,7 +76,7 @@ for (const language of ["ja", "en"] as const) {
         await expect(page.getByRole("heading", { name: ui("作業コンソールを起動") })).toBeVisible();
         for (const [mode, label, description] of [
           ["new", "新規セッションを開始", "選択したフォルダで、新しくCLIを起動します"],
-          ["resume", "履歴から選んで再開", "起動後、CLIの履歴からセッションを選びます"],
+          ["resume", "会話を再開（resume）", "選んだ会話に、起動ボタンで直接戻ります"],
           ["continue", "直近のセッションを再開", "選択したフォルダの直近の履歴を、そのまま再開します"],
         ] as const) {
           await expect(page.getByTestId(`launch-mode-${mode}`)).toHaveAccessibleName(ui(label));

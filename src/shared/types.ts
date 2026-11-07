@@ -66,6 +66,8 @@ export interface SessionState extends PersistedSession {
 
 export interface RecentSession {
   command: string;
+  sessionId?: string;
+  conversation?: ProviderConversation | null;
   cwd: string;
   lastUsedAt: number;
   projectName: string;

@@ -1442,6 +1442,21 @@ select:focus-visible,
   word-break: keep-all;
 }
 
+.resume-target-field {
+  margin-block: 12px;
+}
+
+.resume-target-field select {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px;
+  color: var(--fg);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
 .project-field-row {
   display: grid;
   gap: 8px;

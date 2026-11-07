@@ -24,6 +24,7 @@ import {
   updateSplitRatio,
 } from "../shared/layout";
 import { getCliKind } from "../shared/cli-launch";
+import { rememberRecentConversation, sameConversationDirectory } from "../shared/recent-conversations";
 import {
   getDefaultSessionTitle,
   getProjectNameFromPath,
@@ -615,10 +616,28 @@ export function App() {
       return undefined;
     }
 
+    // Reuse an already-open writer, including its unsent input, rather than
+    // launching a second client against the same conversation.
+    if (input.conversation) {
+      const existing = sessionsRef.current.find(session => session.status !== "exited" && session.status !== "error"
+        && session.conversation?.cli === input.conversation!.cli
+        && session.conversation.id.toLowerCase() === input.conversation!.id.toLowerCase()
+        && sameConversationDirectory(session.cwd, input.cwd));
+      const tab = existing && workspaceRef.current.tabs.find(tab => findPaneBySession(tab.root, existing.id));
+      const pane = tab && existing ? findPaneBySession(tab.root, existing.id) : undefined;
+      if (tab && pane && existing) {
+        setWorkspace(current => current ? { ...current, activeTabId: tab.id,
+          tabs: current.tabs.map(item => item.id === tab.id ? { ...item, activePaneId: pane.id } : item) } : current);
+        requestAnimationFrame(() => terminalRegistry.ensure(existing.id).focus());
+        return existing.id;
+      }
+    }
+
     const title = input.title || getDefaultSessionTitle(input.command);
     const request = {
       cols: 100,
       command: input.command,
+      ...(input.conversation ? { conversation: input.conversation, restoreConversation: true } : {}),
       cwd: input.cwd,
       id: createId("session"),
       projectName: input.projectName,
@@ -636,24 +655,15 @@ export function App() {
           return current;
         }
 
-        const recent = [
-          {
+        const recent = rememberRecentConversation(current.recent, {
             command: result.session.command,
+            sessionId: result.session.id,
+            ...(result.session.conversation !== undefined || input.conversation ? { conversation: result.session.conversation ?? input.conversation } : {}),
             cwd: result.session.cwd,
             lastUsedAt: Date.now(),
             projectName: result.session.projectName,
             title: result.session.title,
-          },
-          ...current.recent.filter(
-            (item) =>
-              !(
-                item.cwd.toLocaleLowerCase("en-US") ===
-                  result.session.cwd.toLocaleLowerCase("en-US") &&
-                item.command === result.session.command &&
-                item.title === result.session.title
-              ),
-          ),
-        ].slice(0, 20);
+          });
 
         return {
           ...current,
@@ -958,6 +968,8 @@ export function App() {
               recent: [
                 ...launched.map((session) => ({
                   command: session.command,
+                  sessionId: session.id,
+                  ...(session.conversation !== undefined ? { conversation: session.conversation } : {}),
                   cwd: session.cwd,
                   lastUsedAt: Date.now(),
                   projectName: session.projectName,

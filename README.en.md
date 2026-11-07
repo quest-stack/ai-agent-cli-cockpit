@@ -121,13 +121,13 @@ Mac updates are manual replacements with a newer trial. The Mac app does not fet
 1. Choose **New Session**.
 2. Select a project folder with **Browse**, enter its path, or choose a recent folder. Pin folders you use often.
 3. Choose the **Claude Code**, **Codex**, or **PowerShell** button (Shell on Mac). Your selection is remembered for new tabs, panes and the next app launch.
-4. For Claude Code or Codex, choose **Start a new session**, **Resume from history**, or **Continue the latest session** under **Session startup**. Each option explains what happens.
+4. For Claude Code or Codex, choose **Start a new session**, **Resume a conversation**, or **Continue the latest session** under **Session startup**. Each option explains what happens.
 5. Optionally name the session after the task. The CLI name is used if you leave this blank.
 6. Choose **Start Session** or press Enter.
 
-Resume from history opens the CLI's history picker after launch. Continue the latest session resumes the selected folder's most recent session directly. Claude history reopens in Claude, and Codex history reopens in Codex.
+Resume a conversation opens the original conversation selected in Cockpit's Conversation to resume control directly when you choose Start Session. No second CLI history selection is required. Continue the latest session resumes the selected folder's most recent CLI conversation directly. Claude conversations reopen in Claude, and Codex conversations reopen in Codex.
 
-Cards under Launch in a recent folder start a new session with the same folder and CLI. Their Resume from history button opens that folder's CLI history picker instead. Cockpit does not save the session ID selected in the picker. Custom-command history retains its original command.
+Cards under Recent sessions start a new session with the same folder and CLI. Their Resume a conversation button returns directly to the recorded original conversation. An already-open conversation activates its existing tab and preserves unsent input. Conversation records survive closing the tab. For older history without a recorded identity, explicitly choose Open CLI history picker. Custom-command history retains its original command.
 
 Every session has its own process and working directory. The sidebar, tabs, and recent-session cards show the task name first and the folder name underneath or beside it. Double-click a session name in the sidebar to rename it.
 

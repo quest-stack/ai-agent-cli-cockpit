@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 
 import { persistedWorkspaceSchema } from "../shared/schema";
 import { providerConversationSchema } from "../shared/provider-conversation";
+import { enrichRecentConversations } from "../shared/recent-conversations";
 
 import { createDefaultWorkspace } from "./defaults";
 
@@ -36,9 +37,12 @@ export class SessionStore {
         return this.snapshot;
       }
 
-      this.current = parsed.data;
+      this.current = { ...parsed.data, recent: enrichRecentConversations(parsed.data.recent, parsed.data.sessions) };
       for (const session of this.current.sessions) {
         if (session.conversation !== undefined) this.conversations.set(session.id, session.conversation);
+      }
+      for (const item of this.current.recent) {
+        if (item.sessionId && item.conversation !== undefined && !this.conversations.has(item.sessionId)) this.conversations.set(item.sessionId, item.conversation);
       }
       return this.snapshot;
     } catch (error: unknown) {
@@ -61,12 +65,17 @@ export class SessionStore {
       throw new Error(`Invalid workspace payload: ${parsed.error.message}`);
     }
 
+    const sessions = parsed.data.sessions.map(session => {
+      const conversation = this.conversations.get(session.id);
+      return conversation !== undefined ? { ...session, conversation } : session;
+    });
     this.current = {
       ...parsed.data,
-      sessions: parsed.data.sessions.map(session => {
-        const conversation = this.conversations.get(session.id);
-        return conversation !== undefined ? { ...session, conversation } : session;
-      }),
+      sessions,
+      recent: enrichRecentConversations(parsed.data.recent.map(item => {
+        const previous = item.sessionId ? this.current.recent.find(saved => saved.sessionId === item.sessionId) : undefined;
+        return item.conversation === undefined && previous?.conversation !== undefined ? { ...item, conversation: previous.conversation } : item;
+      }), sessions, this.conversations),
     };
 
     // 保存要求が重なっても壊れないように直列化する。並行して走ると、先行の
@@ -86,7 +95,8 @@ export class SessionStore {
       this.conversations.delete(this.conversations.keys().next().value!);
     }
     this.conversations.set(sessionId, conversation);
-    if (this.current.sessions.some(session => session.id === sessionId)) await this.save(this.current);
+    if (this.current.sessions.some(session => session.id === sessionId)
+      || this.current.recent.some(item => item.sessionId === sessionId)) await this.save(this.current);
   }
 
   async flush(): Promise<void> {

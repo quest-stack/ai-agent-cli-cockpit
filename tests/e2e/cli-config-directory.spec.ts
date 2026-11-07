@@ -40,7 +40,7 @@ for (const [mode, option] of [["resume", "--resume"], ["continue", "--continue"]
       await page.getByRole("combobox", { name: "プロジェクト" }).fill(directory);
       await page.getByTestId("cli-option-claude").check();
       await page.getByTestId(`launch-mode-${mode}`).check();
-      await page.getByRole("button", { name: /Start Session/u }).click();
+      await (mode === "resume" ? page.getByTestId("launch-history-picker") : page.getByRole("button", { name: /Start Session/u })).click();
       await expect.poll(async () => { try { return JSON.parse(await readFile(result, "utf8")) as unknown; } catch { return undefined; } }, { timeout: 20_000 })
         .toMatchObject({ directory: config, history: "OWNED_CONFIG_HISTORY", parentSessionDefined: false, parentCredentialDefined: false });
       const recorded = JSON.parse(await readFile(result, "utf8")) as { args: string[] };

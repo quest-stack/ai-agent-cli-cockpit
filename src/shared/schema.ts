@@ -86,6 +86,8 @@ export const sessionStateSchema = persistedSessionSchema.extend({
 
 export const recentSessionSchema = z.object({
   command: commandSchema,
+  sessionId: safeIdSchema.optional(),
+  conversation: providerConversationSchema.nullable().optional(),
   cwd: pathSchema,
   lastUsedAt: z.number().int().nonnegative(),
   projectName: z.string().min(1).max(160),

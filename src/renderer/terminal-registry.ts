@@ -5,6 +5,7 @@ import { Terminal } from "@xterm/xterm";
 
 import { t } from "../shared/i18n";
 import { isPrimaryShortcut } from "../shared/platform";
+import { getCliKind } from "../shared/cli-launch";
 
 import type { WebglAddon } from "@xterm/addon-webgl";
 
@@ -40,6 +41,7 @@ import { TerminalLinkMouse } from "./terminal-link-mouse";
 import {
   getTerminalManualNewlineSequence,
   getCodexHistoryPickerSubmitSequence,
+  getClaudeHistoryPickerSubmitSequence,
   isCliInitialPromptReady,
   isPlausibleCharacterWidth,
   rebindCaptureKeydown,
@@ -579,10 +581,14 @@ class TerminalController {
     if (event.key === "Enter" || event.code === "Enter" || event.code === "NumpadEnter") {
       const buffer = this.terminal.buffer.active;
       // Only bounded live-screen landmarks, never scrollback or output logs.
-      const rows = new Set([...Array.from({ length: Math.min(10, this.terminal.rows) }, (_, index) => index),
+      // Claude's compact picker puts its action row below the entries, which
+      // can be neither in the first ten nor in the bottom ten viewport rows.
+      const topRows = getCliKind(this.command) === "claude" ? 200 : 10;
+      const rows = new Set([...Array.from({ length: Math.min(topRows, this.terminal.rows) }, (_, index) => index),
         ...Array.from({ length: Math.min(10, this.terminal.rows) }, (_, index) => this.terminal.rows - index - 1)]);
       const lines = [...rows].map(row => buffer.getLine(buffer.baseY + row)?.translateToString(true).slice(0, 1024) ?? "");
-      pickerSequence = getCodexHistoryPickerSubmitSequence(event, this.command, lines);
+      pickerSequence = getCodexHistoryPickerSubmitSequence(event, this.command, lines)
+        ?? getClaudeHistoryPickerSubmitSequence(event, this.command, lines);
     }
     const sequence = pickerSequence ?? getTerminalManualNewlineSequence(
       event,

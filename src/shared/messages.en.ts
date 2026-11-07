@@ -1,5 +1,15 @@
 /** English UI copy. Keys are the Japanese edition's original messages. */
 export const englishMessages = {
+  "会話を再開（resume）": "Resume a conversation",
+  "選んだ会話に、起動ボタンで直接戻ります": "Start Session goes directly back to the selected conversation.",
+  "再開する会話": "Conversation to resume",
+  "記録済みの会話がありません。履歴一覧から一度選ぶと、次回から直接再開できます。": "No recorded conversation yet. Select it once from CLI history to resume it directly next time.",
+  "CLIの履歴一覧を開く": "Open CLI history picker",
+  "最近のセッション": "Recent sessions",
+  "同じフォルダで新規起動するか、元の会話へ直接戻れます": "Start fresh in the same folder or go directly back to the original conversation.",
+  "{value0}の会話を再開": "Resume the conversation for {value0}",
+  "元の会話を直接再開します": "Resume the original conversation directly.",
+  "この会話の記録がありません。CLIの履歴一覧から選んでください。": "This conversation has no recorded identity. Select it from CLI history.",
   "サイトのフォルダーを開く": "Open a site folder",
   "index.htmlのあるフォルダーを選ぶと、公開せずにサイト全体を確認できます。": "Choose a folder containing index.html to review the whole site before publishing.",
   "会話が記録されていないタブは、履歴から会話を選んでください。記録できた会話は、次回から自動で再開します。": "Choose a conversation from history for tabs without a recorded conversation. Recorded conversations reopen automatically next time.",
