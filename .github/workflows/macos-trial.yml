@@ -1,24 +1,25 @@
+# Proposal: never enable or dispatch without the user's explicit exception to
+# AGENTS.md's Actions shutdown. No Actions cache or artifact storage is used.
 name: macOS trial
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: macos-trial-${{ github.ref }}
-  cancel-in-progress: true
+  group: cockpit-0216-macos-native
+  cancel-in-progress: false
 
 jobs:
   build:
+    if: github.repository == 'quest-stack/ai-agent-cli-cockpit' && !github.event.repository.private
     name: Mac trial ${{ matrix.architecture }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 35
+    timeout-minutes: 50
+    permissions:
+      contents: write # Job-scoped. Only the final step explicitly exports GH_TOKEN.
     strategy:
       fail-fast: false
       matrix:
@@ -27,69 +28,160 @@ jobs:
             runner: macos-15
           - architecture: x64
             runner: macos-15-intel
+    defaults:
+      run:
+        shell: bash
     env:
+      TARGET_ARCH: ${{ matrix.architecture }}
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
     steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Check out the exact reviewed application source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: 28e59f7dc147bc7487feb44816b5aa3cd788b30c
           persist-credentials: false
-      - name: Set up native Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - name: Set up matching Node.js without Actions cache storage
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
-          node-version: '22'
+          node-version: '22.23.4'
           architecture: ${{ matrix.architecture }}
           package-manager-cache: false
+      - name: Verify source, OS and native architecture
+        run: |
+          test "$(git rev-parse HEAD)" = 28e59f7dc147bc7487feb44816b5aa3cd788b30c
+          node -e 'if(process.platform!=="darwin"||process.arch!==process.env.TARGET_ARCH)process.exit(1);console.log(JSON.stringify({node:process.version,platform:process.platform,arch:process.arch}));'
+          if [ "$(sysctl -in sysctl.proc_translated 2>/dev/null || true)" = 1 ]; then
+            echo 'A translated process cannot stand in for the native architecture check.'
+            exit 1
+          fi
       - name: Install locked dependencies and Electron
         run: |
           npm ci --no-audit --no-fund
           node node_modules/electron/install.js
-      - name: Check types, lint and unit tests
+      - name: Check types, lint, unit tests and runtime dependencies
         run: |
           npm run typecheck
           npm run lint
           npm run test:unit
-      - name: Rebuild native terminal for Electron and build application
+          npm audit --omit=dev
+      - name: Build the matching native terminal and renderer
         run: |
           npm run rebuild:native
           npm run build
-      - name: Prepare media fixture tooling
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: '1'
-          HOMEBREW_NO_INSTALL_CLEANUP: '1'
+      - name: Prepare existing media fixtures
         run: |
-          if ! command -v ffmpeg >/dev/null 2>&1; then
-            brew install ffmpeg
-          fi
+          if ! command -v ffmpeg >/dev/null 2>&1; then brew install ffmpeg; fi
           ffmpeg -version
-      - name: Verify Mac shell, clipboard, panes and native preview comparison
-        run: npx --no-install playwright test tests/e2e/macos-trial.spec.ts tests/e2e/circled-numbers.spec.ts tests/e2e/preview-native.spec.ts
-      - name: Build ad-hoc-signed trial packages
-        run: node scripts/build-macos-trial.mjs ${{ matrix.architecture }}
-      - name: Verify the packaged application
-        shell: bash
+      - name: Verify source Mac shell, display and Preview
+        run: |
+          npx --no-install playwright test tests/e2e/macos-trial.spec.ts tests/e2e/circled-numbers.spec.ts tests/e2e/preview-native.spec.ts tests/e2e/preview-site.spec.ts tests/e2e/preview-lifecycle.spec.ts --output test-results-source
+          npx --no-install playwright test tests/e2e/circled-input.spec.ts --grep 'unconfirmed IME' --output test-results-source-ime
+      - name: Build ad-hoc signed trial packages
+        run: node scripts/build-macos-trial.mjs "$TARGET_ARCH"
+      - name: Verify the packaged app and its signature
         run: |
           bundle_dir=mac
-          if [[ '${{ matrix.architecture }}' == 'arm64' ]]; then bundle_dir=mac-arm64; fi
-          bundle="release/mac-trial/${{ matrix.architecture }}/$bundle_dir/CLI Cockpit.app"
+          if [ "$TARGET_ARCH" = arm64 ]; then bundle_dir=mac-arm64; fi
+          bundle="release/mac-trial/$TARGET_ARCH/$bundle_dir/CLI Cockpit.app"
           codesign --verify --deep --strict "$bundle"
           file "$bundle/Contents/MacOS/CLI Cockpit"
-          COCKPIT_PACKAGED_EXECUTABLE="$PWD/$bundle/Contents/MacOS/CLI Cockpit" npx --no-install playwright test tests/e2e/macos-trial.spec.ts tests/e2e/circled-numbers.spec.ts tests/e2e/preview-native.spec.ts
-      - name: Collect packages, guide and checksums
-        run: node scripts/collect-macos-trial.mjs ${{ matrix.architecture }}
-      - name: Upload trial packages
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: cockpit-mac-trial-${{ matrix.architecture }}
-          path: release/ci/mac-${{ matrix.architecture }}/
-          retention-days: 14
-          if-no-files-found: error
-          compression-level: 0
-      - name: Upload test evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: cockpit-mac-test-${{ matrix.architecture }}
-          path: test-results/
-          retention-days: 7
-          if-no-files-found: ignore
+          export COCKPIT_PACKAGED_EXECUTABLE="$PWD/$bundle/Contents/MacOS/CLI Cockpit"
+          npx --no-install playwright test tests/e2e/macos-trial.spec.ts tests/e2e/circled-numbers.spec.ts tests/e2e/preview-native.spec.ts tests/e2e/preview-site.spec.ts tests/e2e/preview-lifecycle.spec.ts --output test-results-package
+          npx --no-install playwright test tests/e2e/circled-input.spec.ts --grep 'unconfirmed IME' --output test-results-package-ime
+      - name: Attach verified packages directly to the private draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node <<'NODE'
+          // Reviewed proposal only. This does not enable or dispatch GitHub Actions.
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const crypto = require('node:crypto');
+          const { execFileSync } = require('node:child_process');
+          
+          (async () => {
+            const source = '28e59f7dc147bc7487feb44816b5aa3cd788b30c';
+            const repository = 'quest-stack/ai-agent-cli-cockpit';
+            const releaseId = 436098969;
+            const architecture = process.env.TARGET_ARCH;
+            if (process.platform !== 'darwin' || !['arm64', 'x64'].includes(architecture) || process.arch !== architecture) {
+              throw Error('Use the matching native Mac runner');
+            }
+            if (process.env.GITHUB_REPOSITORY !== repository || !/^\d+$/.test(process.env.GITHUB_RUN_ID ?? '') ||
+                execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() !== source) {
+              throw Error('Repository or application source mismatch');
+            }
+            if (!process.env.GH_TOKEN) throw Error('Missing job-scoped upload token');
+            const version = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
+            if (version !== '0.2.16') throw Error('Unexpected release version');
+            const directory = path.resolve('release', 'mac-trial', architecture);
+            const digest = content => crypto.createHash('sha256').update(content).digest('hex');
+            const files = ['dmg', 'zip'].map(extension => {
+              const name = `CLI-Cockpit-${version}-mac-trial-${architecture}.${extension}`;
+              const file = path.join(directory, name);
+              const stat = fs.lstatSync(file);
+              if (!stat.isFile() || stat.isSymbolicLink()) throw Error('Unsafe artifact type');
+              const content = fs.readFileSync(file);
+              if (extension === 'zip' && (content.length < 4 || content.readUInt32LE(0) !== 0x04034b50)) throw Error('Invalid ZIP');
+              if (extension === 'dmg' && (content.length < 512 || content.subarray(-512, -508).toString('ascii') !== 'koly')) throw Error('Invalid DMG');
+              return { name, file, bytes: content.length, sha256: digest(content) };
+            });
+            const metadata = {
+              sourceCommit: source, workflowRevision: process.env.GITHUB_SHA,
+              workflowRun: `https://github.com/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+              version, platform: process.platform, architecture, nodeVersion: process.version,
+              signing: 'ad-hoc; not Developer ID signed or notarized',
+              installers: files.map(({ name, bytes, sha256 }) => ({ name, bytes, sha256 })),
+            };
+            const metadataName = `build-metadata-macos-${architecture}.json`;
+            const checksumsName = `SHA256SUMS-macos-${architecture}.txt`;
+            fs.writeFileSync(path.join(directory, metadataName), JSON.stringify(metadata, null, 2) + '\n', 'utf8');
+            fs.writeFileSync(path.join(directory, checksumsName), files.map(item => `${item.sha256}  ${item.name}`).join('\n') + '\n', 'utf8');
+            for (const name of [metadataName, checksumsName]) {
+              const file = path.join(directory, name), content = fs.readFileSync(file);
+              files.push({ name, file, bytes: content.length, sha256: digest(content) });
+            }
+          
+            const headers = { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json' };
+            const endpoint = `https://api.github.com/repos/${repository}`;
+            const read = async suffix => {
+              const response = await fetch(endpoint + suffix, { headers, signal: AbortSignal.timeout(60000) });
+              if (!response.ok) throw Error(`GitHub read failed: ${response.status}`);
+              return response.json();
+            };
+            const release = await read(`/releases/${releaseId}`);
+            const matchingTag = release.tag_name === `v${version}` ||
+              release.tag_name === 'untagged-112faa7e7cd14f57f991' && release.name?.startsWith(`v${version} - `);
+            if (!release.draft || !matchingTag || release.target_commitish !== source) {
+              throw Error('Upload only to the matching unpublished candidate');
+            }
+            const uploadUrl = release.upload_url.replace(/\{.*$/, '');
+            if (new URL(uploadUrl).hostname !== 'uploads.github.com') throw Error('Unexpected upload host');
+            const existing = await read(`/releases/${releaseId}/assets?per_page=100`);
+            for (const item of files) {
+              let asset = existing.find(candidate => candidate.name === item.name);
+              if (asset) {
+                if (asset.state !== 'uploaded') throw Error('Existing upload outcome is unknown; reconcile before retry');
+                if (asset.size === item.bytes && asset.digest === `sha256:${item.sha256}`) continue;
+                // Replace only this architecture's four named assets in this private draft.
+                const response = await fetch(endpoint + `/releases/assets/${asset.id}`, { method: 'DELETE', headers });
+                if (response.status !== 204) throw Error(`Draft asset replacement failed: ${response.status}`);
+              }
+              const response = await fetch(uploadUrl + '?name=' + encodeURIComponent(item.name), {
+                method: 'POST', headers: { ...headers, 'Content-Type': 'application/octet-stream', 'Content-Length': String(item.bytes) },
+                body: fs.readFileSync(item.file), signal: AbortSignal.timeout(600000),
+              });
+              if (!response.ok) throw Error(`Upload failed: ${response.status}; reconcile before retry`);
+              asset = await response.json();
+              if (asset.state !== 'uploaded' || asset.size !== item.bytes || asset.digest !== `sha256:${item.sha256}`) {
+                throw Error('Uploaded artifact digest mismatch');
+              }
+              console.log(`Verified draft asset ${item.name}: ${item.sha256}`);
+            }
+            if (!(await read(`/releases/${releaseId}`)).draft) throw Error('Release unexpectedly published');
+          })().catch(error => { console.error(error.message); process.exitCode = 1; });
+          
+          NODE
+
